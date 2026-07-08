@@ -1,0 +1,1360 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<!-- © 科技规划处 徐捷 版权所有 -->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>待办管理</title>
+<style>
+/* ===== RESET & VARS ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f0ede8;
+  --surface: #faf8f5;
+  --border: #ddd9d3;
+  --border2: #ccc8c2;
+  --text: #1a1815;
+  --text2: #5a5550;
+  --text3: #9a9590;
+  --accent: #2c5f8a;
+  --accent-light: #e8f0f7;
+  --p1: #c0392b; --p1-bg: #fdecea; --p1-border: #f5c6c2;
+  --p2: #d4600a; --p2-bg: #fef3e8; --p2-border: #f8d9b8;
+  --p3: #4a7fa5; --p3-bg: #eaf2f8; --p3-border: #c0d9eb;
+  --done: #27ae60;
+  --overdue: #c0392b;
+  --deleted-bg: #fff8f8;
+  --snack-bg: #1a1815;
+  --sidebar-w: 172px;
+  --row-h: 36px;
+  --font: "Noto Sans CJK SC","Source Han Sans CN","Microsoft YaHei",sans-serif;
+}
+html, body { height: 100%; overflow: hidden; }
+body { font-family: var(--font); font-size: 13px; background: var(--bg); color: var(--text); display: flex; flex-direction: column; user-select: none; }
+
+/* ===== TOPBAR ===== */
+#topbar { display: flex; align-items: center; gap: 8px; padding: 7px 12px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; height: 44px; }
+.logo { font-size: 13px; font-weight: 700; color: var(--accent); letter-spacing: .03em; white-space: nowrap; flex-shrink: 0; }
+#quick-input { flex: 1; height: 28px; padding: 0 10px; border: 1px solid var(--border2); border-radius: 4px; background: var(--bg); font-family: var(--font); font-size: 13px; color: var(--text); outline: none; transition: border-color .15s; }
+#quick-input:focus { border-color: var(--accent); background: #fff; }
+#quick-input::placeholder { color: var(--text3); }
+.btn { height: 28px; padding: 0 10px; border: 1px solid var(--border2); border-radius: 4px; background: var(--surface); font-family: var(--font); font-size: 12px; color: var(--text2); cursor: pointer; white-space: nowrap; transition: background .12s, border-color .12s; }
+.btn:hover { background: var(--bg); border-color: var(--accent); color: var(--accent); }
+
+/* ===== LAYOUT ===== */
+#main { display: flex; flex: 1; overflow: hidden; }
+
+/* ===== SIDEBAR ===== */
+#sidebar { width: var(--sidebar-w); flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; }
+#sidebar::-webkit-scrollbar { width: 3px; }
+#sidebar::-webkit-scrollbar-thumb { background: var(--border2); }
+.sb-section-title { padding: 5px 10px 4px; font-size: 12px; font-weight: 700; color: var(--text2); letter-spacing: .05em; text-align: center; flex-shrink: 0; background: var(--border); border-top: 1px solid var(--border2); border-bottom: 1px solid var(--border2); }
+.sb-item { display: flex; align-items: center; justify-content: space-between; padding: 3px 10px; cursor: pointer; color: var(--text2); font-size: 12.5px; line-height: 1.2; transition: background .1s; border-left: 3px solid transparent; }
+.sb-item:hover { background: var(--bg); }
+.sb-item.active { background: var(--accent-light); color: var(--accent); border-left-color: var(--accent); font-weight: 600; }
+.sb-item .cnt { font-size: 10px; color: var(--text3); background: var(--border); border-radius: 8px; padding: 0 5px; min-width: 18px; text-align: center; flex-shrink: 0; }
+.sb-item.active .cnt { background: var(--accent); color: #fff; }
+.sb-item .sb-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-divider { border: none; border-top: 1px solid var(--border); margin: 5px 0; }
+
+/* ===== CONTENT ===== */
+#content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+/* ===== TOOLBAR (view label + search) ===== */
+#toolbar { display: flex; align-items: center; padding: 0 12px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; height: 34px; gap: 8px; }
+#view-label { font-size: 12px; color: var(--text2); font-weight: 600; }
+.filter-chip { font-size: 11px; background: var(--accent-light); color: var(--accent); border-radius: 10px; padding: 1px 8px; cursor: pointer; }
+.filter-chip:hover { background: var(--border2); }
+#search-input { margin-left: auto; width: 160px; height: 24px; padding: 0 8px; border: 1px solid var(--border2); border-radius: 3px; background: var(--bg); font-family: var(--font); font-size: 12px; color: var(--text); outline: none; }
+#search-input:focus { border-color: var(--accent); }
+#search-input::placeholder { color: var(--text3); }
+
+/* ===== TABLE WRAPPER ===== */
+#table-wrap { flex: 1; overflow: auto; position: relative; }
+#table-wrap::-webkit-scrollbar { width: 5px; height: 5px; }
+#table-wrap::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+table { width: 100%; border-collapse: collapse; table-layout: fixed; min-width: 600px; }
+
+/* ===== TABLE HEAD ===== */
+thead tr { background: var(--surface); border-bottom: 2px solid var(--border); position: sticky; top: 0; z-index: 10; }
+th {
+  padding: 5px 8px;
+  font-size: 11px; font-weight: 600; color: var(--text3);
+  text-align: center; letter-spacing: .04em;
+  border-right: 1px solid var(--border);
+  white-space: nowrap; overflow: hidden;
+  position: relative;
+  cursor: pointer;
+  user-select: none;
+}
+th:last-child { border-right: none; cursor: default; }
+th.sortable:hover { background: var(--bg); color: var(--text2); }
+th .sort-icon { margin-left: 3px; font-size: 9px; }
+th.drag-over { background: var(--accent-light); }
+
+/* Column resize handle */
+.col-resize {
+  position: absolute; right: 0; top: 0; bottom: 0; width: 5px;
+  cursor: col-resize; z-index: 11;
+}
+.col-resize:hover, .col-resize.resizing { background: var(--accent); opacity: .4; }
+
+/* ===== ROWS ===== */
+tbody tr { border-bottom: 1px solid var(--border); height: var(--row-h); transition: background .08s; }
+tbody tr:hover { background: var(--surface); }
+tbody tr.done-row { opacity: .55; }
+tbody tr.done-row .title-text { text-decoration: line-through; color: var(--text3); }
+tbody tr.deleted-row { background: var(--deleted-bg); opacity: .7; }
+
+td { padding: 0 8px; font-size: 12.5px; color: var(--text); vertical-align: middle; border-right: 1px solid var(--border); overflow: hidden; white-space: nowrap; }
+td:last-child { border-right: none; }
+
+/* ===== CELL TYPES ===== */
+td.col-check, th.col-check { text-align: center; padding: 0; }
+.cb { width: 15px; height: 15px; cursor: pointer; accent-color: var(--done); }
+
+.pri-badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: 700; cursor: pointer; border: 1px solid transparent; transition: opacity .1s; }
+.pri-badge:hover { opacity: .75; }
+.pri-1 { background: var(--p1-bg); color: var(--p1); border-color: var(--p1-border); }
+.pri-2 { background: var(--p2-bg); color: var(--p2); border-color: var(--p2-border); }
+.pri-3 { background: var(--p3-bg); color: var(--p3); border-color: var(--p3-border); }
+
+.due-text { font-size: 12px; }
+.due-overdue { color: var(--overdue); font-weight: 600; }
+.due-today   { color: var(--p2); font-weight: 600; }
+
+.title-cell { display: flex; align-items: center; gap: 5px; }
+.title-text { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12.5px; }
+
+.assignee-chip { display: inline-block; background: #e8f5e9; color: #2e7d32; font-size: 12.5px; padding: 1px 5px; border-radius: 3px; margin-right: 2px; }
+
+.action-btn { background: none; border: none; cursor: pointer; color: var(--text3); font-size: 13px; padding: 2px 5px; border-radius: 3px; font-family: var(--font); transition: color .1s, background .1s; }
+.action-btn.del:hover { color: var(--p1); background: var(--p1-bg); }
+.action-btn.restore:hover { color: var(--done); background: #e8f5e9; }
+.action-btn.copy:hover { color: var(--accent); background: var(--accent-light); }
+
+.inline-input { width: 100%; height: 26px; padding: 0 4px; border: 1px solid var(--accent); border-radius: 3px; font-family: var(--font); font-size: 12.5px; color: var(--text); background: #fff; outline: none; }
+
+/* ===== EMPTY STATE ===== */
+#empty-state { display: none; padding: 40px; text-align: center; color: var(--text3); font-size: 13px; }
+
+/* ===== SNACKBAR ===== */
+#snackbar { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(60px); background: var(--snack-bg); color: #fff; padding: 8px 16px; border-radius: 5px; font-size: 12.5px; display: flex; align-items: center; gap: 10px; z-index: 2000; transition: transform .22s ease; white-space: nowrap; box-shadow: 0 4px 16px rgba(0,0,0,.28); }
+#snackbar.show { transform: translateX(-50%) translateY(0); }
+.undo-btn { background: none; border: none; color: #7ec8f7; cursor: pointer; font-size: 12.5px; font-weight: 600; padding: 0; font-family: var(--font); }
+.undo-btn:hover { text-decoration: underline; }
+
+/* ===== MODAL CONFIRM ===== */
+#modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 3000; align-items: center; justify-content: center; }
+#modal-overlay.show { display: flex; }
+#modal-box { background: var(--surface); border-radius: 6px; padding: 24px 28px; max-width: 340px; width: 90%; box-shadow: 0 8px 32px rgba(0,0,0,.22); }
+#modal-box h3 { font-size: 14px; color: var(--text); margin-bottom: 10px; }
+#modal-box p { font-size: 12.5px; color: var(--text2); margin-bottom: 20px; line-height: 1.5; word-break: break-all; }
+.modal-btns { display: flex; justify-content: flex-end; gap: 8px; }
+.modal-btns .btn-cancel { height: 28px; padding: 0 14px; border: 1px solid var(--border2); border-radius: 4px; background: var(--surface); font-family: var(--font); font-size: 12px; cursor: pointer; }
+.modal-btns .btn-confirm { height: 28px; padding: 0 14px; border: none; border-radius: 4px; background: var(--p1); color: #fff; font-family: var(--font); font-size: 12px; cursor: pointer; }
+.modal-btns .btn-confirm:hover { opacity: .85; }
+
+/* ===== DATE PICKER POPUP ===== */
+#date-picker-wrap { display: none; position: fixed; z-index: 4000; background: var(--surface); border: 1px solid var(--border2); border-radius: 5px; box-shadow: 0 4px 16px rgba(0,0,0,.15); padding: 10px; width: 220px; }
+#date-picker-wrap.show { display: block; }
+.dp-shortcuts { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 7px; }
+.dp-sc { font-size: 11px; padding: 2px 7px; border: 1px solid var(--border2); border-radius: 3px; cursor: pointer; color: var(--text2); background: var(--bg); }
+.dp-sc:hover { border-color: var(--accent); color: var(--accent); }
+.dp-clear-sc { color: var(--text3) !important; border-color: var(--border2) !important; }
+.dp-clear-sc:hover { color: var(--p1) !important; border-color: var(--p1) !important; }
+#date-picker-wrap { width: 210px; }
+.dp-cal-nav { display: flex; align-items: center; justify-content: space-between; padding: 3px 2px 5px; }
+.dp-cal-nav-btn { background: none; border: 1px solid var(--border2); border-radius: 3px; cursor: pointer; color: var(--text2); font-size: 14px; line-height: 1; padding: 1px 6px; }
+.dp-cal-nav-btn:hover { border-color: var(--accent); color: var(--accent); }
+.dp-cal-title { font-size: 12px; font-weight: 600; color: var(--text); }
+.dp-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
+.dp-cal-dow { text-align: center; font-size: 10px; color: var(--text3); padding: 2px 0; font-weight: 600; }
+.dp-cal-day { text-align: center; font-size: 12px; padding: 3px 2px; cursor: pointer; border-radius: 3px; color: var(--text2); }
+.dp-cal-day:hover { background: var(--accent-light); color: var(--accent); }
+.dp-cal-day.is-today { color: var(--accent); font-weight: 700; }
+.dp-cal-day.is-selected { background: var(--accent); color: #fff !important; border-radius: 3px; }
+.dp-cal-day.is-empty { cursor: default; pointer-events: none; }
+
+/* ===== STATUSBAR ===== */
+#statusbar { display: flex; align-items: center; justify-content: space-between; padding: 3px 12px; background: var(--surface); border-top: 1px solid var(--border); flex-shrink: 0; font-size: 11px; color: var(--text3); }
+
+/* ===== SIDEBAR COPYRIGHT ===== */
+.sb-copyright { padding: 10px 12px 8px; font-size: 10px; color: var(--text3); line-height: 1.6; margin-top: auto; border-top: 1px solid var(--border); }
+
+/* ===== SELECT POPUP ===== */
+#select-popup { display: none; position: fixed; z-index: 5000; background: var(--surface); border: 1px solid var(--border2); border-radius: 5px; box-shadow: 0 4px 16px rgba(0,0,0,.15); padding: 6px; min-width: 150px; max-width: 220px; max-height: 420px; overflow-y: auto; }
+#select-popup.show { display: block; }
+.sp-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; cursor: pointer; border-radius: 3px; font-size: 12.5px; color: var(--text2); white-space: nowrap; }
+.sp-item:hover { background: var(--accent-light); color: var(--accent); }
+.sp-item.selected { color: var(--accent); font-weight: 600; background: var(--accent-light); }
+.sp-item input[type=checkbox] { accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
+.sp-header { padding: 3px 8px 5px; font-size: 10px; font-weight: 700; color: var(--text3); letter-spacing: .06em; text-transform: uppercase; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.sp-confirm { width: 100%; margin-top: 5px; height: 24px; border: none; border-radius: 3px; background: var(--accent); color: #fff; font-family: var(--font); font-size: 11px; cursor: pointer; }
+.sp-confirm:hover { opacity: .85; }
+
+/* drag ghost */
+.drag-ghost { opacity: .4; }
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div id="topbar">
+  <span class="logo">📋 待办管理</span>
+  <input id="quick-input" type="text" placeholder="新建任务… #分类  @张三  !1(!2/!3)  today/+3/fri  回车提交">
+  <button class="btn" onclick="triggerImport()">导入 CSV</button>
+  <button class="btn" onclick="exportCSV()">导出 CSV</button>
+  <input type="file" id="file-input" accept=".csv" style="display:none" onchange="importCSV(event)">
+</div>
+
+<!-- MAIN -->
+<div id="main">
+  <!-- SIDEBAR -->
+  <div id="sidebar">
+    <div class="sb-section-title">◆ 状态</div>
+    <div class="sb-item active" data-view="all"   onclick="setView('all')"><span class="sb-label">全部待办</span><span class="cnt" id="cnt-all">0</span></div>
+    <div class="sb-item" data-view="today" onclick="setView('today')"><span class="sb-label">今日到期</span><span class="cnt" id="cnt-today">0</span></div>
+    <div class="sb-item" data-view="week"  onclick="setView('week')"><span class="sb-label">本周</span><span class="cnt" id="cnt-week">0</span></div>
+    <div class="sb-item" data-view="done"  onclick="setView('done')"><span class="sb-label">已完成</span><span class="cnt" id="cnt-done">0</span></div>
+    <div class="sb-item" data-view="deleted" onclick="setView('deleted')"><span class="sb-label">已删除</span><span class="cnt" id="cnt-deleted">0</span></div>
+
+    <hr class="sb-divider">
+    <div class="sb-section-title">◆ 分类</div>
+    <div id="proj-list"></div>
+
+    <hr class="sb-divider">
+    <div class="sb-section-title">◆ 分工</div>
+    <div id="assignee-list"></div>
+
+    <hr class="sb-divider">
+    <div class="sb-section-title">◆ 优先级</div>
+    <div id="pri-list"></div>
+
+    <hr class="sb-divider">
+    <div class="sb-section-title">◆ 来源</div>
+    <div id="source-list"></div>
+
+    <hr class="sb-divider">
+    <div class="sb-section-title">◆ 自定义</div>
+    <div id="custom-list"></div>
+    <div class="sb-copyright">&#174; 科技规划处&nbsp;徐捷</div>
+  </div>
+
+  <!-- CONTENT -->
+  <div id="content">
+    <div id="toolbar">
+      <span id="view-label">全部待办</span>
+      <span id="active-filters"></span>
+      <input id="search-input" type="text" placeholder="/ 搜索…" oninput="renderTable()">
+    </div>
+    <div id="table-wrap">
+      <table id="main-table">
+        <thead><tr id="thead-row"></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+      <div id="empty-state">暂无任务</div>
+    </div>
+    <div id="statusbar">
+      <span id="status-left">就绪</span>
+      <span id="status-right">N 新建 &nbsp;|&nbsp; / 搜索 &nbsp;|&nbsp; Ctrl+S 导出 &nbsp;|&nbsp; Ctrl+Z 撤销</span>
+    </div>
+  </div>
+</div>
+
+<!-- SNACKBAR -->
+<div id="snackbar">
+  <span id="snack-msg"></span>
+  <button class="undo-btn" onclick="undoLast()">撤销</button>
+</div>
+
+<!-- CONFIRM MODAL -->
+<div id="modal-overlay">
+  <div id="modal-box">
+    <h3>确认删除</h3>
+    <p id="modal-msg"></p>
+    <div class="modal-btns">
+      <button class="btn-cancel" onclick="closeModal()">取消</button>
+      <button class="btn-confirm" onclick="modalConfirm()">删除</button>
+    </div>
+  </div>
+</div>
+
+<!-- SELECT POPUP -->
+<div id="select-popup"></div>
+
+<!-- DATE PICKER POPUP -->
+<div id="date-picker-wrap">
+  <div class="dp-shortcuts">
+    <span class="dp-sc" onclick="dpShortcut('today')">今天</span>
+    <span class="dp-sc" onclick="dpShortcut('tomorrow')">明天</span>
+    <span class="dp-sc" onclick="dpShortcut('next-mon')">下周一</span>
+    <span class="dp-sc dp-clear-sc" onclick="dpClear()">清除</span>
+  </div>
+  <div id="dp-calendar"></div>
+</div>
+
+<script>
+/* =============================================================
+   COLUMN DEFINITIONS (order is persisted)
+   ============================================================= */
+const ALL_COLS = [
+  { key:'check',    label:'✓',    width:32,  sortable:false, fixed:true },
+  { key:'title',    label:'任务',  width:220, sortable:true },
+  { key:'project',  label:'分类',  width:90,  sortable:true },
+  { key:'assignees',label:'分工',  width:100, sortable:true },
+  { key:'priority', label:'优先级',width:56,  sortable:true },
+  { key:'due_date', label:'到期日',width:88,  sortable:true },
+  { key:'source',   label:'来源',  width:90,  sortable:true },
+  { key:'custom',   label:'自定义', width:90,  sortable:true },
+  { key:'action',   label:'✕',     width:64,  sortable:false, fixed:true },
+];
+
+// Column order (keys), persisted
+let colOrder = ALL_COLS.map(c => c.key);
+let colWidths = {}; // key -> px width
+ALL_COLS.forEach(c => { colWidths[c.key] = c.width; });
+
+function getColDef(key) { return ALL_COLS.find(c => c.key === key); }
+function getOrderedCols() {
+  // Ensure all columns always present
+  ALL_COLS.forEach(c=>{ if(!colOrder.includes(c.key)) colOrder.push(c.key); });
+  return colOrder.map(k=>getColDef(k)).filter(Boolean);
+}
+
+/* =============================================================
+   DATA
+   ============================================================= */
+let tasks = [];
+let deletedTasks = [];
+let nextId = 1;
+let currentView = 'all';
+let currentProj = '';      // '' = all
+let currentAssignee = '';  // '' = all
+let currentSource = '';    // '' = all
+let currentCustom = '';    // '' = all
+let currentPri = 0;        // 0 = all
+let undoStack = [];
+let snackTimer = null;
+let modalCallback = null;
+let _assigneeOrder = []; // tracks multi-select order
+
+// Sort state
+let sortKey = 'due_date';
+let sortDir = 1; // 1=asc, -1=desc
+
+const STORAGE_KEY = 'todo_v2';
+
+let _saveWarned=false;
+function save() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ tasks, deletedTasks, nextId, colOrder, colWidths }));
+    _saveWarned=false;
+  } catch(e) {
+    // 写入失败多为本地存储容量超限：提醒用户导出备份，避免数据无声丢失（每轮失败只提示一次）
+    if(!_saveWarned){
+      _saveWarned=true;
+      try { showSnack('保存失败：本地存储空间可能已满，请尽快导出 CSV 备份'); } catch(_){}
+    }
+  }
+}
+
+function load() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const d = JSON.parse(raw);
+      tasks = d.tasks || [];
+      deletedTasks = d.deletedTasks || [];
+      nextId = d.nextId || 1;
+      if (d.colOrder) colOrder = d.colOrder;
+      if (d.colWidths) Object.assign(colWidths, d.colWidths);
+      // 操作列需容纳「复制 + 删除」两个按钮，确保最小宽度
+      if (colWidths.action < 60) colWidths.action = 64;
+    }
+  } catch(e) {}
+  if (!tasks.length && !deletedTasks.length) seedDemo();
+}
+
+function seedDemo() {
+  const today = todayStr();
+  const tom = offsetDate(1);
+  addTask({ title:'阅读本周技术周报', project:'学习', assignees:'张三', priority:2, due_date:today, source:'内部', custom:'重要' });
+  addTask({ title:'整理Q2项目文档',   project:'工作', assignees:'李四,王五', priority:1, due_date:tom, source:'领导交办' });
+  addTask({ title:'购买办公耗材',     project:'行政', assignees:'', priority:3, due_date:'', source:'' });
+}
+
+function addTask(f) {
+  const now = new Date().toISOString();
+  const t = {
+    id: nextId++,
+    title: f.title || '未命名任务',
+    project: f.project || '',
+    assignees: f.assignees || '',
+    priority: f.priority || 2,
+    status: f.status || 'todo',
+    due_date: f.due_date || '',
+    source: f.source || '',
+    custom: f.custom || '',
+    created_at: now,
+    updated_at: now,
+  };
+  tasks.push(t);
+  save();
+  return t;
+}
+
+function updateTask(id, fields) {
+  const t = tasks.find(x => x.id === id);
+  if (!t) return;
+  Object.assign(t, fields);
+  t.updated_at = new Date().toISOString();
+  save();
+}
+
+/* soft-delete: move from tasks to deletedTasks */
+function softDelete(id) {
+  const idx = tasks.findIndex(x => x.id === id);
+  if (idx === -1) return null;
+  const t = tasks.splice(idx, 1)[0];
+  t.deleted_at = new Date().toISOString();
+  deletedTasks.push(t);
+  save();
+  return t;
+}
+
+function restoreDeleted(id) {
+  const idx = deletedTasks.findIndex(x => x.id === id);
+  if (idx === -1) return;
+  const t = deletedTasks.splice(idx, 1)[0];
+  delete t.deleted_at;
+  t.status = t.status === 'deleted' ? 'todo' : t.status;
+  tasks.push(t);
+  save();
+}
+
+function permanentDelete(id) {
+  const idx = deletedTasks.findIndex(x => x.id === id);
+  if (idx !== -1) deletedTasks.splice(idx, 1);
+  save();
+}
+
+/* =============================================================
+   DATE UTILS
+   ============================================================= */
+// 按本地时区把 Date 格式化为 YYYY-MM-DD，避免 toISOString 的 UTC 偏移导致"今天"判断错位
+function fmtLocal(d) {
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function todayStr() { return fmtLocal(new Date()); }
+function offsetDate(n) { const d=new Date(); d.setDate(d.getDate()+n); return fmtLocal(d); }
+function weekdayDate(wd) {
+  const today=new Date(), cur=today.getDay();
+  let diff=wd-cur; if(diff<=0) diff+=7;
+  const d=new Date(today); d.setDate(today.getDate()+diff);
+  return fmtLocal(d);
+}
+function endOfWeek() {
+  const today=new Date(), day=today.getDay();
+  const diff=day===0?6:7-day;
+  const d=new Date(today); d.setDate(today.getDate()+diff);
+  return fmtLocal(d);
+}
+function parseDue(tok) {
+  const t=tok.toLowerCase();
+  if(t==='today') return todayStr();
+  if(t==='tomorrow') return offsetDate(1);
+  if(t==='next-mon') return weekdayDate(1);
+  const dm={mon:1,tue:2,wed:3,thu:4,fri:5,sat:6,sun:0};
+  if(dm[t]!==undefined) return weekdayDate(dm[t]);
+  const m=t.match(/^\+(\d+)d?$/); if(m) return offsetDate(parseInt(m[1]));
+  if(/^\d{4}-\d{2}-\d{2}$/.test(tok)) return tok;
+  return null;
+}
+function fmtDue(str) {
+  if(!str) return '';
+  const today=todayStr();
+  if(str===today) return '今天';
+  if(str===offsetDate(1)) return '明天';
+  const d=new Date(str+'T00:00:00');
+  const eow=endOfWeek();
+  if(str<today) return `${d.getMonth()+1}/${d.getDate()}`;
+  if(str<=eow) return '周'+['日','一','二','三','四','五','六'][d.getDay()];
+  return `${d.getMonth()+1}/${d.getDate()}`;
+}
+function dueClass(str) {
+  if(!str) return '';
+  const today=todayStr();
+  if(str<today) return 'due-overdue';
+  if(str===today) return 'due-today';
+  return '';
+}
+
+/* =============================================================
+   QUICK INPUT PARSER
+   ============================================================= */
+function parseQuickInput(raw) {
+  const tokens=raw.trim().split(/\s+/);
+  let title=[], project='', assignees='', priority=2, due_date='';
+  const pArr=[];
+  for(const tok of tokens) {
+    if(tok.startsWith('#')&&tok.length>1){ project=tok.slice(1); continue; }
+    if(tok.startsWith('@')&&tok.length>1){ pArr.push(tok.slice(1)); continue; }
+    if(/^!([123])$/.test(tok)){ priority=parseInt(tok[1]); continue; }
+    const d=parseDue(tok); if(d&&!due_date){ due_date=d; continue; }
+    title.push(tok);
+  }
+  assignees=pArr.join(',');
+  return { title:title.join(' ')||'未命名任务', project, assignees, priority, due_date };
+}
+
+/* =============================================================
+   FILTERING & SORTING
+   ============================================================= */
+function getFiltered() {
+  const today=todayStr(), eow=endOfWeek();
+  const q=document.getElementById('search-input').value.trim().toLowerCase();
+
+  let pool = currentView==='deleted' ? deletedTasks : tasks;
+
+  return pool.filter(t => {
+    if(currentPri) { if(+t.priority!==currentPri) return false; }
+    if(currentProj) {
+      if(currentProj==='__empty__'){ if((t.project||'')!=='') return false; }
+      else if(t.project!==currentProj) return false;
+    }
+    if(currentSource) {
+      if(currentSource==='__empty__'){ if((t.source||'')!=='') return false; }
+      else if((t.source||'')!==currentSource) return false;
+    }
+    if(currentCustom) {
+      if(currentCustom==='__empty__'){ if((t.custom||'')!=='') return false; }
+      else if((t.custom||'')!==currentCustom) return false;
+    }
+    if(currentAssignee) {
+      const arr=(t.assignees||'').split(',').map(s=>s.trim()).filter(Boolean);
+      if(currentAssignee==='__empty__'){ if(arr.length>0) return false; }
+      else if(!arr.includes(currentAssignee)) return false;
+    }
+    if(q && !t.title.toLowerCase().includes(q) && !t.project.toLowerCase().includes(q) && !(t.assignees||'').toLowerCase().includes(q) && !(t.source||'').toLowerCase().includes(q) && !(t.custom||'').toLowerCase().includes(q)) return false;
+    if(currentView==='today')   return t.status==='todo' && t.due_date && t.due_date<=today;
+    if(currentView==='week')    return t.status==='todo' && t.due_date && t.due_date>=today && t.due_date<=eow;
+    if(currentView==='all')     return t.status==='todo';
+    if(currentView==='done')    return t.status==='done';
+    if(currentView==='deleted') return true;
+    return true;
+  }).sort((a,b) => {
+    let va=a[sortKey]||'', vb=b[sortKey]||'';
+    if(sortKey==='due_date') {
+      // 无到期日的任务（多为刚新建、尚未填信息）始终排在最前，且新建的排在最上方，便于立即补充信息
+      if(!va && !vb) return (b.created_at||'').localeCompare(a.created_at||'');
+      if(!va) return -1;
+      if(!vb) return 1;
+    }
+    if(sortKey==='priority') { va=+va; vb=+vb; }
+    if(va<vb) return -sortDir;
+    if(va>vb) return  sortDir;
+    return 0;
+  });
+}
+
+function getCounts() {
+  const today=todayStr(), eow=endOfWeek();
+  return {
+    today:   tasks.filter(t=>t.status==='todo'&&t.due_date&&t.due_date<=today).length,
+    week:    tasks.filter(t=>t.status==='todo'&&t.due_date&&t.due_date>=today&&t.due_date<=eow).length,
+    all:     tasks.filter(t=>t.status==='todo').length,
+    done:    tasks.filter(t=>t.status==='done').length,
+    deleted: deletedTasks.length,
+  };
+}
+
+function getAllProjects() {
+  return [...new Set(tasks.map(t=>t.project).filter(Boolean))].sort();
+}
+function getAllAssignees() {
+  const set=new Set();
+  tasks.forEach(t=>(t.assignees||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(p=>set.add(p)));
+  return [...set].sort();
+}
+// 按出现次数从多到少排列人名（次数相同按名称），用于分工选择框
+function getAssigneesByFreq() {
+  const cnt={};
+  tasks.forEach(t=>(t.assignees||'').split(',').map(s=>s.trim()).filter(Boolean).forEach(p=>{ cnt[p]=(cnt[p]||0)+1; }));
+  return Object.keys(cnt).sort((a,b)=> cnt[b]-cnt[a] || a.localeCompare(b));
+}
+// 按出现次数从多到少排列某单值字段的取值（次数相同按名称），用于分类/来源/自定义选择框
+function getFieldByFreq(field) {
+  const cnt={};
+  tasks.forEach(t=>{ const v=(t[field]||'').trim(); if(v) cnt[v]=(cnt[v]||0)+1; });
+  return Object.keys(cnt).sort((a,b)=> cnt[b]-cnt[a] || a.localeCompare(b));
+}
+function getAllSources() {
+  return [...new Set(tasks.map(t=>t.source||'').filter(Boolean))].sort();
+}
+function getAllCustom() {
+  return [...new Set(tasks.map(t=>t.custom||'').filter(Boolean))].sort();
+}
+
+/* =============================================================
+   RENDER
+   ============================================================= */
+const priLabel=['','高','中','低'];
+const viewLabels={ today:'今日到期 & 逾期', week:'本周任务', all:'全部待办', done:'已完成', deleted:'已删除' };
+
+function esc(s){ return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+function renderAll() {
+  renderHeader();
+  renderSidebar();
+  renderTable();
+}
+
+/* ---- HEADER ---- */
+function renderHeader() {
+  const tr = document.getElementById('thead-row');
+  tr.innerHTML = '';
+  getOrderedCols().forEach((col, colIdx) => {
+    const th = document.createElement('th');
+    th.dataset.key = col.key;
+    th.style.width = colWidths[col.key] + 'px';
+    if(col.sortable) th.classList.add('sortable');
+
+    let html = (col.key==='check' && currentView==='deleted') ? '↩' : esc(col.label);
+    if(col.sortable) {
+      const icon = sortKey===col.key ? (sortDir===1?'▲':'▼') : '⇅';
+      html += `<span class="sort-icon">${icon}</span>`;
+    }
+    if(col.key==='check' && currentView==='deleted') {
+      th.style.color = 'var(--done)';
+      th.style.fontSize = '15px';
+      th.title = '恢复';
+      th.style.cursor = 'default';
+    }
+    th.innerHTML = html;
+
+    if(col.sortable) {
+      th.addEventListener('click', e => {
+        if(e.target.classList.contains('col-resize')) return;
+        if(sortKey===col.key) sortDir*=-1;
+        else { sortKey=col.key; sortDir=1; }
+        renderAll();
+      });
+    }
+
+    // resize handle (not for last col)
+    if(!col.fixed || col.key==='check') {
+      const rz = document.createElement('div');
+      rz.className = 'col-resize';
+      rz.addEventListener('mousedown', e => startResize(e, col.key));
+      th.appendChild(rz);
+    }
+
+    // drag-to-reorder (non-fixed cols)
+    if(!col.fixed) {
+      th.draggable = true;
+      th.addEventListener('dragstart', e => {
+        e.dataTransfer.setData('text/plain', col.key);
+        th.classList.add('drag-ghost');
+      });
+      th.addEventListener('dragend', () => th.classList.remove('drag-ghost'));
+      th.addEventListener('dragover', e => { e.preventDefault(); th.classList.add('drag-over'); });
+      th.addEventListener('dragleave', () => th.classList.remove('drag-over'));
+      th.addEventListener('drop', e => {
+        e.preventDefault();
+        th.classList.remove('drag-over');
+        const fromKey = e.dataTransfer.getData('text/plain');
+        if(fromKey && fromKey!==col.key) reorderCol(fromKey, col.key);
+      });
+    }
+
+    tr.appendChild(th);
+  });
+}
+
+function reorderCol(fromKey, toKey) {
+  const fi=colOrder.indexOf(fromKey), ti=colOrder.indexOf(toKey);
+  if(fi<0||ti<0) return;
+  colOrder.splice(fi,1);
+  const ni=colOrder.indexOf(toKey);
+  colOrder.splice(ni,0,fromKey);
+  save();
+  renderAll();
+}
+
+/* ---- SIDEBAR ---- */
+function renderSidebar() {
+  const c=getCounts();
+  document.getElementById('cnt-today').textContent=c.today;
+  document.getElementById('cnt-week').textContent=c.week;
+  document.getElementById('cnt-all').textContent=c.all;
+  document.getElementById('cnt-done').textContent=c.done;
+  document.getElementById('cnt-deleted').textContent=c.deleted;
+  document.querySelectorAll('#sidebar .sb-item[data-view]').forEach(el=>{
+    el.classList.toggle('active', el.dataset.view===currentView);
+  });
+
+  // priority
+  const priNames=['','高','中','低'];
+  const priColors=['','#c0392b','#e67e22','#27ae60'];
+  const pl2=document.getElementById('pri-list');
+  pl2.innerHTML=[
+    `<div class="sb-item${currentPri===0?' active':''}" onclick="setPri(0)"><span class="sb-label">全部优先级</span></div>`,
+    ...[1,2,3].map(p=>{
+      const cnt=(currentView==='deleted' ? deletedTasks : tasks).filter(t=>+t.priority===p && (currentView==='deleted' ? true : currentView==='done' ? t.status==='done' : t.status==='todo')).length;
+      return `<div class="sb-item${currentPri===p?' active':''}" data-val="${p}" onclick="setPri(+this.dataset.val)"><span class="sb-label" style="color:${priColors[p]}">${priNames[p]}</span><span class="cnt">${cnt||''}</span></div>`;
+    })
+  ].join('');
+
+  // projects
+  const projs=getAllProjects();
+  const pl=document.getElementById('proj-list');
+  const sidePool=currentView==='deleted'?deletedTasks:tasks;
+  const sideStatusOk=t=>currentView==='deleted'?true:(currentView==='done'?t.status==='done':t.status==='todo');
+  const emptyCntProj=sidePool.filter(t=>!t.project&&sideStatusOk(t)).length;
+  pl.innerHTML=[
+    `<div class="sb-item${currentProj===''?' active':''}" onclick="setProj('')"><span class="sb-label">全部分类</span></div>`,
+    ...projs.map(p=>{
+      const cnt=sidePool.filter(t=>t.project===p&&sideStatusOk(t)).length;
+      return `<div class="sb-item${currentProj===p?' active':''}" data-val="${esc(p)}" onclick="setProj(this.dataset.val)"><span class="sb-label">${esc(p)}</span><span class="cnt">${cnt||''}</span></div>`;
+    }),
+    `<div class="sb-item${currentProj==='__empty__'?' active':''}" data-val="__empty__" onclick="setProj(this.dataset.val)"><span class="sb-label" style="color:var(--text3);font-style:italic">空</span><span class="cnt">${emptyCntProj||''}</span></div>`,
+  ].join('');
+
+  // assignees
+  const assignees=getAllAssignees();
+  const al=document.getElementById('assignee-list');
+  const emptyCntAssign=sidePool.filter(t=>!(t.assignees||'').trim()&&sideStatusOk(t)).length;
+  al.innerHTML=[
+    `<div class="sb-item${currentAssignee===''?' active':''}" onclick="setAssignee('')"><span class="sb-label">全部人员</span></div>`,
+    ...assignees.map(a=>{
+      const cnt=sidePool.filter(t=>(t.assignees||'').split(',').map(s=>s.trim()).includes(a)&&sideStatusOk(t)).length;
+      return `<div class="sb-item${currentAssignee===a?' active':''}" data-val="${esc(a)}" onclick="setAssignee(this.dataset.val)"><span class="sb-label">${esc(a)}</span><span class="cnt">${cnt||''}</span></div>`;
+    }),
+    `<div class="sb-item${currentAssignee==='__empty__'?' active':''}" data-val="__empty__" onclick="setAssignee(this.dataset.val)"><span class="sb-label" style="color:var(--text3);font-style:italic">空</span><span class="cnt">${emptyCntAssign||''}</span></div>`,
+  ].join('');
+
+  // source
+  const sources=getAllSources();
+  const sl=document.getElementById('source-list');
+  const emptyCntSrc=sidePool.filter(t=>!(t.source||'')&&sideStatusOk(t)).length;
+  sl.innerHTML=[
+    `<div class="sb-item${currentSource===''?' active':''}" onclick="setSource('')"><span class="sb-label">全部来源</span></div>`,
+    ...sources.map(s=>{
+      const cnt=sidePool.filter(t=>(t.source||'')===s&&sideStatusOk(t)).length;
+      return `<div class="sb-item${currentSource===s?' active':''}" data-val="${esc(s)}" onclick="setSource(this.dataset.val)"><span class="sb-label">${esc(s)}</span><span class="cnt">${cnt||''}</span></div>`;
+    }),
+    `<div class="sb-item${currentSource==='__empty__'?' active':''}" data-val="__empty__" onclick="setSource(this.dataset.val)"><span class="sb-label" style="color:var(--text3);font-style:italic">空</span><span class="cnt">${emptyCntSrc||''}</span></div>`,
+  ].join('');
+
+  // custom
+  const customs=getAllCustom();
+  const cl=document.getElementById('custom-list');
+  const emptyCntCustom=sidePool.filter(t=>!(t.custom||'')&&sideStatusOk(t)).length;
+  cl.innerHTML=[
+    `<div class="sb-item${currentCustom===''?' active':''}" onclick="setCustom('')"><span class="sb-label">全部标签</span></div>`,
+    ...customs.map(c=>{
+      const cnt=sidePool.filter(t=>(t.custom||'')===c&&sideStatusOk(t)).length;
+      return `<div class="sb-item${currentCustom===c?' active':''}" data-val="${esc(c)}" onclick="setCustom(this.dataset.val)"><span class="sb-label">${esc(c)}</span><span class="cnt">${cnt||''}</span></div>`;
+    }),
+    `<div class="sb-item${currentCustom==='__empty__'?' active':''}" data-val="__empty__" onclick="setCustom(this.dataset.val)"><span class="sb-label" style="color:var(--text3);font-style:italic">空</span><span class="cnt">${emptyCntCustom||''}</span></div>`,
+  ].join('');
+
+  // active filters chips in toolbar
+  const fc=document.getElementById('active-filters');
+  const chips=[];
+  const chipLabel=v=>v==='__empty__'?'空':esc(v);
+  if(currentProj) chips.push(`<span class="filter-chip" onclick="setProj('')">分类:${chipLabel(currentProj)} ×</span>`);
+  if(currentAssignee) chips.push(`<span class="filter-chip" onclick="setAssignee('')">分工:${chipLabel(currentAssignee)} ×</span>`);
+  if(currentSource) chips.push(`<span class="filter-chip" onclick="setSource('')">来源:${chipLabel(currentSource)} ×</span>`);
+  if(currentCustom) chips.push(`<span class="filter-chip" onclick="setCustom('')">自定义:${chipLabel(currentCustom)} ×</span>`);
+  if(currentPri) chips.push(`<span class="filter-chip" onclick="setPri(0)">优先级:${'高中低'[currentPri-1]} ×</span>`);
+  fc.innerHTML=chips.join('');
+}
+
+/* ---- TABLE ---- */
+function renderTable() {
+  const filtered=getFiltered();
+  const tbody=document.getElementById('tbody');
+  const empty=document.getElementById('empty-state');
+  document.getElementById('view-label').textContent=viewLabels[currentView]||'';
+  document.getElementById('status-left').textContent=`${filtered.length} 条`;
+
+  renderSidebar(); // keep counts & sidebar in sync
+
+  if(!filtered.length){ tbody.innerHTML=''; empty.style.display='block'; return; }
+  empty.style.display='none';
+
+  const cols=getOrderedCols();
+  const isDeleted = currentView==='deleted';
+
+  tbody.innerHTML=filtered.map(t=>{
+    const cls=(t.status==='done'?'done-row':'')+(isDeleted?' deleted-row':'');
+    return `<tr data-id="${t.id}" class="${cls}">${cols.map(col=>renderCell(col,t,isDeleted)).join('')}</tr>`;
+  }).join('');
+}
+
+function renderCell(col, t, isDeleted) {
+  switch(col.key) {
+    case 'check':
+      if(isDeleted) return `<td class="col-check"><button class="action-btn restore" onclick="doRestore(${t.id})" title="恢复" style="font-size:15px">↩</button></td>`;
+      return `<td class="col-check"><input type="checkbox" class="cb" ${t.status==='done'?'checked':''} onchange="toggleDone(${t.id},this)"></td>`;
+
+    case 'title':
+      return `<td ondblclick="editField(${t.id},'title',this)"><div class="title-cell"><span class="title-text">${esc(t.title)}</span></div></td>`;
+    case 'project':
+      return `<td style="text-align:center" ondblclick="editField(${t.id},'project',this)">${esc(t.project)}</td>`;
+
+    case 'assignees': {
+      const _oN=['①','②','③','④','⑤','⑥','⑦','⑧'];
+      const chips=(t.assignees||'').split(',').map(s=>s.trim()).filter(Boolean)
+        .map((a,i)=>`<span class="assignee-chip">${_oN[i]||''}${esc(a)}</span>`).join('');
+      return `<td ondblclick="editField(${t.id},'assignees',this)" style="overflow:hidden;text-align:center">${chips||''}</td>`;
+    }
+    case 'priority':
+      if(isDeleted) return `<td style="text-align:center"><span class="pri-badge pri-${t.priority}">${priLabel[t.priority]}</span></td>`;
+      return `<td style="text-align:center"><span class="pri-badge pri-${t.priority}" onclick="cyclePriority(${t.id})">${priLabel[t.priority]}</span></td>`;
+
+    case 'due_date': {
+      const dc=dueClass(t.due_date);
+      const display=fmtDue(t.due_date);
+      if(isDeleted) return `<td style="text-align:center"><span class="due-text ${dc}">${esc(display)}</span></td>`;
+      return `<td style="text-align:center" ondblclick="openDatePicker(${t.id},this)"><span class="due-text ${dc}">${esc(display)}</span></td>`;
+    }
+    case 'source':
+      return `<td style="text-align:center" ondblclick="editField(${t.id},'source',this)">${esc(t.source||'')}</td>`;
+
+    case 'custom':
+      return `<td style="text-align:center" ondblclick="editField(${t.id},'custom',this)">${esc(t.custom||'')}</td>`;
+
+    case 'action':
+      if(isDeleted) return `<td style="text-align:center"><button class="action-btn del" onclick="askPermDelete(${t.id})" title="彻底删除" style="font-size:14px">🗑</button></td>`;
+      return `<td style="text-align:center"><button class="action-btn copy" onclick="duplicateTask(${t.id})" title="复制任务">⧉</button><button class="action-btn del" onclick="askDelete(${t.id})" title="删除">×</button></td>`;
+
+    default: return '<td></td>';
+  }
+}
+
+/* =============================================================
+   ACTIONS
+   ============================================================= */
+function toggleDone(id, cb) {
+  const t=tasks.find(x=>x.id===id); if(!t) return;
+  const prev=t.status;
+  pushUndo({type:'done',id,prev});
+  updateTask(id,{status:cb.checked?'done':'todo'});
+  renderTable();
+  if(cb.checked) showSnack(`已完成：${t.title}`);
+}
+
+function cyclePriority(id) {
+  const t=tasks.find(x=>x.id===id); if(!t) return;
+  updateTask(id,{priority:t.priority===1?2:t.priority===2?3:1});
+  renderTable();
+}
+
+/* 复制任务：克隆出一条内容相同的新任务（状态重置为待办，便于快速建类似任务） */
+function duplicateTask(id) {
+  const t=tasks.find(x=>x.id===id); if(!t) return;
+  const copy=addTask({
+    title:t.title, project:t.project, assignees:t.assignees,
+    priority:t.priority, status:'todo', due_date:t.due_date,
+    source:t.source, custom:t.custom
+  });
+  pushUndo({type:'add',id:copy.id});
+  renderAll();
+  showSnack(`已复制任务：${copy.title}`);
+}
+
+/* inline edit */
+function editField(id, field, td) {
+  if(field==='project'||field==='assignees'||field==='source'||field==='custom'){ openSelectPopup(id,field,td); return; }
+  const pool = currentView==='deleted' ? deletedTasks : tasks;
+  const t=pool.find(x=>x.id===id); if(!t) return;
+  const original=t[field]||'';
+  const input=document.createElement('input');
+  input.className='inline-input';
+  input.value=original;
+  td.innerHTML=''; td.appendChild(input); input.focus(); input.select();
+  let committed=false;
+  function commit() {
+    if(committed) return; committed=true;
+    let val=input.value.trim();
+    if(field==='due_date') { const p=parseDue(val); val=p||val; if(val&&!/^[0-9]{4}-[0-9]{2}-[0-9]{2}$/.test(val)) val=original; }
+    updateTask(id,{[field]:val});
+    renderTable();
+  }
+  input.addEventListener('keydown',e=>{
+    e.stopPropagation();
+    if(e.key==='Enter'){e.preventDefault();commit();}
+    if(e.key==='Escape'){committed=true;renderTable();}
+  });
+  input.addEventListener('blur',()=>setTimeout(commit,80));
+}
+
+/* ===== SELECT POPUP ===== */
+let spCloseListener=null;
+let _spId=null,_spField=null,_spTd=null;
+function openSelectPopup(id, field, td) {
+  _spId=id; _spField=field; _spTd=td;
+  const pool=currentView==='deleted'?deletedTasks:tasks;
+  const t=pool.find(x=>x.id===id); if(!t) return;
+  const isMulti=field==='assignees';
+  const current=t[field]||'';
+  const options=field==='project'?getFieldByFreq('project'):field==='source'?getFieldByFreq('source'):field==='custom'?getFieldByFreq('custom'):getAssigneesByFreq();
+  const selected=new Set(isMulti?current.split(',').map(s=>s.trim()).filter(Boolean):(current?[current]:[]));  
+  if(isMulti) _assigneeOrder=current.split(',').map(s=>s.trim()).filter(Boolean);
+  const popup=document.getElementById('select-popup');
+  const label=field==='project'?'选择分类':field==='source'?'选择来源':field==='custom'?'选择自定义标签':'选择分工（可多选）';
+  const ph=field==='project'?'输入新分类名…':field==='source'?'输入新来源名…':field==='custom'?'输入自定义标签…':'输入新分工人员…';
+  let html=`<div class="sp-header">${label}</div>`;
+  html+=`<div style="padding:0 2px 5px"><input id="sp-manual-input" type="text" class="inline-input" style="height:24px;font-size:12px" placeholder="${ph}" autocomplete="off" oninput="spFilterList()" onkeydown="spManualKeydown(event,${id},'${field}')"></div>`;
+  html+=`<div id="sp-list">`;
+  if(!isMulti){
+    html+=`<div class="sp-item" id="sp-addnew" style="display:none;color:var(--accent);font-weight:600" onclick="spAddNewSingle(${id},'${field}')"></div>`;
+    html+=`<div class="sp-item${current===''?' selected':''}" data-val="" onclick="spSelectFromEl(this,${id},'${field}')">(无)</div>`;
+    options.forEach(opt=>{
+      html+=`<div class="sp-item${current===opt?' selected':''}" data-val="${esc(opt)}" onclick="spSelectFromEl(this,${id},'${field}')">${esc(opt)}</div>`;
+    });
+  } else {
+    const noneChk=selected.size===0?'checked':'';
+    html+=`<div class="sp-item"><input type="checkbox" id="sp-none" ${noneChk} onchange="spToggleNone()"><label for="sp-none" style="cursor:pointer">(无)</label></div>`;
+    options.forEach((opt,i)=>{
+      const chk=selected.has(opt)?'checked':'';
+      html+=`<div class="sp-item" data-val="${esc(opt)}"><input type="checkbox" id="sp-opt-${i}" value="${esc(opt)}" ${chk} onchange="spToggle(this)"><label for="sp-opt-${i}" style="cursor:pointer">${esc(opt)}</label></div>`;
+    });
+  }
+  html+=`</div>`;
+  if(isMulti) html+=`<button class="sp-confirm" onclick="spCommitMulti(${id},'${field}')">确定</button>`;
+  popup.innerHTML=html;
+  const rect=td.getBoundingClientRect();
+  popup.style.left=Math.min(rect.left,window.innerWidth-240)+'px';
+  popup.style.top=(rect.bottom+2)+'px';
+  popup.classList.add('show');
+  requestAnimationFrame(()=>{
+    const _ph=popup.offsetHeight;
+    if(rect.bottom+2+_ph>window.innerHeight-8)
+      popup.style.top=Math.max(8,rect.top-_ph-2)+'px';
+  });
+  setTimeout(()=>{ const inp=document.getElementById('sp-manual-input'); if(inp) inp.focus(); },50);
+  if(spCloseListener) document.removeEventListener('mousedown',spCloseListener);
+  spCloseListener=function(e){ if(!popup.contains(e.target)&&e.target!==td){ popup.classList.remove('show'); document.removeEventListener('mousedown',spCloseListener); spCloseListener=null; } };
+  setTimeout(()=>document.addEventListener('mousedown',spCloseListener),0);
+}
+function spFilterList(){
+  const raw=(document.getElementById('sp-manual-input').value||'').trim();
+  const q=raw.toLowerCase();
+  document.querySelectorAll('#sp-list [data-val]').forEach(el=>{
+    const v=(el.dataset.val||'').toLowerCase();
+    el.style.display=(v.includes(q)||q==='')?'':'none';
+  });
+  // 单选框：输入内容与现有选项不完全一致时，显示可点击的「+ 新增」入口
+  const addnew=document.getElementById('sp-addnew');
+  if(addnew){
+    const exists=[...document.querySelectorAll('#sp-list [data-val]')].some(el=>(el.dataset.val||'')===raw);
+    if(raw && !exists){ addnew.textContent=`+ 新增「${raw}」`; addnew.style.display=''; }
+    else { addnew.style.display='none'; }
+  }
+}
+function spAddNewSingle(id,field){
+  const val=(document.getElementById('sp-manual-input').value||'').trim();
+  if(val) spSelect(id,field,val);
+}
+function splitNames(raw){
+  return raw.split(/[,，、\s]+/).map(s=>s.trim()).filter(Boolean);
+}
+function spManualKeydown(e,id,field){
+  e.stopPropagation();
+  if(e.key==='Enter'){
+    e.preventDefault();
+    const val=e.target.value.trim(); if(!val) return;
+    if(field==='assignees'){
+      splitNames(val).forEach(name=>spAddToMulti(name,id));
+      spCommitMulti(id,field);
+    } else {
+      spSelect(id,field,val);
+    }
+  }
+}
+function spAddToMulti(val,id){
+  // add checkbox for new value if not exists, and check it
+  const list=document.getElementById('sp-list');
+  let existing=list.querySelector(`input[value="${CSS.escape(val)}"]`);
+  if(!existing){
+    const i=list.querySelectorAll('input[type=checkbox][id^="sp-opt-"]').length;
+    const div=document.createElement('div');
+    div.className='sp-item'; div.dataset.val=val;
+    div.innerHTML=`<input type="checkbox" id="sp-opt-${i}" value="${esc(val)}" checked onchange="spToggle(this)"><label for="sp-opt-${i}" style="cursor:pointer">${esc(val)}</label>`;
+    list.appendChild(div);
+  } else { existing.checked=true; }
+  // 通过属性/赋值方式勾选不会触发 onchange，需手动维护选择顺序，否则提交时新名字会被过滤掉
+  if(!_assigneeOrder.includes(val)) _assigneeOrder.push(val);
+  const none=document.getElementById('sp-none'); if(none) none.checked=false;
+  document.getElementById('sp-manual-input').value='';
+  spFilterList();
+}
+function spSelectFromEl(el,id,field){
+  spSelect(id,field,el.dataset.val||'');
+}
+function spSelect(id,field,val){
+  updateTask(id,{[field]:val});
+  document.getElementById('select-popup').classList.remove('show');
+  if(spCloseListener){document.removeEventListener('mousedown',spCloseListener);spCloseListener=null;}
+  renderTable();
+}
+function spToggleNone(){
+  document.querySelectorAll('#select-popup input[id^="sp-opt-"]').forEach(cb=>cb.checked=false);
+}
+function spToggle(cb){
+  if(cb.checked){
+    const n=document.getElementById('sp-none'); if(n) n.checked=false;
+    if(!_assigneeOrder.includes(cb.value)) _assigneeOrder.push(cb.value);
+  } else {
+    _assigneeOrder=_assigneeOrder.filter(v=>v!==cb.value);
+  }
+}
+function spCommitMulti(id,field){
+  field=field||'assignees';
+  const _checked=new Set([...document.querySelectorAll('#select-popup input[id^="sp-opt-"]:checked')].map(cb=>cb.value));
+  const vals=_assigneeOrder.filter(v=>_checked.has(v)).join(',');
+  updateTask(id,{[field]:vals});
+  document.getElementById('select-popup').classList.remove('show');
+  if(spCloseListener){document.removeEventListener('mousedown',spCloseListener);spCloseListener=null;}
+  renderTable();
+}
+
+/* delete confirm */
+let pendingDeleteId=null;
+function askDelete(id) {
+  const t=tasks.find(x=>x.id===id); if(!t) return;
+  pendingDeleteId=id;
+  document.getElementById('modal-msg').textContent=`将删除任务「${t.title}」，可在"已删除"视图中恢复。`;
+  document.getElementById('modal-overlay').classList.add('show');
+}
+function closeModal() {
+  pendingDeleteId=null; modalCallback=null;
+  document.getElementById('modal-overlay').classList.remove('show');
+  document.getElementById('modal-box').querySelector('h3').textContent='确认删除';
+  document.getElementById('modal-box').querySelector('.btn-confirm').textContent='删除';
+}
+function modalConfirm() {
+  if(modalCallback){ const _cb=modalCallback; closeModal(); _cb(); return; }
+  if(pendingDeleteId===null) return;
+  const t=softDelete(pendingDeleteId);
+  closeModal();
+  if(t) { pushUndo({type:'softDelete',task:t}); showSnack(`已删除：${t.title}`); }
+  renderAll();
+}
+
+function doRestore(id) {
+  restoreDeleted(id);
+  showSnack('已恢复任务');
+  renderAll();
+}
+
+function askPermDelete(id) {
+  const t=deletedTasks.find(x=>x.id===id); if(!t) return;
+  document.getElementById('modal-msg').textContent=`彻底删除「${t.title}」？此操作无法撤销。`;
+  document.getElementById('modal-box').querySelector('h3').textContent='彻底删除';
+  document.getElementById('modal-box').querySelector('.btn-confirm').textContent='彻底删除';
+  modalCallback=()=>{ permanentDelete(id); renderAll(); showSnack('已彻底删除'); };
+  document.getElementById('modal-overlay').classList.add('show');
+}
+
+/* =============================================================
+   DATE PICKER POPUP
+   ============================================================= */
+let dpTargetId=null, dpTargetTd=null, dpCloseListener=null, dpYear=0, dpMonth=0;
+
+function openDatePicker(id, td) {
+  dpTargetId=id; dpTargetTd=td;
+  const t=tasks.find(x=>x.id===id); if(!t) return;
+  const wrap=document.getElementById('date-picker-wrap');
+  const ref=t.due_date?new Date(t.due_date+'T00:00:00'):new Date();
+  dpYear=ref.getFullYear(); dpMonth=ref.getMonth();
+  renderDpCalendar();
+  const rect=td.getBoundingClientRect();
+  wrap.style.left=Math.min(rect.left,window.innerWidth-220)+'px';
+  wrap.style.top=(rect.bottom+4)+'px';
+  wrap.classList.add('show');
+  requestAnimationFrame(()=>{
+    const _wh=wrap.offsetHeight;
+    if(rect.bottom+4+_wh>window.innerHeight-8)
+      wrap.style.top=Math.max(8,rect.top-_wh-4)+'px';
+  });
+  if(dpCloseListener) document.removeEventListener('mousedown',dpCloseListener);
+  dpCloseListener=function(e){ if(!wrap.contains(e.target)&&e.target!==td) dpClose(); };
+  setTimeout(()=>document.addEventListener('mousedown',dpCloseListener),0);
+}
+function renderDpCalendar() {
+  const t=dpTargetId?tasks.find(x=>x.id===dpTargetId):null;
+  const sel=t?t.due_date||'':'';
+  const today=todayStr();
+  const firstDow=new Date(dpYear,dpMonth,1).getDay();
+  const daysInMonth=new Date(dpYear,dpMonth+1,0).getDate();
+  let html=`<div class="dp-cal-nav">
+    <button class="dp-cal-nav-btn" onclick="dpCalNav(-1)">&#8249;</button>
+    <span class="dp-cal-title">${dpYear}年${dpMonth+1}月</span>
+    <button class="dp-cal-nav-btn" onclick="dpCalNav(1)">&#8250;</button>
+  </div><div class="dp-cal-grid">
+  <div class="dp-cal-dow">日</div><div class="dp-cal-dow">一</div><div class="dp-cal-dow">二</div><div class="dp-cal-dow">三</div><div class="dp-cal-dow">四</div><div class="dp-cal-dow">五</div><div class="dp-cal-dow">六</div>`;
+  for(let i=0;i<firstDow;i++) html+='<div class="dp-cal-day is-empty"></div>';
+  for(let d=1;d<=daysInMonth;d++){
+    const ds=`${dpYear}-${String(dpMonth+1).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+    let cls='dp-cal-day';
+    if(ds===today) cls+=' is-today';
+    if(ds===sel) cls+=' is-selected';
+    html+=`<div class="${cls}" onclick="dpSelectDate('${ds}')">${d}</div>`;
+  }
+  html+='</div>';
+  document.getElementById('dp-calendar').innerHTML=html;
+}
+function dpCalNav(dir){
+  dpMonth+=dir;
+  if(dpMonth>11){dpMonth=0;dpYear++;}
+  if(dpMonth<0){dpMonth=11;dpYear--;}
+  renderDpCalendar();
+}
+function dpSelectDate(ds){
+  if(dpTargetId){updateTask(dpTargetId,{due_date:ds});dpClose();renderTable();}
+}
+function dpClose() {
+  document.getElementById('date-picker-wrap').classList.remove('show');
+  if(dpCloseListener){document.removeEventListener('mousedown',dpCloseListener);dpCloseListener=null;}
+}
+// 关闭所有浮层：弹层按打开瞬间的坐标定位，滚动/缩放后会错位，故一并关闭
+function closeFloatingPopups() {
+  dpClose();
+  const sp=document.getElementById('select-popup');
+  if(sp && sp.classList.contains('show')){
+    sp.classList.remove('show');
+    if(spCloseListener){ document.removeEventListener('mousedown',spCloseListener); spCloseListener=null; }
+  }
+}
+function dpShortcut(tok) {
+  const d=parseDue(tok)||'';
+  if(dpTargetId){updateTask(dpTargetId,{due_date:d});dpClose();renderTable();}
+}
+function dpClear() {
+  if(dpTargetId){updateTask(dpTargetId,{due_date:''});dpClose();renderTable();}
+}
+
+/* =============================================================
+   UNDO
+   ============================================================= */
+// 压入撤销栈，并限制长度（最多保留最近 50 条，避免长会话持续占内存）
+function pushUndo(op) {
+  undoStack.push(op);
+  if(undoStack.length>50) undoStack.shift();
+}
+
+function undoLast() {
+  const op=undoStack.pop(); if(!op) return;
+  if(op.type==='done') updateTask(op.id,{status:op.prev});
+  else if(op.type==='add') {
+    // 撤销新建：直接从任务列表移除
+    const idx=tasks.findIndex(x=>x.id===op.id);
+    if(idx!==-1){ tasks.splice(idx,1); save(); }
+  }
+  else if(op.type==='softDelete') {
+    // move back from deletedTasks
+    const idx=deletedTasks.findIndex(x=>x.id===op.task.id);
+    if(idx!==-1){ const t=deletedTasks.splice(idx,1)[0]; delete t.deleted_at; tasks.push(t); save(); }
+  }
+  hideSnack(); renderAll();
+}
+
+/* =============================================================
+   SNACKBAR
+   ============================================================= */
+function showSnack(msg){ document.getElementById('snack-msg').textContent=msg; document.getElementById('snackbar').classList.add('show'); clearTimeout(snackTimer); snackTimer=setTimeout(hideSnack,3500); }
+function hideSnack(){ document.getElementById('snackbar').classList.remove('show'); }
+
+/* =============================================================
+   VIEW / FILTER SWITCHING
+   ============================================================= */
+function setView(v){ currentView=v; renderAll(); }
+function setProj(p){
+  currentProj=p;
+  renderAll();
+}
+function setAssignee(a){
+  currentAssignee=a;
+  renderAll();
+}
+function setSource(s){
+  currentSource=s;
+  renderAll();
+}
+function setCustom(c){
+  currentCustom=c;
+  renderAll();
+}
+function setPri(p){
+  currentPri=p;
+  renderAll();
+}
+
+/* =============================================================
+   COLUMN RESIZE
+   ============================================================= */
+function startResize(e, key) {
+  e.preventDefault(); e.stopPropagation();
+  const startX=e.clientX, startW=colWidths[key];
+  const handle=e.target; handle.classList.add('resizing');
+  function onMove(ev) {
+    const w=Math.max(40, startW+(ev.clientX-startX));
+    colWidths[key]=w;
+    // update th width live
+    const th=document.querySelector(`#thead-row th[data-key="${key}"]`);
+    if(th) th.style.width=w+'px';
+  }
+  function onUp() {
+    handle.classList.remove('resizing');
+    document.removeEventListener('mousemove',onMove);
+    document.removeEventListener('mouseup',onUp);
+    save(); renderAll();
+  }
+  document.addEventListener('mousemove',onMove);
+  document.addEventListener('mouseup',onUp);
+}
+
+/* =============================================================
+   CSV IMPORT / EXPORT
+   ============================================================= */
+function triggerImport(){ document.getElementById('file-input').click(); }
+
+function importCSV(evt) {
+  const file=evt.target.files[0]; if(!file) return;
+  const reader=new FileReader();
+  reader.onload=function(e) {
+    // strip BOM
+    let text=e.target.result;
+    if(text.charCodeAt(0)===0xFEFF) text=text.slice(1);
+    const lines=text.split(/\r?\n/).map(l=>l.trim()).filter(Boolean);
+    if(lines.length<2) return;
+    const headers=parseCSVLine(lines[0]).map(h=>h.trim());
+    const get=(cols,h)=>{ const i=headers.indexOf(h); return i>=0?(cols[i]||''):''; };
+    let imported=0;
+    for(let i=1;i<lines.length;i++){
+      const cols=parseCSVLine(lines[i]);
+      if(cols.length<2) continue;
+      const id=parseInt(get(cols,'id'))||0;
+      const now=new Date().toISOString();
+      const _t={
+        id:id||nextId++,
+        title:get(cols,'title'),
+        project:get(cols,'project'),
+        assignees:get(cols,'assignees'),
+        priority:parseInt(get(cols,'priority'))||2,
+        status:get(cols,'status')||'todo',
+        due_date:get(cols,'due_date'),
+        source:get(cols,'source')||'',
+        custom:get(cols,'custom')||'',
+        created_at:get(cols,'created_at')||now,
+        updated_at:get(cols,'updated_at')||now,
+        deleted_at:get(cols,'deleted_at')||'',
+      };
+      if(_t.id>=nextId) nextId=_t.id+1;
+      // 按 id 更新或插入（upsert）：已存在则覆盖，使导入既能新增也能更新现有任务
+      const inTasks=tasks.findIndex(x=>x.id===_t.id);
+      const inDeleted=deletedTasks.findIndex(x=>x.id===_t.id);
+      if(inTasks!==-1) tasks.splice(inTasks,1);
+      if(inDeleted!==-1) deletedTasks.splice(inDeleted,1);
+      if(_t.deleted_at) deletedTasks.push(_t);
+      else tasks.push(_t);
+      imported++;
+    }
+    save(); renderAll(); showSnack(`已导入 ${imported} 条任务`);
+  };
+  reader.readAsText(file,'UTF-8');
+  evt.target.value='';
+}
+
+function parseCSVLine(line) {
+  const result=[]; let cur='',inQ=false;
+  for(let i=0;i<line.length;i++){
+    const c=line[i];
+    if(c==='"'){ if(inQ&&line[i+1]==='"'){cur+='"';i++;} else inQ=!inQ; }
+    else if(c===','&&!inQ){ result.push(cur); cur=''; }
+    else cur+=c;
+  }
+  result.push(cur); return result;
+}
+
+function toCSVField(val) {
+  const s=String(val==null?'':val);
+  if(s.includes(',')||s.includes('"')||s.includes('\n')||s.includes('\r'))
+    return '"'+s.replace(/"/g,'""')+'"';
+  return s;
+}
+
+function exportCSV() {
+  const headers=['id','title','project','assignees','priority','status','due_date','source','custom','created_at','updated_at','deleted_at'];
+  const rows=[headers.join(',')];
+  const all=[...tasks,...deletedTasks];
+  for(const t of all) rows.push(headers.map(h=>toCSVField(t[h])).join(','));
+  const blob=new Blob(['\uFEFF'+rows.join('\r\n')],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  const ts=new Date().toISOString().replace(/[-:.TZ]/g,'').slice(0,15);
+  a.href=url; a.download=`todo_${ts}.csv`; a.style.display='none';
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{ document.body.removeChild(a); URL.revokeObjectURL(url); },500);
+  showSnack('CSV 已导出');
+}
+
+/* =============================================================
+   KEYBOARD
+   ============================================================= */
+document.addEventListener('keydown',e=>{
+  const tag=document.activeElement.tagName;
+  const editing=tag==='INPUT'||tag==='TEXTAREA';
+  if(!editing){
+    if(e.key==='n'||e.key==='N'){ e.preventDefault(); document.getElementById('quick-input').focus(); }
+    if(e.key==='/'){ e.preventDefault(); document.getElementById('search-input').focus(); }
+  }
+  if(e.key==='Escape'){
+    if(document.getElementById('modal-overlay').classList.contains('show')){ closeModal(); return; }
+    dpClose();
+    document.getElementById('quick-input').value='';
+    document.getElementById('search-input').value='';
+    if(!editing) renderTable();
+    document.activeElement.blur();
+  }
+  if(e.ctrlKey&&e.key==='s'){ e.preventDefault(); exportCSV(); }
+  if(e.ctrlKey&&e.key==='z'){ e.preventDefault(); undoLast(); }
+});
+
+document.getElementById('quick-input').addEventListener('keydown',e=>{
+  if(e.key==='Enter'){
+    e.stopPropagation();
+    const raw=e.target.value.trim(); if(!raw) return;
+    const f=parseQuickInput(raw);
+    const t=addTask(f);
+    pushUndo({type:'add',id:t.id});
+    e.target.value='';
+    if(currentView==='deleted') currentView='all';
+    renderAll();
+    showSnack(`已添加：${f.title}`);
+  }
+});
+
+// close modal on overlay click
+document.getElementById('modal-overlay').addEventListener('click',function(e){
+  if(e.target===this) closeModal();
+});
+
+/* =============================================================
+   INIT
+   ============================================================= */
+load();
+renderAll();
+
+// 滚动表格或改变窗口尺寸时关闭浮层，避免其停留在错误位置
+document.getElementById('table-wrap').addEventListener('scroll', closeFloatingPopups);
+window.addEventListener('resize', closeFloatingPopups);
+</script>
+</body>
+</html>
