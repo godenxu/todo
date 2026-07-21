@@ -28,7 +28,10 @@ async function main() {
 
   S.ACTIONS['tree-toggle']({ duty: '01' }, null, { stopPropagation() {} });
   tree = S.renderTaskTree(rows);
-  ok('展开后出现子工作', /data-work="0101"/.test(tree) && /data-work="0102"/.test(tree));
+  // 工作主键已是随机 id，测试须按编号查出 id 再断言，不能再硬编码编号
+  const w0101 = S.DB.works.find(w => w.code === '0101');
+  const w0102 = S.DB.works.find(w => w.code === '0102');
+  ok('展开后出现子工作', tree.includes(`data-work="${w0101.id}"`) && tree.includes(`data-work="${w0102.id}"`));
   ok('展开后箭头变 ▾', tree.includes('▾'));
 
   S.ACTIONS['tree-pick']({ duty: '02', work: '' });
@@ -36,11 +39,12 @@ async function main() {
   const byDuty = S.query('task', { pool: rows, filters: S.UI.tasks.filters });
   ok('按职责筛选：结果全属该职责', byDuty.length > 0 && byDuty.every(t => S.byId('work', t.work).duty === '02'), byDuty.length);
 
-  S.ACTIONS['tree-pick']({ duty: '', work: '0202' });
-  ok('点工作 → 设 work 且清空职责', S.UI.tasks.filters.work === '0202' && !S.UI.tasks.filters._duty);
+  const w0202 = S.DB.works.find(w => w.code === '0202');
+  S.ACTIONS['tree-pick']({ duty: '', work: w0202.id });
+  ok('点工作 → 设 work 且清空职责', S.UI.tasks.filters.work === w0202.id && !S.UI.tasks.filters._duty);
   const byWork = S.query('task', { pool: rows, filters: S.UI.tasks.filters });
-  ok('按工作筛选：结果全属该工作', byWork.length > 0 && byWork.every(t => t.work === '0202'), byWork.length);
-  ok('选中工作时其职责自动展开', /data-work="0202"/.test(S.renderTaskTree(rows)));
+  ok('按工作筛选：结果全属该工作', byWork.length > 0 && byWork.every(t => t.work === w0202.id), byWork.length);
+  ok('选中工作时其职责自动展开', S.renderTaskTree(rows).includes(`data-work="${w0202.id}"`));
 
   S.ACTIONS['tree-pick']({ duty: '', work: '' });
   ok('点"全部"清空筛选', !S.UI.tasks.filters._duty && !S.UI.tasks.filters.work);

@@ -76,9 +76,15 @@ const exportTail = `
   renderTaskTree, renderTasks, renderBatchBar, renderSidebar, renderPage, renderShell,
   renderDashboard, renderWorks, renderDuties, daysFromToday, relTime, workName,
   get dashFocus(){return dashFocus},
+  renderCharts, get chartTab(){return chartTab}, chartTableView, CHART_TABS,
+  statsByPerson, statsByDuty, statsByCategory, monthlySeries, dueBuckets, tally, bucketOf,
+  lineChart, barChart, ganttPanel, CATEGORIES,
   openBatchEdit, openColConfig, openTaskDetail, persistUI, restoreUI,
   undoLast, snapshot, seedAll, isOverdue, isOpen, isMine, Repo, blank, uid,
   splitMulti, joinMulti, parseCSV, csvHeaders, csvCell, padCode, normalize,
+  openYearCopy, openOrphanAssign, healthCheck, fixHealth, backupState, lastChangeAt,
+  importBackup, shiftYear, migrateWorkIds, nextWorkCode, exportJSON, parseQuickInput,
+  renderData, optionsOf, stampMeta, softDelete,
 };`;
 
 vm.createContext(sandbox);

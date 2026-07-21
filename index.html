@@ -224,6 +224,61 @@ td.col-check, th.col-check { text-align: center; padding: 0; }
 .load-row .track { flex: 1; height: 13px; background: var(--c-track); border-radius: 3px; overflow: hidden; display: flex; gap: 2px; }
 .load-row .num { width: 62px; text-align: right; font-size: 11px; color: var(--text3); flex-shrink: 0; font-variant-numeric: tabular-nums; }
 
+/* ===== 图表页 ===== */
+.chart-tabs { display: flex; gap: 2px; margin-bottom: 12px; }
+.chart-tabs .t { font-size: 12.5px; padding: 5px 14px; border: 1px solid var(--border2); border-radius: 4px; cursor: pointer; color: var(--text2); background: var(--surface); }
+.chart-tabs .t:hover { border-color: var(--accent); color: var(--accent); }
+.chart-tabs .t.on { background: var(--accent); border-color: var(--accent); color: #fff; font-weight: 600; }
+.chart-note { font-size: 11px; color: var(--text3); margin-top: 8px; line-height: 1.7; }
+.svg-wrap { position: relative; }
+.svg-wrap svg { display: block; }
+.ax-line { stroke: var(--border); stroke-width: 1; }
+.ax-grid { stroke: var(--border); stroke-width: 1; opacity: .55; }
+.ax-text { font-family: var(--font); font-size: 10px; fill: var(--text3); }
+.ax-text.val { font-size: 10.5px; fill: var(--text2); }
+.ln { fill: none; stroke-width: 2; }
+.ln-new { stroke: var(--c-doing); }
+.ln-done { stroke: var(--c-done); stroke-dasharray: 5 3; }   /* 二次编码：不靠颜色也能区分 */
+.mk { stroke: var(--surface); stroke-width: 2; }
+.mk-new { fill: var(--c-doing); }
+.mk-done { fill: var(--c-done); }
+.bar-late { fill: var(--c-late); }
+.bar-norm { fill: var(--c-doing); }
+.bar-soon { fill: var(--c-soon); }
+.crosshair { stroke: var(--accent); stroke-width: 1; opacity: .5; }
+#chart-tip { position: absolute; display: none; background: var(--snack-bg); color: #fff; font-size: 11.5px;
+  padding: 5px 9px; border-radius: 4px; pointer-events: none; white-space: nowrap; z-index: 50; line-height: 1.6; }
+#chart-tip.show { display: block; }
+#chart-tip i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 5px; }
+
+/* 图表内嵌表格（无障碍：图形之外始终有一份可读数据） */
+.dtable { width: 100%; border-collapse: collapse; font-size: 12px; }
+.dtable th { background: var(--bg); font-size: 11px; padding: 4px 8px; text-align: right; color: var(--text3);
+  border-bottom: 1px solid var(--border); cursor: default; position: static; white-space: nowrap; }
+.dtable th:first-child, .dtable td:first-child { text-align: left; }
+.dtable td { padding: 3px 8px; border-bottom: 1px solid var(--border); text-align: right;
+  border-right: none; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.dtable tr:hover { background: var(--bg); }
+.toggle-view { font-size: 11px; padding: 1px 8px; border: 1px solid var(--border2); border-radius: 3px;
+  cursor: pointer; color: var(--text2); background: var(--surface); }
+.toggle-view:hover { border-color: var(--accent); color: var(--accent); }
+
+/* 甘特 */
+.gantt-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; border-radius: 3px; }
+.gantt-row:hover { background: var(--bg); }
+.gantt-name { width: 200px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; color: var(--text2); cursor: pointer; }
+.gantt-name .code { font-family: Consolas, monospace; font-size: 10.5px; color: var(--text3); margin-right: 4px; }
+.gantt-track { flex: 1; position: relative; height: 18px; }
+.gantt-track::before { content: ''; position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--accent); opacity: .45; left: var(--today, 0%); }
+.gantt-span { position: absolute; top: 7px; height: 4px; background: var(--c-track); border-radius: 2px; }
+.gantt-pt { position: absolute; top: 4px; width: 9px; height: 9px; border-radius: 50%; transform: translateX(-50%);
+  border: 2px solid var(--surface); box-sizing: content-box; cursor: pointer; }
+.gantt-pt.late { background: var(--c-late); }
+.gantt-pt.soon { background: var(--c-soon); }
+.gantt-pt.norm { background: var(--c-doing); }
+.gantt-pt.done { background: var(--c-done); }
+.gantt-cnt { width: 56px; flex-shrink: 0; text-align: right; font-size: 11px; color: var(--text3); font-variant-numeric: tabular-nums; }
+
 /* ===== 最近动态 ===== */
 .feed .li { display: flex; gap: 8px; padding: 4px 0; border-bottom: 1px dashed var(--border); font-size: 12px; align-items: baseline; cursor: pointer; }
 .feed .li:last-child { border-bottom: none; }
@@ -480,8 +535,11 @@ const SCHEMAS = {
       { key: 'ref',      label: '2025发文', type: 'text', width: 90,  sortable: true, align: 'center' },
     ],
   },
+  /* 工作的主键是随机 id，code 只是业务编号：
+     年度内唯一，跨年可重复（2025 与 2026 都能有 0101），
+     否则「复制到新年度」无法成立。 */
   work: {
-    key: 'work', label: '工作', pk: 'code', titleField: 'name',
+    key: 'work', label: '工作', pk: 'id', titleField: 'name',
     fields: [
       { key: 'code',          label: '工作编号',     type: 'text',    width: 78,  sortable: true, readonly: true, align: 'center' },
       { key: 'duty',          label: '所属职责',     type: 'ref',     width: 170, sortable: true, facet: true, ref: 'duty' },
@@ -674,6 +732,30 @@ function normalize(entity, r) {
   if (!r.rev) r.rev = 1;
   return r;
 }
+/* 迁移：早期版本用 work.code 当主键，任务与里程碑也用 code 引用工作。
+   现在工作主键改为随机 id（好让同一编号能跨年度共存），
+   故需给老工作补 id，并把所有引用从 code 重写为 id。
+   幂等：已迁移过的数据再跑一次不会有副作用。 */
+function migrateWorkIds() {
+  const codeToId = new Map();
+  let changed = false;
+  DB.works.forEach(w => {
+    if (!w.id) { w.id = uid('w'); changed = true; }
+    if (w.code && !codeToId.has(w.code)) codeToId.set(w.code, w.id);
+  });
+  if (!codeToId.size) return false;
+  const remap = (rec, key) => {
+    const v = rec[key];
+    if (!v) return;
+    if (DB.works.some(w => w.id === v)) return;      // 已经是 id
+    const id = codeToId.get(v);
+    if (id) { rec[key] = id; changed = true; }
+  };
+  DB.tasks.forEach(t => remap(t, 'work'));
+  DB.milestones.forEach(m => remap(m, 'work'));
+  return changed;
+}
+
 function blank(entity, over) {
   const sc = schema(entity), r = {};
   sc.fields.forEach(f => { if (!f.virtual) r[f.key] = ''; });
@@ -756,7 +838,7 @@ function label(entity, f, v) {
     const r = byId(f.ref, v);
     if (!r) return String(v);
     const rs = schema(f.ref);
-    return (rs.pk === 'code' ? r.code + ' ' : '') + (r[rs.titleField] || '');
+    return (r.code ? r.code + ' ' : '') + (r[rs.titleField] || '');
   }
   return String(v);
 }
@@ -859,7 +941,7 @@ function optionsOf(entity, f, rec) {
     let list = f.refScope && rec ? f.refScope(rec) : coll(f.ref).filter(r => !r.deleted_at);
     if (f.ref === 'work') list = list.filter(w => inYear(w));
     const rs = schema(f.ref);
-    return list.map(r => ({ v: r[rs.pk], label: (rs.pk === 'code' ? r.code + ' ' : '') + (r[rs.titleField] || '') }));
+    return list.map(r => ({ v: r[rs.pk], label: (r.code ? r.code + ' ' : '') + (r[rs.titleField] || '') }));
   }
   if (f.type === 'person' || f.type === 'persons') return allPeople().map(p => ({ v: p, label: p }));
   if (f.options) return f.options.map(o => ({ v: o.v, label: o.label }));
@@ -1002,11 +1084,11 @@ function renderTaskTree(rows) {
 
   const dutyMap = new Map();
   visibleWorks().forEach(w => {
-    const c = byWork.get(w.code) || 0;
+    const c = byWork.get(w.id) || 0;
     if (!dutyMap.has(w.duty)) dutyMap.set(w.duty, { count: 0, works: [] });
     const e = dutyMap.get(w.duty);
     e.count += c;
-    if (c > 0 || st.filters.work === w.code) e.works.push({ w, c });
+    if (c > 0 || st.filters.work === w.id) e.works.push({ w, c });
   });
 
   const selWork = st.filters.work && st.filters.work !== '__empty__' ? byId('work', st.filters.work) : null;
@@ -1025,7 +1107,7 @@ function renderTaskTree(rows) {
             <span class="sb-label">${esc(d.code + ' ' + d.name)}</span>
             <span class="cnt">${e.count || ''}</span></div>`;
     if (open) h += e.works.map(({ w, c }) =>
-      `<div class="sb-item indent2${st.filters.work === w.code ? ' active' : ''}" data-act="tree-pick" data-duty="" data-work="${esc(w.code)}" title="${esc(w.code + ' ' + w.name)}">
+      `<div class="sb-item indent2${st.filters.work === w.id ? ' active' : ''}" data-act="tree-pick" data-duty="" data-work="${esc(w.id)}" title="${esc(w.code + ' ' + w.name)}">
          <span class="sb-label">${esc(w.name)}</span><span class="cnt">${c || ''}</span></div>`).join('');
   });
 
@@ -1094,7 +1176,7 @@ function bindToolbarInputs(page) {
 function inYear(w) { return !DB.settings.year || !w.year || w.year === DB.settings.year; }
 function visibleWorks() { return DB.works.filter(w => !w.deleted_at && inYear(w)); }
 function visibleTasks() {
-  const ok = new Set(visibleWorks().map(w => w.code));
+  const ok = new Set(visibleWorks().map(w => w.id));
   return DB.tasks.filter(t => !t.work || ok.has(t.work));
 }
 
@@ -1178,7 +1260,7 @@ function renderCellValue(entity, rec, f, editable) {
         const d = r.plan_date ? ` <span style="opacity:.75">${esc(fmtDate(r.plan_date))}</span>` : '';
         return `<td class="cell-center"${editAttr} title="${esc(r.name + (r.plan_date ? ' ' + r.plan_date : ''))}"><span class="ms-chip">${esc(r.name)}${d}</span></td>`;
       }
-      return `<td${editAttr} title="${esc(full)}"><span class="cell-title">${rs.pk === 'code' ? `<span class="code-chip">${esc(r.code)}</span>` : ''}${esc(r[rs.titleField] || '')}</span></td>`;
+      return `<td${editAttr} title="${esc(full)}"><span class="cell-title">${r.code ? `<span class="code-chip">${esc(r.code)}</span>` : ''}${esc(r[rs.titleField] || '')}</span></td>`;
     }
     default:
       return `<td class="${f.align === 'center' ? 'cell-center' : ''}"${editAttr}><span class="cell-title">${esc(rec[f.key])}</span></td>`;
@@ -1285,21 +1367,21 @@ function renderWorks() {
 
   $('#works-body').innerHTML = rows.map(w => {
     const cells = cols.map(k => renderCellValue('work', w, fieldDef('work', k), true)).join('');
-    const ms = DB.milestones.filter(m => m.work === w.code && !m.deleted_at);
+    const ms = DB.milestones.filter(m => m.work === w.id && !m.deleted_at);
     const msDone = ms.filter(m => m.status === 'done').length;
-    const msCell = `<td class="cell-center"><button class="action-btn ms" data-act="ms-panel" data-code="${esc(w.code)}" title="管理里程碑">◈ ${ms.length ? msDone + '/' + ms.length : '＋'}</button></td>`;
-    const ts = DB.tasks.filter(t => t.work === w.code && !t.deleted_at);
+    const msCell = `<td class="cell-center"><button class="action-btn ms" data-act="ms-panel" data-id="${esc(w.id)}" title="管理里程碑">◈ ${ms.length ? msDone + '/' + ms.length : '＋'}</button></td>`;
+    const ts = DB.tasks.filter(t => t.work === w.id && !t.deleted_at);
     const done = ts.filter(t => t.status === 'done').length;
     const doing = ts.filter(t => t.status === 'doing').length;
     const over = ts.filter(isOverdue).length;
     const pct = ts.length ? Math.round(done / ts.length * 100) : 0;
-    const statCell = `<td class="cell-center" data-act="work-drill" data-code="${esc(w.code)}" style="cursor:pointer" title="查看该工作下的任务">
+    const statCell = `<td class="cell-center" data-act="work-drill" data-id="${esc(w.id)}" style="cursor:pointer" title="查看该工作下的任务">
         <div class="progress-wrap"><div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
         <span class="progress-num">${ts.length ? done + '/' + ts.length : '—'}</span></div>
         ${over ? `<div style="font-size:10px;color:var(--overdue);line-height:1">逾期 ${over}</div>`
                : (doing ? `<div style="font-size:10px;color:var(--text3);line-height:1">进行 ${doing}</div>` : '')}</td>`;
-    const act = `<td class="cell-center"><button class="action-btn del" data-act="work-del" data-code="${esc(w.code)}" title="停用">×</button></td>`;
-    return `<tr data-id="${esc(w.code)}">${cells}${msCell}${statCell}${act}</tr>`;
+    const act = `<td class="cell-center"><button class="action-btn del" data-act="work-del" data-id="${esc(w.id)}" title="停用">×</button></td>`;
+    return `<tr data-id="${esc(w.id)}">${cells}${msCell}${statCell}${act}</tr>`;
   }).join('');
 }
 
@@ -1321,7 +1403,7 @@ function renderDuties() {
   $('#duties-body').innerHTML = rows.map(d => {
     const cells = cols.map(k => renderCellValue('duty', d, fieldDef('duty', k), true)).join('');
     const ws = visibleWorks().filter(w => w.duty === d.code);
-    const codes = new Set(ws.map(w => w.code));
+    const codes = new Set(ws.map(w => w.id));
     const ts = DB.tasks.filter(t => !t.deleted_at && codes.has(t.work));
     const done = ts.filter(t => t.status === 'done').length;
     const stat = `<td class="cell-center" data-act="duty-drill" data-code="${esc(d.code)}" style="cursor:pointer" title="查看该职责下的工作">
@@ -1392,7 +1474,7 @@ function renderDashboard() {
 
   /* ---------- ② 里程碑时间线 ---------- */
   const msAll = DB.milestones.filter(m => !m.deleted_at && m.plan_date &&
-                                          works.some(w => w.code === m.work));
+                                          works.some(w => w.id === m.work));
   const msShow = msAll.filter(m => m.status !== 'done' || daysFromToday(m.plan_date) >= -14)
     .sort((a, b) => a.plan_date.localeCompare(b.plan_date)).slice(0, 10);
 
@@ -1414,7 +1496,7 @@ function renderDashboard() {
       const off = daysFromToday(m.plan_date);
       const cls = m.status === 'done' ? 'done' : off < 0 ? 'late' : off <= 7 ? 'soon' : 'norm';
       const state = m.status === 'done' ? '已完成' : off < 0 ? `逾期 ${-off} 天` : off === 0 ? '今天' : `还有 ${off} 天`;
-      return `<div class="tl-row" data-act="ms-panel" data-code="${esc(m.work)}" title="${esc(m.name + ' · ' + workName(m.work) + ' · ' + m.plan_date + ' · ' + state)}">
+      return `<div class="tl-row" data-act="ms-panel" data-id="${esc(m.work)}" title="${esc(m.name + ' · ' + workName(m.work) + ' · ' + m.plan_date + ' · ' + state)}">
         <span class="tl-name">${esc(m.name)} <span class="sub">${esc(workName(m.work))}</span></span>
         <span class="tl-track" style="--today:${pct(0)}"><span class="tl-dot ${cls}" style="left:${pct(off)}"></span></span>
         <span class="tl-date ${off < 0 && m.status !== 'done' ? 'due-overdue' : ''}">${esc(state)}</span></div>`;
@@ -1435,7 +1517,7 @@ function renderDashboard() {
 
   /* ---------- ③ 各职责推进 ---------- */
   const dutyStat = DB.duties.filter(d => !d.deleted_at).map(d => {
-    const codes = new Set(works.filter(w => w.duty === d.code).map(w => w.code));
+    const codes = new Set(works.filter(w => w.duty === d.code).map(w => w.id));
     const ts = tasks.filter(t => codes.has(t.work));
     return {
       code: d.code, name: d.code + ' ' + d.name, total: ts.length,
@@ -1556,16 +1638,338 @@ function workName(code) { const w = byId('work', code); return w ? w.name : (cod
 /* =============================================================
    17. 图表页（P4）
    ============================================================= */
+let chartTab = 'person';
+const CHART_TABS = [
+  { key: 'person',   label: '按人' },
+  { key: 'category', label: '按分类' },
+  { key: 'time',     label: '按时间' },
+  { key: 'gantt',    label: '里程碑甘特' },
+];
+const chartTableView = {};      // 每个图表是否切到表格视图
+
+/* ---------- 统计 ---------- */
+function bucketOf(t) {          // 任务归入哪一段
+  if (isOverdue(t)) return 'late';
+  if (t.status === 'done') return 'done';
+  if (t.status === 'doing') return 'doing';
+  if (t.status === 'hold') return 'hold';
+  return 'todo';
+}
+function tally(list) {
+  const c = { total: list.length, done: 0, doing: 0, late: 0, todo: 0, hold: 0 };
+  list.forEach(t => { c[bucketOf(t)]++; });
+  c.rate = c.total ? Math.round(c.done / c.total * 100) : 0;
+  return c;
+}
+function statsByPerson(tasks) {
+  const own = new Map(), join = new Map();
+  tasks.forEach(t => {
+    const o = t.owner || '（未指派）';
+    if (!own.has(o)) own.set(o, []);
+    own.get(o).push(t);
+    (t.assignees || []).forEach(a => { if (!join.has(a)) join.set(a, []); join.get(a).push(t); });
+  });
+  const names = uniq([...own.keys(), ...join.keys()]);
+  return names.map(nm => ({ name: nm, ...tally(own.get(nm) || []), join: (join.get(nm) || []).length }))
+    .sort((a, b) => (b.late + b.doing + b.todo) - (a.late + a.doing + a.todo) || b.total - a.total);
+}
+function tasksOfDuty(tasks, code) {
+  const codes = new Set(visibleWorks().filter(w => w.duty === code).map(w => w.id));
+  return tasks.filter(t => codes.has(t.work));
+}
+function statsByDuty(tasks) {
+  return DB.duties.filter(d => !d.deleted_at)
+    .map(d => ({ code: d.code, name: d.code + ' ' + d.name, category: d.category, ...tally(tasksOfDuty(tasks, d.code)) }))
+    .filter(x => x.total > 0);
+}
+function statsByCategory(tasks) {
+  return CATEGORIES.map(c => {
+    const codes = DB.duties.filter(d => !d.deleted_at && d.category === c.v).map(d => d.code);
+    const list = [];
+    codes.forEach(code => list.push(...tasksOfDuty(tasks, code)));
+    return { key: c.v, name: c.label, color: c.color, ...tally(list) };
+  }).filter(x => x.total > 0);
+}
+function monthKey(iso) { return (iso || '').slice(0, 7); }
+function monthlySeries(tasks, n) {
+  const months = [];
+  const d = new Date();
+  d.setDate(1);
+  for (let i = n - 1; i >= 0; i--) {
+    const m = new Date(d.getFullYear(), d.getMonth() - i, 1);
+    months.push(`${m.getFullYear()}-${String(m.getMonth() + 1).padStart(2, '0')}`);
+  }
+  return months.map(m => ({
+    m,
+    label: (+m.slice(5) === 1 ? m.slice(0, 4) + '年' : '') + (+m.slice(5)) + '月',
+    added: tasks.filter(t => monthKey(t.created_at) === m).length,
+    done: tasks.filter(t => t.status === 'done' && monthKey(t.actual_date) === m).length,
+  }));
+}
+/* 到期分布：已逾期 + 未来 6 周 + 更远，按周聚合比按天更好读 */
+function dueBuckets(tasks) {
+  const open = tasks.filter(isOpen);
+  const b = [{ label: '已逾期', cls: 'bar-late', n: open.filter(isOverdue).length }];
+  for (let w = 0; w < 6; w++) {
+    const from = offsetDate(w * 7), to = offsetDate(w * 7 + 6);
+    b.push({
+      label: w === 0 ? '本周内' : `${w * 7 + 1}-${w * 7 + 7}天`,
+      cls: w === 0 ? 'bar-soon' : 'bar-norm',
+      n: open.filter(t => t.plan_date && t.plan_date >= from && t.plan_date <= to).length,
+    });
+  }
+  const far = offsetDate(42);
+  b.push({ label: '更远', cls: 'bar-norm', n: open.filter(t => t.plan_date && t.plan_date > far).length });
+  b.push({ label: '无日期', cls: 'bar-norm', n: open.filter(t => !t.plan_date).length });
+  return b;
+}
+
+/* ---------- 通用绘制件 ---------- */
+// 横向堆叠条（HTML 实现：文字是真实文本，天然响应式）
+function hBar(name, c, max, attrs) {
+  const p = n => (n / max * 100).toFixed(2) + '%';
+  const tip = `${name}：共 ${c.total} 条 · 已完成 ${c.done} · 进行中 ${c.doing} · 逾期 ${c.late} · 未开始 ${c.todo}${c.hold ? ' · 挂起 ' + c.hold : ''}`;
+  return `<div class="bar-row${attrs ? ' clickable' : ''}"${attrs || ''} title="${esc(tip)}">
+    <span class="nm">${esc(name)}</span>
+    <span class="track">
+      <span class="seg seg-done" style="width:${p(c.done)}"></span>
+      <span class="seg seg-doing" style="width:${p(c.doing)}"></span>
+      <span class="seg seg-late" style="width:${p(c.late)}"></span>
+    </span>
+    <span class="num">${c.done}/${c.total} · ${c.rate}%</span></div>`;
+}
+const statusLegend = `<div class="legend">
+  <span><i style="background:var(--c-done)"></i>已完成</span>
+  <span><i style="background:var(--c-doing)"></i>进行中</span>
+  <span><i style="background:var(--c-late)"></i>逾期</span>
+  <span><i style="background:var(--c-track)"></i>未开始/挂起</span></div>`;
+
+// 图表/表格切换头
+function panelHead(title, id, note) {
+  const isTable = chartTableView[id];
+  return `<div class="panel-h"><span>${title}</span><span>
+    ${note ? `<span class="hint" style="margin-right:8px">${note}</span>` : ''}
+    <span class="toggle-view" data-act="chart-view" data-id="${id}">${isTable ? '看图表' : '看数据表'}</span></span></div>`;
+}
+function dataTable(headers, rows) {
+  return `<table class="dtable"><thead><tr>${headers.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map(r => `<tr>${r.map(c => `<td>${esc(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+}
+function chartWidth(fallback) {
+  const el = $('#page-charts');
+  const w = el ? el.clientWidth : 0;
+  return Math.max(360, (w || fallback || 900) - 66);
+}
+
+/* ---------- 折线图（月度趋势） ---------- */
+function lineChart(data, w) {
+  const h = 210, padL = 34, padR = 12, padT = 12, padB = 26;
+  const iw = w - padL - padR, ih = h - padT - padB;
+  const maxV = Math.max(1, ...data.map(d => Math.max(d.added, d.done)));
+  const niceMax = Math.ceil(maxV / 5) * 5 || 5;
+  const x = i => padL + (data.length === 1 ? iw / 2 : i / (data.length - 1) * iw);
+  const y = v => padT + ih - v / niceMax * ih;
+  const path = key => data.map((d, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(d[key]).toFixed(1)}`).join(' ');
+
+  let g = '';
+  for (let i = 0; i <= 5; i++) {
+    const v = niceMax / 5 * i;
+    g += `<line class="ax-grid" x1="${padL}" y1="${y(v)}" x2="${w - padR}" y2="${y(v)}"/>
+          <text class="ax-text" x="${padL - 6}" y="${y(v) + 3}" text-anchor="end">${v}</text>`;
+  }
+  const xlab = data.map((d, i) =>
+    (data.length <= 12 || i % 2 === 0)
+      ? `<text class="ax-text" x="${x(i)}" y="${h - 8}" text-anchor="middle">${esc(d.label)}</text>` : '').join('');
+  // 圆点 = 新增，方块 = 完成（二次编码，蓝绿在蓝黄色盲下接近）
+  const mkNew = data.map((d, i) => `<circle class="mk mk-new" cx="${x(i).toFixed(1)}" cy="${y(d.added).toFixed(1)}" r="3.5"><title>${esc(d.label)} 新增 ${d.added}</title></circle>`).join('');
+  const mkDone = data.map((d, i) => `<rect class="mk mk-done" x="${(x(i) - 3.5).toFixed(1)}" y="${(y(d.done) - 3.5).toFixed(1)}" width="7" height="7"><title>${esc(d.label)} 完成 ${d.done}</title></rect>`).join('');
+  const hit = data.map((d, i) => `<rect x="${(x(i) - iw / data.length / 2).toFixed(1)}" y="${padT}" width="${(iw / data.length).toFixed(1)}" height="${ih}" fill="transparent"
+      data-tip="${esc(d.label)}|${d.added}|${d.done}" data-cx="${x(i).toFixed(1)}"/>`).join('');
+
+  return `<svg width="${w}" height="${h}" role="img" aria-label="月度新增与完成任务数趋势">
+    ${g}
+    <line class="ax-line" x1="${padL}" y1="${padT + ih}" x2="${w - padR}" y2="${padT + ih}"/>
+    ${xlab}
+    <path class="ln ln-new" d="${path('added')}"/>
+    <path class="ln ln-done" d="${path('done')}"/>
+    ${mkNew}${mkDone}
+    <line class="crosshair" id="ch-line" x1="0" y1="${padT}" x2="0" y2="${padT + ih}" style="display:none"/>
+    <g id="ch-hits">${hit}</g>
+  </svg>`;
+}
+
+/* ---------- 柱状图（到期分布） ---------- */
+function barChart(buckets, w) {
+  const h = 190, padL = 30, padR = 10, padT = 12, padB = 40;
+  const iw = w - padL - padR, ih = h - padT - padB;
+  const maxV = Math.max(1, ...buckets.map(b => b.n));
+  const niceMax = Math.ceil(maxV / 4) * 4 || 4;
+  const bw = iw / buckets.length;
+  const y = v => padT + ih - v / niceMax * ih;
+
+  let g = '';
+  for (let i = 0; i <= 4; i++) {
+    const v = niceMax / 4 * i;
+    g += `<line class="ax-grid" x1="${padL}" y1="${y(v)}" x2="${w - padR}" y2="${y(v)}"/>
+          <text class="ax-text" x="${padL - 6}" y="${y(v) + 3}" text-anchor="end">${v}</text>`;
+  }
+  const bars = buckets.map((b, i) => {
+    const bx = padL + i * bw + bw * 0.18, bwid = bw * 0.64;
+    const bh = Math.max(b.n ? 2 : 0, ih - (y(b.n) - padT));
+    return `<g><rect class="${b.cls}" x="${bx.toFixed(1)}" y="${(padT + ih - bh).toFixed(1)}" width="${bwid.toFixed(1)}" height="${bh.toFixed(1)}" rx="3">
+        <title>${esc(b.label)}：${b.n} 条</title></rect>
+      ${b.n ? `<text class="ax-text val" x="${(bx + bwid / 2).toFixed(1)}" y="${(padT + ih - bh - 4).toFixed(1)}" text-anchor="middle">${b.n}</text>` : ''}
+      <text class="ax-text" x="${(bx + bwid / 2).toFixed(1)}" y="${h - 22}" text-anchor="middle">${esc(b.label)}</text></g>`;
+  }).join('');
+
+  return `<svg width="${w}" height="${h}" role="img" aria-label="未完成任务的到期分布">
+    ${g}<line class="ax-line" x1="${padL}" y1="${padT + ih}" x2="${w - padR}" y2="${padT + ih}"/>${bars}</svg>`;
+}
+
+/* ---------- 甘特 ---------- */
+function ganttPanel(tasks) {
+  const works = visibleWorks();
+  const rows = works.map(w => ({
+    w, ms: DB.milestones.filter(m => m.work === w.id && !m.deleted_at && m.plan_date)
+      .sort((a, b) => a.plan_date.localeCompare(b.plan_date)),
+  })).filter(r => r.ms.length);
+
+  if (!rows.length) return `<div class="empty-mini">还没有里程碑。到「工作」页点某项工作的 ◈ 按钮即可添加。</div>`;
+
+  const offs = rows.flatMap(r => r.ms.map(m => daysFromToday(m.plan_date)));
+  let lo = Math.min(0, ...offs) - 5, hi = Math.max(...offs) + 5;
+  if (hi - lo < 60) hi = lo + 60;
+  const pct = d => ((d - lo) / (hi - lo) * 100).toFixed(2) + '%';
+
+  const ticks = [];
+  for (let d = lo; d <= hi; d++) {
+    const ds = offsetDate(d);
+    if (ds.endsWith('-01')) ticks.push({ d, label: (+ds.slice(5, 7)) + '月' });
+  }
+
+  const body = rows.map(({ w, ms }) => {
+    const a = daysFromToday(ms[0].plan_date), b = daysFromToday(ms[ms.length - 1].plan_date);
+    const done = ms.filter(m => m.status === 'done').length;
+    const pts = ms.map(m => {
+      const off = daysFromToday(m.plan_date);
+      const cls = m.status === 'done' ? 'done' : off < 0 ? 'late' : off <= 7 ? 'soon' : 'norm';
+      const state = m.status === 'done' ? '已完成' : off < 0 ? `逾期 ${-off} 天` : off === 0 ? '今天' : `还有 ${off} 天`;
+      return `<span class="gantt-pt ${cls}" style="left:${pct(off)}" title="${esc(m.name + ' · ' + m.plan_date + ' · ' + state)}"></span>`;
+    }).join('');
+    return `<div class="gantt-row">
+      <span class="gantt-name" data-act="ms-panel" data-id="${esc(w.id)}" title="${esc(w.code + ' ' + w.name)}">
+        <span class="code">${esc(w.code)}</span>${esc(w.name)}</span>
+      <span class="gantt-track" style="--today:${pct(0)}">
+        <span class="gantt-span" style="left:${pct(a)};width:${(((b - a) / (hi - lo)) * 100).toFixed(2)}%"></span>${pts}</span>
+      <span class="gantt-cnt">${done}/${ms.length}</span></div>`;
+  }).join('');
+
+  return `<div class="tl">
+    <div class="tl-axis"><span class="gantt-name" style="font-size:10px;color:var(--text3)">工作</span>
+      <span class="tl-ticks">${ticks.map(t => `<span class="tk" style="left:${pct(t.d)}">${esc(t.label)}</span>`).join('')}</span>
+      <span class="gantt-cnt" style="font-size:10px">完成</span></div>
+    ${body}
+    <div class="legend">
+      <span><i style="background:var(--c-late)"></i>逾期</span>
+      <span><i style="background:var(--c-soon)"></i>7天内</span>
+      <span><i style="background:var(--c-doing)"></i>后续</span>
+      <span><i style="background:var(--c-done)"></i>已完成</span>
+      <span style="color:var(--accent)">│ 竖线为今天</span></div></div>`;
+}
+
+/* ---------- 页面 ---------- */
 function renderCharts() {
-  $('#page-charts').innerHTML = `<div class="pad"><div class="panel">
-    <div class="panel-h">图表分析</div><div class="panel-b hint">
-    本页将在 <b>P4 阶段</b>实现，三个分析视角：<br>
-    · <b>按人</b>：各人牵头/参与任务数、完成率对比、工作负荷<br>
-    · <b>按分类</b>：四大职责类别 → 15 项职责 → 工作，任务量与完成率堆叠<br>
-    · <b>按时间</b>：月度新增/完成折线、未来 30 天到期分布、里程碑甘特图<br><br>
-    图表全部用手写 SVG 实现，不引入任何第三方库。
-  </div></div></div>`;
-  $('#status-left').textContent = '图表（P4 阶段实现）';
+  const tasks = visibleTasks().filter(t => !t.deleted_at);
+  const w = chartWidth();
+  const tabs = `<div class="chart-tabs">${CHART_TABS.map(t =>
+    `<span class="t${chartTab === t.key ? ' on' : ''}" data-act="chart-tab" data-k="${t.key}">${esc(t.label)}</span>`).join('')}</div>`;
+  let body = '';
+
+  if (chartTab === 'person') {
+    const st = statsByPerson(tasks);
+    const max = Math.max(1, ...st.map(s => s.total));
+    body = `<div class="panel">
+      ${panelHead('▥ 各人任务量与完成率', 'person', '按未完成量排序 · 点击下钻')}
+      <div class="panel-b">${chartTableView.person
+        ? dataTable(['姓名', '牵头合计', '已完成', '进行中', '逾期', '未开始', '完成率', '参与'],
+            st.map(s => [s.name, s.total, s.done, s.doing, s.late, s.todo + s.hold, s.rate + '%', s.join]))
+        : (st.length ? st.map(s => hBar(s.name, s, max,
+            ` data-act="filter-owner" data-owner="${esc(s.name === '（未指派）' ? '__empty__' : s.name)}"`)).join('') + statusLegend
+                     : '<div class="empty-mini">暂无数据</div>')}
+        <div class="chart-note">条长表示该人牵头的任务总量（同一标尺可横向比较）；右侧为「已完成/合计 · 完成率」。
+        「参与」列统计其作为参与人的任务数，不计入条长。</div></div></div>`;
+
+  } else if (chartTab === 'category') {
+    const cat = statsByCategory(tasks), duty = statsByDuty(tasks);
+    const maxC = Math.max(1, ...cat.map(s => s.total));
+    const maxD = Math.max(1, ...duty.map(s => s.total));
+    body = `<div class="panel">
+      ${panelHead('▤ 四大职责类别', 'cat')}
+      <div class="panel-b">${chartTableView.cat
+        ? dataTable(['类别', '合计', '已完成', '进行中', '逾期', '未开始', '完成率'],
+            cat.map(s => [s.name, s.total, s.done, s.doing, s.late, s.todo + s.hold, s.rate + '%']))
+        : (cat.length ? cat.map(s => hBar(s.name, s, maxC)).join('') + statusLegend : '<div class="empty-mini">暂无数据</div>')}
+      </div></div>
+      <div class="panel">
+      ${panelHead('▤ 15 项职责', 'duty', '点击下钻到工作')}
+      <div class="panel-b">${chartTableView.duty
+        ? dataTable(['职责', '合计', '已完成', '进行中', '逾期', '未开始', '完成率'],
+            duty.map(s => [s.name, s.total, s.done, s.doing, s.late, s.todo + s.hold, s.rate + '%']))
+        : (duty.length ? duty.map(s => hBar(s.name, s, maxD, ` data-act="duty-drill" data-code="${esc(s.code)}"`)).join('') + statusLegend
+                       : '<div class="empty-mini">暂无数据</div>')}
+        <div class="chart-note">只显示已有任务的职责。条长用同一标尺，可直接横向比较任务量。</div></div></div>`;
+
+  } else if (chartTab === 'time') {
+    const series = monthlySeries(tasks, 12);
+    const buckets = dueBuckets(tasks);
+    body = `<div class="panel">
+      ${panelHead('▧ 近 12 个月新增与完成', 'trend')}
+      <div class="panel-b">${chartTableView.trend
+        ? dataTable(['月份', '新增', '完成'], series.map(s => [s.label, s.added, s.done]))
+        : `<div class="svg-wrap" id="trend-wrap">${lineChart(series, w)}<div id="chart-tip"></div></div>
+           <div class="legend">
+             <span><i style="background:var(--c-doing);border-radius:50%"></i>新增（实线圆点）</span>
+             <span><i style="background:var(--c-done)"></i>完成（虚线方块）</span></div>`}
+        <div class="chart-note">两条线共用同一纵轴（单位均为「条」），不使用双轴。
+        线型与标记形状同时区分两个系列，不单靠颜色。</div></div></div>
+      <div class="panel">
+      ${panelHead('▧ 未完成任务的到期分布', 'due')}
+      <div class="panel-b">${chartTableView.due
+        ? dataTable(['区间', '任务数'], buckets.map(b => [b.label, b.n]))
+        : barChart(buckets, w)}
+        <div class="chart-note">仅统计未开始与进行中的任务；已挂起不计入逾期。</div></div></div>`;
+
+  } else {
+    body = `<div class="panel">${panelHead('◈ 里程碑甘特', 'gantt', '点击工作名可编辑其里程碑')}
+      <div class="panel-b">${ganttPanel(tasks)}
+      <div class="chart-note">每行一项工作，灰色横条为该工作首末里程碑的跨度，圆点为各里程碑。</div></div></div>`;
+  }
+
+  $('#page-charts').innerHTML = `<div class="pad">${tabs}${body}</div>`;
+  if (chartTab === 'time' && !chartTableView.trend) bindTrendHover();
+  $('#status-left').textContent = `图表 · ${(CHART_TABS.find(t => t.key === chartTab) || {}).label} · 样本 ${tasks.length} 条任务`;
+}
+
+/* 折线图十字准线与浮动提示 */
+function bindTrendHover() {
+  const wrap = $('#trend-wrap');
+  if (!wrap) return;
+  const svg = wrap.querySelector('svg'), line = wrap.querySelector('#ch-line'), tip = wrap.querySelector('#chart-tip');
+  if (!svg || !line || !tip) return;
+  svg.addEventListener('mousemove', e => {
+    const hit = e.target.closest('[data-tip]');
+    if (!hit) return;
+    const [label, added, done] = hit.dataset.tip.split('|');
+    const cx = +hit.dataset.cx;
+    line.setAttribute('x1', cx); line.setAttribute('x2', cx);
+    line.style.display = '';
+    tip.innerHTML = `<b>${esc(label)}</b><br><i style="background:var(--c-doing);border-radius:50%"></i>新增 ${esc(added)}<br><i style="background:var(--c-done)"></i>完成 ${esc(done)}`;
+    tip.classList.add('show');
+    const r = wrap.getBoundingClientRect();
+    tip.style.left = Math.min(cx + 10, r.width - tip.offsetWidth - 6) + 'px';
+    tip.style.top = '14px';
+  });
+  svg.addEventListener('mouseleave', () => { line.style.display = 'none'; tip.classList.remove('show'); });
 }
 
 /* =============================================================
@@ -1582,6 +1986,11 @@ function renderData() {
   const testN = DB.tasks.filter(t => t.custom === '测试').length;
   let size = 0;
   try { size = (localStorage.getItem(STORAGE_KEY) || '').length; } catch (e) {}
+  const bk = backupState();
+  const hc = healthCheck();
+  const yearMap = new Map();
+  DB.works.filter(w => !w.deleted_at && w.year).forEach(w => yearMap.set(w.year, (yearMap.get(w.year) || 0) + 1));
+  const yearRows = [...yearMap.entries()].sort((a, b) => b[0] - a[0]);
 
   $('#page-data').innerHTML = `<div class="pad">
     <div class="panel"><div class="panel-h">使用者</div><div class="panel-b">
@@ -1595,6 +2004,38 @@ function renderData() {
       ${Object.entries(counts).map(([k, v]) => `${k}：<b>${v}</b>`).join(' &nbsp;·&nbsp; ')}<br>
       本地存储占用：约 <b>${(size / 1024).toFixed(0)} KB</b>（localStorage 上限通常 5 MB）<br>
       存储实现：<code>${esc(Repo.name)}</code>　接入内网服务端后此处会变为 <code>http</code>，页面代码无需改动。
+    </div></div>
+
+    <div class="panel"><div class="panel-h"><span>备份状态</span></div><div class="panel-b">
+      <div class="hint" style="margin-bottom:8px">
+        ${bk.last
+          ? `上次完整备份：<b${bk.stale ? ' style="color:var(--overdue)"' : ''}>${esc(bk.last.slice(0, 16).replace('T', ' '))}</b>（${bk.days} 天前）`
+          : '<b style="color:var(--overdue)">从未备份</b>'}
+        ${bk.stale ? '<br><span style="color:var(--overdue)">⚠ 备份之后数据有改动，建议重新导出。</span>' : '<br>✅ 备份已是最新。'}
+        <br>数据只存在这台机器的浏览器里，<b>清理浏览器数据会全部丢失</b>，请定期导出。
+      </div>
+      <button class="btn primary" data-act="export-all">立即导出全部（JSON）</button>
+      <button class="btn" data-act="import-backup" style="margin-left:8px">从备份恢复…</button>
+    </div></div>
+
+    <div class="panel"><div class="panel-h"><span>年度管理</span></div><div class="panel-b">
+      <div class="hint" style="margin-bottom:8px">当前年度：<b>${DB.settings.year || '全部'}</b>　·
+        ${yearRows.map(([y, n]) => `${y}：${n} 项工作`).join(' · ') || '暂无年度数据'}</div>
+      <button class="btn primary" data-act="year-copy">复制工作到新年度…</button>
+      <span class="hint" style="margin-left:8px">编号沿用，里程碑日期顺延一年，任务不复制</span>
+    </div></div>
+
+    <div class="panel"><div class="panel-h"><span>数据体检</span></div><div class="panel-b">
+      ${hc.issues.length
+        ? hc.issues.map(i => `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12.5px">
+            <span style="color:${i.fix ? 'var(--overdue)' : 'var(--text2)'}">${i.fix ? '⚠' : 'ℹ'}</span>
+            <span style="flex:1">${esc(i.msg)}</span>
+            ${i.k === 'noWork' ? `<button class="btn" data-act="orphan-assign">批量指派…</button>` : ''}
+            ${i.fix ? `<button class="btn" data-act="health-fix" data-k="${i.k}">${esc(i.fix)}</button>` : ''}
+          </div>`).join('')
+        : '<div class="hint">✅ 未发现引用断裂或编号冲突。</div>'}
+      <div class="chart-note">体检检查：任务/里程碑指向的工作是否存在、任务的里程碑是否属于本工作、
+      同年度编号是否重复、未完成任务是否缺计划完成时间。标 ⚠ 的可一键修复，修复后 Ctrl+Z 可撤销。</div>
     </div></div>
 
     <div class="panel"><div class="panel-h">导入 / 导出</div><div class="panel-b">
@@ -1641,9 +2082,11 @@ function parseQuickInput(raw) {
   for (const tok of raw.trim().split(/\s+/)) {
     if (tok.startsWith('$') && tok.length > 1) {
       const key = tok.slice(1), code = padCode(key);
-      if (byId('work', code)) { t.work = code; continue; }
-      const w = DB.works.find(x => !x.deleted_at && x.name.includes(key));
-      if (w) { t.work = w.code; continue; }
+      // 先按编号在当前年度内匹配，再退回按名称模糊匹配
+      const byCode = visibleWorks().find(x => x.code === code);
+      if (byCode) { t.work = byCode.id; continue; }
+      const w = visibleWorks().find(x => x.name.includes(key));
+      if (w) { t.work = w.id; continue; }
       continue;
     }
     if (tok.startsWith('@') && tok.length > 1) { t.assignees.push(tok.slice(1)); continue; }
@@ -1722,6 +2165,10 @@ const ACTIONS = {
   'col-config': () => openColConfig(),
   'task-detail': d => openTaskDetail(d.id),
 
+  /* --- 图表页 --- */
+  'chart-tab': d => { chartTab = d.k; renderCharts(); },
+  'chart-view': d => { chartTableView[d.id] = !chartTableView[d.id]; renderCharts(); },
+
   /* --- 工作台 --- */
   'dash-focus': d => { dashFocus = d.k; renderDashboard(); },
   'filter-owner': d => {
@@ -1734,7 +2181,7 @@ const ACTIONS = {
   'work-filter': d => { UI.works.filters[d.field] = d.val; renderPage(); },
   'duty-filter': d => { UI.duties.filters[d.field] = d.val; renderPage(); },
 
-  'work-drill': d => { UI.tasks.view = 'all'; UI.tasks.filters = { work: d.code }; UI.tasks.search = ''; goto('tasks'); },
+  'work-drill': d => { UI.tasks.view = 'all'; UI.tasks.filters = { work: d.id }; UI.tasks.search = ''; goto('tasks'); },
   'duty-drill': d => { UI.works.filters = { duty: d.code }; goto('works'); },
   'focus-task': d => {
     const t = byId('task', d.id); if (!t) return;
@@ -1797,10 +2244,10 @@ const ACTIONS = {
 
   'work-new': () => openWorkForm(),
   'work-del': d => {
-    const w = byId('work', d.code); if (!w) return;
-    const n = DB.tasks.filter(t => t.work === w.code && !t.deleted_at).length;
+    const w = byId('work', d.id); if (!w) return;
+    const n = DB.tasks.filter(t => t.work === w.id && !t.deleted_at).length;
     confirmModal('停用工作', `停用「${w.code} ${w.name}」？${n ? `该工作下有 ${n} 条任务，不会被删除，但会变为"未归属"。` : ''}`, '停用', async () => {
-      snapshot(); softDelete('work', d.code); await Repo.upsert('work', w);
+      snapshot(); softDelete('work', d.id); await Repo.upsert('work', w);
       renderShell(); renderPage(); showSnack('已停用');
     }, true);
   },
@@ -1813,7 +2260,7 @@ const ACTIONS = {
       renderPage(); showSnack('已停用');
     }, true);
   },
-  'ms-panel': d => openMilestonePanel(d.code),
+  'ms-panel': d => openMilestonePanel(d.id),
 
   'set-me': () => goto('data'),
   'save-settings': async () => {
@@ -1824,7 +2271,11 @@ const ACTIONS = {
   },
   export: d => exportCSV(d.entity),
   'export-all': () => exportJSON(),
-  import: d => { _importEntity = d.entity; $('#file-input').click(); },
+  import: d => { _importEntity = d.entity; $('#file-input').accept = '.csv'; $('#file-input').click(); },
+  'import-backup': () => { _importEntity = '__backup__'; $('#file-input').accept = '.json'; $('#file-input').click(); },
+  'year-copy': () => openYearCopy(),
+  'orphan-assign': () => openOrphanAssign(),
+  'health-fix': d => fixHealth(d.k),
   'clear-test': () => {
     const n = DB.tasks.filter(t => t.custom === '测试').length;
     if (!n) { showSnack('没有测试数据'); return; }
@@ -2336,10 +2787,231 @@ function openTaskDetail(id) {
 }
 
 /* =============================================================
+   21c. 年度复制 / 未归属指派 / 数据体检 / 备份
+   ============================================================= */
+
+/* ---- 复制工作到新年度 ----
+   编号沿用（工作主键是随机 id，故同编号可跨年共存）；
+   复制工作与其里程碑结构，任务不带过来。 */
+function openYearCopy() {
+  const years = uniq(DB.works.filter(w => !w.deleted_at).map(w => w.year).filter(Boolean)).sort((a, b) => b - a);
+  const src = DB.settings.year || years[0] || new Date().getFullYear();
+  const list = DB.works.filter(w => !w.deleted_at && w.year === src);
+  if (!list.length) { showSnack(`${src} 年度没有工作可复制`); return; }
+
+  openModal('复制到新年度', `
+    <div class="form-row"><label>源年度</label>
+      <select id="yc-src">${years.map(y => `<option value="${y}"${y === src ? ' selected' : ''}>${y} 年度（${DB.works.filter(w => !w.deleted_at && w.year === y).length} 项）</option>`).join('')}</select></div>
+    <div class="form-row"><label>目标年度</label><input id="yc-dst" type="number" value="${src + 1}"></div>
+    <div class="form-row"><label>源年度处理</label>
+      <select id="yc-arch"><option value="keep">保持不变</option><option value="done">标记为已完成</option></select></div>
+    <div style="margin:6px 0 4px;font-size:12px;color:var(--text2)">选择要沿用的工作
+      <span class="toggle-view" id="yc-all" style="margin-left:8px">全选 / 全不选</span></div>
+    <div class="col-cfg" style="grid-template-columns:1fr;max-height:240px;overflow:auto">
+      ${list.map(w => `<div class="it"><input type="checkbox" class="yc-cb" id="yc-${w.id}" value="${esc(w.id)}" checked>
+        <label for="yc-${w.id}">${esc(w.code)} ${esc(w.name)}${w.owner ? ` <span style="color:var(--text3)">· ${esc(w.owner)}</span>` : ''}</label></div>`).join('')}
+    </div>
+    <div class="hint" style="margin-top:8px">编号沿用不变（同一编号可在不同年度并存）。
+    工作内容、牵头人、协同人员、里程碑名称会一并复制；<b>里程碑日期顺延一年，任务不复制</b>。</div>`,
+    '复制', async () => {
+      const dst = Number($('#yc-dst').value);
+      const srcY = Number($('#yc-src').value);
+      if (!dst || dst === srcY) { showSnack('目标年度不能为空或与源年度相同'); return; }
+      const ids = [...document.querySelectorAll('.yc-cb:checked')].map(cb => cb.value);
+      if (!ids.length) { showSnack('请至少选择一项工作'); return; }
+      const arch = $('#yc-arch').value;
+      closeModal();
+      snapshot();
+      let nw = 0, nm = 0;
+      await Repo.bulk(() => {
+        ids.forEach(id => {
+          const w = byId('work', id);
+          if (!w) return;
+          const copy = blank('work', {
+            code: w.code, duty: w.duty, name: w.name, content: [...(w.content || [])],
+            owner: w.owner, collaborators: [...(w.collaborators || [])],
+            year: dst, status: 'doing',
+          });
+          stampMeta(copy);
+          DB.works.push(copy);
+          nw++;
+          DB.milestones.filter(m => m.work === w.id && !m.deleted_at).forEach(m => {
+            const md = blank('milestone', {
+              work: copy.id, name: m.name, status: 'todo', actual_date: '',
+              plan_date: m.plan_date ? shiftYear(m.plan_date, dst - srcY) : '',
+            });
+            stampMeta(md);
+            DB.milestones.push(md);
+            nm++;
+          });
+          if (arch === 'done') { w.status = 'done'; stampMeta(w); }
+        });
+      });
+      DB.settings.year = dst;
+      await Repo.persist(DB);
+      renderShell(); renderPage();
+      showSnack(`已复制 ${nw} 项工作、${nm} 个里程碑到 ${dst} 年度（Ctrl+Z 可撤销）`);
+    });
+  setTimeout(() => {
+    const all = $('#yc-all');
+    if (all) all.addEventListener('click', () => {
+      const cbs = [...document.querySelectorAll('.yc-cb')];
+      const on = cbs.some(c => !c.checked);
+      cbs.forEach(c => { c.checked = on; });
+    });
+  }, 40);
+}
+// 日期加 n 年，2/29 落到平年时退到 2/28
+function shiftYear(ds, n) {
+  const [y, m, d] = ds.split('-').map(Number);
+  const days = new Date(y + n, m, 0).getDate();
+  return `${y + n}-${String(m).padStart(2, '0')}-${String(Math.min(d, days)).padStart(2, '0')}`;
+}
+
+/* ---- 未归属工作的任务：批量指派 ---- */
+function openOrphanAssign() {
+  const orphans = DB.tasks.filter(t => !t.deleted_at && (!t.work || !byId('work', t.work)));
+  if (!orphans.length) { showSnack('没有未归属的任务'); return; }
+  const opts = optionsOf('task', fieldDef('task', 'work'), null);
+  if (!opts.length) { showSnack('当前年度没有可指派的工作'); return; }
+  openModal('指派未归属任务', `
+    <div class="hint" style="margin-bottom:8px">共 <b>${orphans.length}</b> 条任务没有所属工作。勾选后统一指派。</div>
+    <div class="form-row"><label>指派到</label>
+      <select id="oa-work">${opts.map(o => `<option value="${esc(o.v)}">${esc(o.label)}</option>`).join('')}</select></div>
+    <div style="margin:6px 0 4px;font-size:12px;color:var(--text2)">选择任务
+      <span class="toggle-view" id="oa-all" style="margin-left:8px">全选 / 全不选</span></div>
+    <div class="col-cfg" style="grid-template-columns:1fr;max-height:240px;overflow:auto">
+      ${orphans.map(t => `<div class="it"><input type="checkbox" class="oa-cb" id="oa-${t.id}" value="${esc(t.id)}" checked>
+        <label for="oa-${t.id}">${esc(t.title)}${t.owner ? ` <span style="color:var(--text3)">· ${esc(t.owner)}</span>` : ''}</label></div>`).join('')}
+    </div>`,
+    '指派', async () => {
+      const work = $('#oa-work').value;
+      const ids = [...document.querySelectorAll('.oa-cb:checked')].map(cb => cb.value);
+      if (!ids.length) { showSnack('请至少选择一条任务'); return; }
+      closeModal();
+      snapshot();
+      await Repo.bulk(() => {
+        ids.forEach(id => {
+          const t = byId('task', id);
+          if (!t) return;
+          t.work = work;
+          if (!t.owner) { const w = byId('work', work); if (w) t.owner = w.owner; }
+          stampMeta(t);
+        });
+      });
+      renderShell(); renderPage();
+      showSnack(`已指派 ${ids.length} 条任务`);
+    });
+  setTimeout(() => {
+    const all = $('#oa-all');
+    if (all) all.addEventListener('click', () => {
+      const cbs = [...document.querySelectorAll('.oa-cb')];
+      const on = cbs.some(c => !c.checked);
+      cbs.forEach(c => { c.checked = on; });
+    });
+  }, 40);
+}
+
+/* ---- 数据体检：找出引用断裂与明显异常 ---- */
+function healthCheck() {
+  const issues = [];
+  const orphanTasks = DB.tasks.filter(t => !t.deleted_at && t.work && !byId('work', t.work));
+  if (orphanTasks.length) issues.push({ k: 'orphanTask', n: orphanTasks.length, msg: `${orphanTasks.length} 条任务指向了不存在的工作`, fix: '清空这些任务的所属工作' });
+
+  const noWork = DB.tasks.filter(t => !t.deleted_at && !t.work);
+  if (noWork.length) issues.push({ k: 'noWork', n: noWork.length, msg: `${noWork.length} 条任务未归属任何工作`, fix: null });
+
+  const badMs = DB.tasks.filter(t => {
+    if (t.deleted_at || !t.milestone) return false;
+    const m = byId('milestone', t.milestone);
+    return !m || m.deleted_at || m.work !== t.work;
+  });
+  if (badMs.length) issues.push({ k: 'badMs', n: badMs.length, msg: `${badMs.length} 条任务的里程碑已失效或不属于其工作`, fix: '清空这些任务的里程碑' });
+
+  const orphanMs = DB.milestones.filter(m => !m.deleted_at && (!m.work || !byId('work', m.work)));
+  if (orphanMs.length) issues.push({ k: 'orphanMs', n: orphanMs.length, msg: `${orphanMs.length} 个里程碑指向了不存在的工作`, fix: '删除这些里程碑' });
+
+  const badDuty = DB.works.filter(w => !w.deleted_at && (!w.duty || !byId('duty', w.duty)));
+  if (badDuty.length) issues.push({ k: 'badDuty', n: badDuty.length, msg: `${badDuty.length} 项工作指向了不存在的职责`, fix: null });
+
+  const seen = new Map(), dup = [];
+  DB.works.filter(w => !w.deleted_at).forEach(w => {
+    const k = w.year + '/' + w.code;
+    if (seen.has(k)) dup.push(w); else seen.set(k, w);
+  });
+  if (dup.length) issues.push({ k: 'dupCode', n: dup.length, msg: `${dup.length} 项工作在同一年度内编号重复`, fix: null });
+
+  const noDate = DB.tasks.filter(t => !t.deleted_at && isOpen(t) && !t.plan_date);
+  if (noDate.length) issues.push({ k: 'noDate', n: noDate.length, msg: `${noDate.length} 条未完成任务没有计划完成时间`, fix: null });
+
+  return { issues, orphanTasks, badMs, orphanMs };
+}
+
+async function fixHealth(kind) {
+  const r = healthCheck();
+  snapshot();
+  await Repo.bulk(() => {
+    if (kind === 'orphanTask') r.orphanTasks.forEach(t => { t.work = ''; t.milestone = ''; stampMeta(t); });
+    if (kind === 'badMs') r.badMs.forEach(t => { t.milestone = ''; stampMeta(t); });
+    if (kind === 'orphanMs') r.orphanMs.forEach(m => { m.deleted_at = new Date().toISOString(); stampMeta(m); });
+  });
+  renderPage();
+  showSnack('已修复（Ctrl+Z 可撤销）');
+}
+
+/* ---- 备份状态 ---- */
+function lastChangeAt() {
+  let mx = '';
+  ['duty', 'work', 'milestone', 'task'].forEach(e => coll(e).forEach(r => {
+    if (r.updated_at && r.updated_at > mx) mx = r.updated_at;
+  }));
+  return mx;
+}
+function backupState() {
+  const last = DB.settings.lastBackupAt || '';
+  const change = lastChangeAt();
+  const stale = !last || (change && change > last);
+  const days = last ? Math.floor((Date.now() - new Date(last).getTime()) / 86400000) : null;
+  return { last, stale, days };
+}
+
+/* ---- 从 JSON 备份恢复 ---- */
+function importBackup(text) {
+  let d;
+  try { d = JSON.parse(text); } catch (e) { showSnack('文件不是合法的 JSON'); return; }
+  if (!d || !Array.isArray(d.duties) || !Array.isArray(d.tasks)) { showSnack('这不是本系统导出的备份文件'); return; }
+  const cur = { 职责: DB.duties.length, 工作: DB.works.length, 里程碑: DB.milestones.length, 任务: DB.tasks.length };
+  const inc = { 职责: d.duties.length, 工作: (d.works || []).length, 里程碑: (d.milestones || []).length, 任务: d.tasks.length };
+  openModal('从备份恢复', `
+    <p style="color:var(--p1);font-weight:600;margin-bottom:8px">这会用备份内容<b>整体替换</b>当前数据。</p>
+    <table class="dtable"><thead><tr><th>实体</th><th>当前</th><th>备份</th></tr></thead><tbody>
+      ${Object.keys(cur).map(k => `<tr><td>${k}</td><td>${cur[k]}</td><td>${inc[k]}</td></tr>`).join('')}
+    </tbody></table>
+    <div class="hint" style="margin-top:8px">恢复后可用 Ctrl+Z 撤销一次。建议先「导出全部」留一份当前数据。</div>`,
+    '确认恢复', async () => {
+      closeModal();
+      snapshot();
+      DB.duties = d.duties.map(r => normalize('duty', r));
+      DB.works = (d.works || []).map(r => normalize('work', r));
+      DB.milestones = (d.milestones || []).map(r => normalize('milestone', r));
+      DB.tasks = d.tasks.map(r => normalize('task', r));
+      if (d.settings) DB.settings = Object.assign(DB.settings, d.settings);
+      migrateWorkIds();
+      rebuildIndex();
+      restoreUI();
+      await Repo.persist(DB);
+      renderShell(); renderPage();
+      showSnack('已从备份恢复');
+    }, true);
+}
+
+/* =============================================================
    22. 表单：新建工作 / 新建职责 / 里程碑面板
    ============================================================= */
-function nextWorkCode(dutyCode) {
-  const used = DB.works.filter(w => w.duty === dutyCode).map(w => parseInt(String(w.code).slice(2)) || 0);
+// 编号在「同职责 + 同年度」内递增；不同年度可以重复，这正是年度复制所需
+function nextWorkCode(dutyCode, year) {
+  const used = DB.works.filter(w => w.duty === dutyCode && w.year === year)
+    .map(w => parseInt(String(w.code).slice(2)) || 0);
   return dutyCode + String((used.length ? Math.max(...used) : 0) + 1).padStart(2, '0');
 }
 function openWorkForm() {
@@ -2357,11 +3029,12 @@ function openWorkForm() {
       const name = $('#wf-name').value.trim();
       if (!name) { showSnack('工作名称不能为空'); return; }
       const duty = $('#wf-duty').value;
+      const yr = Number($('#wf-year').value) || new Date().getFullYear();
       snapshot();
       const w = blank('work', {
-        code: nextWorkCode(duty), duty, name,
+        code: nextWorkCode(duty, yr), duty, name,
         owner: $('#wf-owner').value.trim(),
-        year: Number($('#wf-year').value) || new Date().getFullYear(),
+        year: yr,
         status: 'doing',
       });
       await Repo.upsert('work', w);
@@ -2391,19 +3064,19 @@ function openDutyForm() {
 
 /* 里程碑面板：一个工作下的全部里程碑，行内增删改，即时保存 */
 let _msWork = null;
-function openMilestonePanel(code) {
-  const w = byId('work', code);
+function openMilestonePanel(workId) {
+  const w = byId('work', workId);
   if (!w) { showSnack('工作不存在'); return; }
-  _msWork = code;
-  openModal(`里程碑 · ${w.code} ${w.name}`, msPanelHTML(code), '完成', () => { closeModal(); renderPage(); });
+  _msWork = workId;
+  openModal(`里程碑 · ${w.code} ${w.name}`, msPanelHTML(workId), '完成', () => { closeModal(); renderPage(); });
   bindMsPanel();
 }
-function msList(code) {
-  return DB.milestones.filter(m => m.work === code && !m.deleted_at)
+function msList(workId) {
+  return DB.milestones.filter(m => m.work === workId && !m.deleted_at)
     .sort((a, b) => (a.plan_date || '9999').localeCompare(b.plan_date || '9999'));
 }
-function msPanelHTML(code) {
-  const list = msList(code);
+function msPanelHTML(workId) {
+  const list = msList(workId);
   const rows = list.map(m => `
     <tr data-ms="${m.id}">
       <td><input data-msf="name" value="${esc(m.name)}" placeholder="里程碑名称"></td>
@@ -2554,15 +3227,26 @@ function exportCSV(entity) {
   download(`${entity}_${stamp()}.csv`, '﻿' + rows.join('\r\n'), 'text/csv;charset=utf-8;');
   showSnack(`已导出 ${coll(entity).length} 条${schema(entity).label}`);
 }
-function exportJSON() {
+async function exportJSON() {
   download(`工作管理备份_${stamp()}.json`, JSON.stringify(DB, null, 1), 'application/json');
+  DB.settings.lastBackupAt = new Date().toISOString();
+  await Repo.persist(DB);
+  if (currentPage === 'data') renderPage();
   showSnack('已导出 JSON 全量备份');
 }
 
 let _importEntity = 'task';
 $('#file-input').addEventListener('change', evt => {
   const file = evt.target.files[0]; if (!file) return;
-  const entity = _importEntity, sc = schema(entity);
+  const entity = _importEntity;
+  if (entity === '__backup__') {                 // JSON 全量恢复走另一条路径
+    const r = new FileReader();
+    r.onload = e => importBackup(e.target.result);
+    r.readAsText(file, 'UTF-8');
+    evt.target.value = '';
+    return;
+  }
+  const sc = schema(entity);
   const reader = new FileReader();
   reader.onload = async e => {
     let text = e.target.result;
@@ -2583,8 +3267,16 @@ $('#file-input').addEventListener('change', evt => {
           else if (['code', 'work', 'duty'].includes(f.key)) rec[f.key] = padCode(raw);
           else rec[f.key] = raw;
         });
-        if (sc.pk === 'id') rec.id = get(cols, 'id') || uid(entity[0]);
-        else if (!rec[sc.pk]) continue;
+        if (sc.pk === 'id') {
+          // 工作没带 id 时按「编号 + 年度」认领已有记录，否则新建。
+          // 这样用户直接拿 Excel 按编号整理也能正确 upsert。
+          let id = get(cols, 'id');
+          if (!id && entity === 'work' && rec.code) {
+            const hit = DB.works.find(w => w.code === rec.code && String(w.year) === String(rec.year));
+            if (hit) id = hit.id;
+          }
+          rec.id = id || uid(entity[0]);
+        } else if (!rec[sc.pk]) continue;
         ['created_at', 'updated_at', 'updated_by', 'deleted_at'].forEach(k => { const v = get(cols, k); if (v) rec[k] = v; });
         rec.rev = Number(get(cols, 'rev')) || 1;
         normalize(entity, rec);
@@ -2627,7 +3319,13 @@ $('#tasks-scroll').addEventListener('scroll', () => {
   _vsTick = true;
   requestAnimationFrame(() => { _vsTick = false; if (currentPage === 'tasks' && _taskRows.length) renderTaskViewport(); });
 });
-window.addEventListener('resize', () => { closeFloating(); if (currentPage === 'tasks' && _taskRows.length) renderTaskViewport(); });
+// SVG 按容器像素宽度绘制（保证文字不被拉伸），故窗口变化需重绘图表
+let _rsTimer = null;
+window.addEventListener('resize', () => {
+  closeFloating();
+  if (currentPage === 'tasks' && _taskRows.length) renderTaskViewport();
+  if (currentPage === 'charts') { clearTimeout(_rsTimer); _rsTimer = setTimeout(renderCharts, 120); }
+});
 $('#year-select').addEventListener('change', async e => {
   DB.settings.year = Number(e.target.value);
   await Repo.persist(DB);
@@ -2719,7 +3417,7 @@ function seedAll() {
       const plan = offsetDate(off);
       const passed = off < 0;
       DB.milestones.push(stampMeta(blank('milestone', {
-        work: w.code, name: MS_NAMES[(wi + i) % MS_NAMES.length], plan_date: plan,
+        work: w.id, name: MS_NAMES[(wi + i) % MS_NAMES.length], plan_date: plan,
         actual_date: passed && rng() > 0.4 ? plan : '',
         status: passed ? (rng() > 0.4 ? 'done' : 'doing') : 'todo',
       })));
@@ -2730,13 +3428,13 @@ function seedAll() {
   // 任务：每项工作 4–7 条，覆盖各种状态与日期边界
   DB.works.forEach(w => {
     const n = 4 + Math.floor(rng() * 4);
-    const ms = DB.milestones.filter(m => m.work === w.code);
+    const ms = DB.milestones.filter(m => m.work === w.id);
     const short = w.name.length > 12 ? w.name.slice(0, 10) + '…' : w.name;
     for (let i = 0; i < n; i++) {
       const tpl = TASK_TPL[Math.floor(rng() * TASK_TPL.length)];
       const r = rng();
       let status, plan, actual = '', progress = 0;
-      if (r < 0.30)      { status = 'done';  plan = offsetDate(-40 + Math.floor(rng() * 40)); actual = plan; progress = 100; }
+      if (r < 0.30)      { status = 'done';  plan = offsetDate(-150 + Math.floor(rng() * 150)); actual = plan; progress = 100; }
       else if (r < 0.48) { status = 'doing'; plan = offsetDate(2 + Math.floor(rng() * 40));   progress = 10 + Math.floor(rng() * 80); }
       else if (r < 0.62) { status = 'doing'; plan = offsetDate(-25 + Math.floor(rng() * 20)); progress = 20 + Math.floor(rng() * 50); } // 含逾期
       else if (r < 0.72) { status = 'hold';  plan = offsetDate(-20 + Math.floor(rng() * 60)); }
@@ -2746,8 +3444,11 @@ function seedAll() {
 
       const others = people.filter(p => p !== w.owner);
       const assignees = rng() > 0.45 ? [pick(others)] : (rng() > 0.6 ? [pick(others), pick(others)] : []);
+      // 创建时间铺开到过去 ~6 个月，让「按时间」的月度趋势图有真实形状
+      const createdAt = new Date(Date.now() - Math.floor(rng() * 190) * 86400000).toISOString();
       DB.tasks.push(stampMeta(blank('task', {
-        work: w.code,
+        created_at: createdAt,
+        work: w.id,
         title: tpl[0].replace('{n}', short),
         owner: rng() > 0.25 ? w.owner : pick(people),
         assignees: uniq(assignees),
@@ -2772,6 +3473,7 @@ async function boot() {
     DB = Object.assign(DB, saved);
     DB.settings = Object.assign({ me: '', role: 'manager', year: new Date().getFullYear() }, saved.settings || {});
     ['duty', 'work', 'milestone', 'task'].forEach(e => coll(e).forEach(r => normalize(e, r)));
+    if (migrateWorkIds()) await Repo.persist(DB);
     rebuildIndex();
     restoreUI();
   } else {
@@ -2781,6 +3483,14 @@ async function boot() {
   const p = (location.hash || '').replace(/^#\//, '');
   currentPage = PAGES.some(x => x.key === p) ? p : 'dashboard';
   goto(currentPage);
+
+  // 备份提醒：数据只在本机浏览器，超过 7 天未备份且期间有改动就提示一次
+  const bk = backupState();
+  if (bk.stale && (bk.days === null || bk.days >= 7) && DB.tasks.length) {
+    setTimeout(() => showSnack(bk.last
+      ? `已 ${bk.days} 天未备份，且期间有改动 — 建议到「数据」页导出`
+      : '数据仅存于本机浏览器，建议到「数据」页导出一份备份'), 1200);
+  }
 }
 boot();
 </script>
