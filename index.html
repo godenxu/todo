@@ -1,0 +1,2788 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<!-- © 科技规划处 徐捷 版权所有 -->
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>科技规划处工作管理系统</title>
+<style>
+/* ===== RESET & VARS ===== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f0ede8;
+  --surface: #faf8f5;
+  --border: #ddd9d3;
+  --border2: #ccc8c2;
+  --text: #1a1815;
+  --text2: #5a5550;
+  --text3: #9a9590;
+  --accent: #2c5f8a;
+  --accent-light: #e8f0f7;
+  --p1: #c0392b; --p1-bg: #fdecea; --p1-border: #f5c6c2;
+  --p2: #d4600a; --p2-bg: #fef3e8; --p2-border: #f8d9b8;
+  --p3: #4a7fa5; --p3-bg: #eaf2f8; --p3-border: #c0d9eb;
+  --done: #27ae60;
+  --overdue: #c0392b;
+  --deleted-bg: #fff8f8;
+  --snack-bg: #1a1815;
+  --sidebar-w: 190px;
+  --row-h: 36px;
+  /* 图表专用色板（经 CVD / 对比度校验，最差相邻对 ΔE 17.2）。
+     与徽章用的 --done/--overdue 分开：那些是文字色，标准不同。
+     琥珀 --c-soon 对比度 2.43，故凡使用处必须同时有可见文字标签。 */
+  --c-late:  #c0392b;
+  --c-soon:  #e0900a;
+  --c-doing: #1a6aa8;
+  --c-done:  #1e7d45;
+  --c-track: #e2ded8;
+  --font: "Noto Sans CJK SC","Source Han Sans CN","Microsoft YaHei",sans-serif;
+}
+html, body { height: 100%; overflow: hidden; }
+body { font-family: var(--font); font-size: 13px; background: var(--bg); color: var(--text); display: flex; flex-direction: column; user-select: none; }
+
+/* ===== TOPBAR ===== */
+#topbar { display: flex; align-items: center; gap: 8px; padding: 0 12px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; height: 42px; }
+.logo { font-size: 13px; font-weight: 700; color: var(--accent); letter-spacing: .03em; white-space: nowrap; flex-shrink: 0; margin-right: 6px; }
+#nav { display: flex; gap: 2px; height: 100%; }
+.nav-item { display: flex; align-items: center; padding: 0 13px; font-size: 12.5px; color: var(--text2); cursor: pointer; border-bottom: 2px solid transparent; white-space: nowrap; }
+.nav-item:hover { background: var(--bg); }
+.nav-item.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+#topbar-right { margin-left: auto; display: flex; align-items: center; gap: 8px; }
+#year-select { height: 26px; border: 1px solid var(--border2); border-radius: 4px; background: var(--bg); font-family: var(--font); font-size: 12px; color: var(--text2); padding: 0 4px; }
+.me-tag { font-size: 12px; color: var(--text2); background: var(--accent-light); border-radius: 10px; padding: 2px 9px; cursor: pointer; }
+.me-tag:hover { background: var(--border2); }
+.btn { height: 26px; padding: 0 10px; border: 1px solid var(--border2); border-radius: 4px; background: var(--surface); font-family: var(--font); font-size: 12px; color: var(--text2); cursor: pointer; white-space: nowrap; transition: background .12s, border-color .12s; }
+.btn:hover { background: var(--bg); border-color: var(--accent); color: var(--accent); }
+.btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn.primary:hover { opacity: .88; color: #fff; }
+
+/* ===== LAYOUT ===== */
+#main { display: flex; flex: 1; overflow: hidden; }
+#sidebar { width: var(--sidebar-w); flex-shrink: 0; background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; }
+#sidebar::-webkit-scrollbar { width: 3px; }
+#sidebar::-webkit-scrollbar-thumb { background: var(--border2); }
+#sidebar.hidden { display: none; }
+.sb-section-title { padding: 5px 10px 4px; font-size: 12px; font-weight: 700; color: var(--text2); letter-spacing: .05em; text-align: center; flex-shrink: 0; background: var(--border); border-top: 1px solid var(--border2); border-bottom: 1px solid var(--border2); }
+.sb-item { display: flex; align-items: center; justify-content: space-between; padding: 3px 10px; cursor: pointer; color: var(--text2); font-size: 12.5px; line-height: 1.25; transition: background .1s; border-left: 3px solid transparent; }
+.sb-item:hover { background: var(--bg); }
+.sb-item.active { background: var(--accent-light); color: var(--accent); border-left-color: var(--accent); font-weight: 600; }
+.sb-item .cnt { font-size: 10px; color: var(--text3); background: var(--border); border-radius: 8px; padding: 0 5px; min-width: 18px; text-align: center; flex-shrink: 0; margin-left: 4px; }
+.sb-item.active .cnt { background: var(--accent); color: #fff; }
+.sb-item .sb-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-item .sb-label.is-empty-val { color: var(--text3); font-style: italic; }
+.sb-item.indent { padding-left: 20px; font-size: 12px; }
+.sb-item.indent2 { padding-left: 28px; font-size: 12px; }
+.sb-divider { border: none; border-top: 1px solid var(--border); margin: 5px 0; }
+/* 树形筛选：职责 → 工作 */
+.sb-caret { width: 12px; flex-shrink: 0; font-size: 9px; color: var(--text3); text-align: center; cursor: pointer; }
+.sb-caret:hover { color: var(--accent); }
+.sb-item.tree-duty { padding-left: 4px; gap: 2px; }
+.sb-copyright { padding: 10px 12px 8px; font-size: 10px; color: var(--text3); line-height: 1.6; margin-top: auto; border-top: 1px solid var(--border); }
+
+#content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+#toolbar { display: flex; align-items: center; padding: 0 12px; background: var(--surface); border-bottom: 1px solid var(--border); flex-shrink: 0; height: 34px; gap: 8px; }
+#view-label { font-size: 12px; color: var(--text2); font-weight: 600; }
+.filter-chip { font-size: 11px; background: var(--accent-light); color: var(--accent); border-radius: 10px; padding: 1px 8px; cursor: pointer; }
+.filter-chip:hover { background: var(--border2); }
+#quick-input { flex: 1; max-width: 460px; height: 26px; padding: 0 9px; border: 1px solid var(--border2); border-radius: 4px; background: var(--bg); font-family: var(--font); font-size: 12.5px; color: var(--text); outline: none; }
+#quick-input:focus { border-color: var(--accent); background: #fff; }
+#quick-input::placeholder { color: var(--text3); }
+#search-input { margin-left: auto; width: 170px; height: 24px; padding: 0 8px; border: 1px solid var(--border2); border-radius: 3px; background: var(--bg); font-family: var(--font); font-size: 12px; color: var(--text); outline: none; }
+#search-input:focus { border-color: var(--accent); }
+
+/* ===== 页面容器 ===== */
+.page { flex: 1; overflow: auto; display: none; }
+.page.active { display: block; }
+#page-tasks.active, #page-works.active, #page-duties.active { display: flex; flex-direction: column; overflow: hidden; }
+.scroll-body { flex: 1; overflow: auto; position: relative; }
+.scroll-body::-webkit-scrollbar, .page::-webkit-scrollbar { width: 6px; height: 6px; }
+.scroll-body::-webkit-scrollbar-thumb, .page::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+/* ===== 表格 ===== */
+table { width: 100%; border-collapse: collapse; table-layout: fixed; min-width: 640px; }
+thead tr { background: var(--surface); border-bottom: 2px solid var(--border); position: sticky; top: 0; z-index: 10; }
+th { padding: 5px 8px; font-size: 11px; font-weight: 600; color: var(--text3); text-align: center; letter-spacing: .04em;
+     border-right: 1px solid var(--border); white-space: nowrap; overflow: hidden; position: relative; cursor: pointer; user-select: none; }
+th:last-child { border-right: none; cursor: default; }
+th.sortable:hover { background: var(--bg); color: var(--text2); }
+th .sort-icon { margin-left: 3px; font-size: 9px; }
+.col-resize { position: absolute; right: 0; top: 0; bottom: 0; width: 5px; cursor: col-resize; z-index: 11; }
+.col-resize:hover, .col-resize.resizing { background: var(--accent); opacity: .4; }
+
+/* 行高必须严格等于 --row-h：虚拟滚动按固定行高换算可视区间 */
+tbody tr { border-bottom: 1px solid var(--border); height: var(--row-h); transition: background .08s; }
+tbody tr:hover { background: var(--surface); }
+tbody tr.done-row { opacity: .6; }
+tbody tr.done-row .cell-title { text-decoration: line-through; color: var(--text3); }
+tbody tr.hold-row { opacity: .55; }
+tbody tr.deleted-row { background: var(--deleted-bg); opacity: .7; }
+tbody tr.vs-pad, tbody tr.vs-pad:hover { border: none; background: none; transition: none; }
+tbody tr.vs-pad td { border: none; padding: 0; }
+td { padding: 0 8px; font-size: 12.5px; color: var(--text); vertical-align: middle; border-right: 1px solid var(--border); overflow: hidden; white-space: nowrap; }
+td:last-child { border-right: none; }
+td.cell-center { text-align: center; }
+td.col-check, th.col-check { text-align: center; padding: 0; }
+.cb { width: 15px; height: 15px; cursor: pointer; accent-color: var(--done); }
+.cell-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: block; }
+.cell-sub { color: var(--text3); font-size: 11px; }
+
+/* 徽章 */
+.badge { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: 700; border: 1px solid transparent; cursor: pointer; }
+.badge:hover { opacity: .75; }
+.badge.ro, .badge.ro:hover { cursor: default; opacity: 1; }
+.pri-1 { background: var(--p1-bg); color: var(--p1); border-color: var(--p1-border); }
+.pri-2 { background: var(--p2-bg); color: var(--p2); border-color: var(--p2-border); }
+.pri-3 { background: var(--p3-bg); color: var(--p3); border-color: var(--p3-border); }
+.st-todo  { background: #f0eeea; color: #6b6660; border-color: #ddd9d3; }
+.st-doing { background: var(--accent-light); color: var(--accent); border-color: #c0d9eb; }
+.st-done  { background: #e8f5e9; color: #2e7d32; border-color: #c3e6c5; }
+.st-hold  { background: #f3f1ee; color: #9a9590; border-color: #ddd9d3; }
+.tag-chip { display: inline-block; background: #e8f5e9; color: #2e7d32; font-size: 12px; padding: 0 5px; border-radius: 3px; margin-right: 2px; }
+.tag-person { background: #eef3f8; color: #2c5f8a; }
+.due-overdue { color: var(--overdue); font-weight: 600; }
+.due-today { color: var(--p2); font-weight: 600; }
+.code-chip { font-family: Consolas, Menlo, monospace; font-size: 11px; color: var(--text3); background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; margin-right: 4px; }
+.ms-chip { display: inline-block; font-size: 11px; background: #fff5e6; color: #b5651d; border: 1px solid #f0d5b0; border-radius: 3px; padding: 0 5px; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.lines-preview { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text2); }
+.action-btn { background: none; border: none; cursor: pointer; color: var(--text3); font-size: 13px; padding: 2px 4px; border-radius: 3px; font-family: var(--font); }
+.action-btn.del:hover { color: var(--p1); background: var(--p1-bg); }
+.action-btn.restore:hover { color: var(--done); background: #e8f5e9; }
+.action-btn.copy:hover, .action-btn.ms:hover { color: var(--accent); background: var(--accent-light); }
+.inline-input { width: 100%; height: 26px; padding: 0 4px; border: 1px solid var(--accent); border-radius: 3px; font-family: var(--font); font-size: 12.5px; color: var(--text); background: #fff; outline: none; }
+.progress-wrap { display: flex; align-items: center; gap: 4px; }
+.progress-bar { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+.progress-fill { height: 100%; background: var(--accent); }
+.progress-num { font-size: 11px; color: var(--text3); width: 32px; text-align: right; flex-shrink: 0; }
+
+/* ===== 卡片 / 仪表板 ===== */
+.pad { padding: 14px 16px; }
+.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 11px 13px; }
+.card .k { font-size: 11px; color: var(--text3); margin-bottom: 4px; }
+.card .v { font-size: 22px; font-weight: 700; color: var(--text); }
+.card .v.warn { color: var(--overdue); }
+.card .v.ok { color: var(--done); }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 12px; }
+.panel-h { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; font-weight: 700; color: var(--text2); display: flex; align-items: center; justify-content: space-between; }
+.panel-b { padding: 10px 12px; }
+.hint { font-size: 12px; color: var(--text3); line-height: 1.8; }
+.hint code { background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; font-size: 11px; }
+.bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 12px; }
+.bar-row .nm { width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text2); flex-shrink: 0; }
+/* 堆叠条：段间留 2px 表面色缝隙，避免相邻色块糊成一片 */
+.bar-row .track { flex: 1; height: 14px; background: var(--c-track); border-radius: 3px; overflow: hidden; display: flex; gap: 2px; }
+.bar-row .seg { height: 100%; }
+.bar-row .seg-done  { background: var(--c-done); }
+.bar-row .seg-doing { background: var(--c-doing); }
+.bar-row .seg-late  { background: var(--c-late); }
+.bar-row .seg-todo  { background: transparent; }
+.bar-row .num { width: 82px; text-align: right; color: var(--text3); font-size: 11px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.bar-row.clickable { cursor: pointer; border-radius: 3px; }
+.bar-row.clickable:hover { background: var(--bg); }
+.legend { margin-top: 9px; font-size: 11px; color: var(--text3); display: flex; gap: 12px; flex-wrap: wrap; }
+.legend i { display: inline-block; width: 9px; height: 9px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+
+/* ===== 工作台布局 ===== */
+.dash-grid { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 12px; align-items: start; }
+@media (max-width: 1080px) { .dash-grid { grid-template-columns: minmax(0, 1fr); } }
+.dash-col { min-width: 0; }
+.card.clickable { cursor: pointer; transition: border-color .12s, background .12s; }
+.card.clickable:hover { border-color: var(--accent); background: #fff; }
+
+/* 分段控件 */
+.seg-ctrl { display: flex; gap: 2px; }
+.seg-ctrl .s { font-size: 11.5px; padding: 2px 9px; border: 1px solid var(--border2); border-radius: 3px; cursor: pointer; color: var(--text2); background: var(--surface); white-space: nowrap; }
+.seg-ctrl .s:hover { border-color: var(--accent); color: var(--accent); }
+.seg-ctrl .s.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.seg-ctrl .s .c { opacity: .75; margin-left: 3px; }
+
+/* ===== 里程碑时间线（HTML/CSS 实现，文字为真实文本，天然响应式） ===== */
+.tl { font-size: 12px; }
+.tl-axis { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.tl-axis .tl-name { color: var(--text3); font-size: 10px; }
+.tl-ticks { flex: 1; position: relative; height: 14px; border-bottom: 1px solid var(--border); }
+.tl-ticks .tk { position: absolute; top: 0; font-size: 10px; color: var(--text3); transform: translateX(-50%); white-space: nowrap; }
+.tl-ticks .tk::after { content: ''; position: absolute; left: 50%; bottom: -4px; width: 1px; height: 4px; background: var(--border2); }
+.tl-row { display: flex; align-items: center; gap: 8px; padding: 3px 0; cursor: pointer; border-radius: 3px; }
+.tl-row:hover { background: var(--bg); }
+.tl-name { width: 172px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text2); }
+.tl-name .sub { color: var(--text3); font-size: 10.5px; }
+.tl-track { flex: 1; position: relative; height: 16px; }
+/* 今天基准线：贯穿所有行 */
+.tl-track::before { content: ''; position: absolute; top: -3px; bottom: -3px; width: 1px; background: var(--accent); opacity: .45; left: var(--today, 0%); }
+.tl-dot { position: absolute; top: 4px; width: 9px; height: 9px; border-radius: 50%; transform: translateX(-50%); border: 2px solid var(--surface); box-sizing: content-box; }
+.tl-dot.late  { background: var(--c-late); }
+.tl-dot.soon  { background: var(--c-soon); }
+.tl-dot.norm  { background: var(--c-doing); }
+.tl-dot.done  { background: var(--c-done); }
+.tl-date { width: 74px; flex-shrink: 0; text-align: right; font-size: 11px; font-variant-numeric: tabular-nums; }
+
+/* ===== 人员负荷 ===== */
+.load-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 12px; cursor: pointer; border-radius: 3px; }
+.load-row:hover { background: var(--bg); }
+.load-row .nm { width: 62px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text2); }
+.load-row .track { flex: 1; height: 13px; background: var(--c-track); border-radius: 3px; overflow: hidden; display: flex; gap: 2px; }
+.load-row .num { width: 62px; text-align: right; font-size: 11px; color: var(--text3); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+
+/* ===== 最近动态 ===== */
+.feed .li { display: flex; gap: 8px; padding: 4px 0; border-bottom: 1px dashed var(--border); font-size: 12px; align-items: baseline; cursor: pointer; }
+.feed .li:last-child { border-bottom: none; }
+.feed .li:hover { background: var(--bg); }
+.feed .who { color: var(--accent); flex-shrink: 0; }
+.feed .what { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text2); }
+.feed .when { color: var(--text3); font-size: 10.5px; flex-shrink: 0; }
+.mini-list { font-size: 12.5px; }
+.mini-list .li { display: flex; gap: 8px; padding: 4px 0; border-bottom: 1px dashed var(--border); cursor: pointer; align-items: center; }
+.mini-list .li:last-child { border-bottom: none; }
+.mini-list .li:hover { background: var(--bg); }
+.mini-list .d { width: 62px; flex-shrink: 0; font-size: 11px; }
+.mini-list .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-list .p { flex-shrink: 0; color: var(--text3); font-size: 11px; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.empty-mini { color: var(--text3); font-size: 12px; padding: 6px 0; }
+
+/* ===== 弹窗 ===== */
+#modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 3000; align-items: center; justify-content: center; }
+#modal-overlay.show { display: flex; }
+#modal-box { background: var(--surface); border-radius: 6px; padding: 20px 22px; max-width: 620px; width: 92%; box-shadow: 0 8px 32px rgba(0,0,0,.22); max-height: 86vh; display: flex; flex-direction: column; }
+#modal-box h3 { font-size: 14px; color: var(--text); margin-bottom: 10px; flex-shrink: 0; }
+#modal-body { font-size: 12.5px; color: var(--text2); margin-bottom: 16px; line-height: 1.6; overflow-y: auto; }
+#modal-body p { word-break: break-all; }
+.modal-btns { display: flex; justify-content: flex-end; gap: 8px; flex-shrink: 0; }
+.btn-cancel { height: 28px; padding: 0 14px; border: 1px solid var(--border2); border-radius: 4px; background: var(--surface); font-family: var(--font); font-size: 12px; cursor: pointer; }
+.btn-confirm { height: 28px; padding: 0 14px; border: none; border-radius: 4px; background: var(--accent); color: #fff; font-family: var(--font); font-size: 12px; cursor: pointer; }
+.btn-confirm.danger { background: var(--p1); }
+.btn-confirm:hover { opacity: .85; }
+.modal-textarea { width: 100%; min-height: 170px; padding: 7px 9px; border: 1px solid var(--border2); border-radius: 4px; font-family: var(--font); font-size: 12.5px; line-height: 1.7; color: var(--text); background: #fff; outline: none; resize: vertical; }
+.modal-textarea:focus { border-color: var(--accent); }
+.form-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.form-row label { width: 78px; flex-shrink: 0; color: var(--text2); font-size: 12px; text-align: right; }
+.form-row input, .form-row select { flex: 1; height: 27px; padding: 0 7px; border: 1px solid var(--border2); border-radius: 4px; font-family: var(--font); font-size: 12.5px; color: var(--text); background: #fff; outline: none; }
+.form-row input:focus { border-color: var(--accent); }
+
+/* 里程碑面板 */
+.ms-table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+.ms-table th { background: var(--bg); font-size: 11px; padding: 4px 6px; text-align: left; color: var(--text3); border-bottom: 1px solid var(--border); cursor: default; position: static; }
+.ms-table td { padding: 3px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; border-right: none; }
+.ms-table input { width: 100%; height: 25px; padding: 0 5px; border: 1px solid transparent; border-radius: 3px; font-family: var(--font); font-size: 12.5px; background: transparent; color: var(--text); outline: none; }
+.ms-table input:hover { border-color: var(--border2); background: #fff; }
+.ms-table input:focus { border-color: var(--accent); background: #fff; }
+.ms-table select { height: 25px; border: 1px solid var(--border2); border-radius: 3px; font-family: var(--font); font-size: 12px; background: #fff; }
+
+/* ===== 浮层 ===== */
+#select-popup { display: none; position: fixed; z-index: 5000; background: var(--surface); border: 1px solid var(--border2); border-radius: 5px; box-shadow: 0 4px 16px rgba(0,0,0,.15); padding: 6px; min-width: 170px; max-width: 300px; max-height: 420px; overflow-y: auto; }
+#select-popup.show { display: block; }
+.sp-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; cursor: pointer; border-radius: 3px; font-size: 12.5px; color: var(--text2); white-space: nowrap; overflow: hidden; }
+.sp-item:hover { background: var(--accent-light); color: var(--accent); }
+.sp-item.selected { color: var(--accent); font-weight: 600; background: var(--accent-light); }
+.sp-item input[type=checkbox] { accent-color: var(--accent); cursor: pointer; flex-shrink: 0; }
+.sp-item label { cursor: pointer; overflow: hidden; text-overflow: ellipsis; }
+.sp-header { padding: 3px 8px 5px; font-size: 10px; font-weight: 700; color: var(--text3); letter-spacing: .06em; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+.sp-addnew { color: var(--accent); font-weight: 600; }
+.sp-confirm { width: 100%; margin-top: 5px; height: 24px; border: none; border-radius: 3px; background: var(--accent); color: #fff; font-family: var(--font); font-size: 11px; cursor: pointer; }
+#date-picker-wrap { display: none; position: fixed; z-index: 4000; background: var(--surface); border: 1px solid var(--border2); border-radius: 5px; box-shadow: 0 4px 16px rgba(0,0,0,.15); padding: 10px; width: 210px; }
+#date-picker-wrap.show { display: block; }
+.dp-shortcuts { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 7px; }
+.dp-sc { font-size: 11px; padding: 2px 7px; border: 1px solid var(--border2); border-radius: 3px; cursor: pointer; color: var(--text2); background: var(--bg); }
+.dp-sc:hover { border-color: var(--accent); color: var(--accent); }
+.dp-clear-sc { color: var(--text3) !important; }
+.dp-clear-sc:hover { color: var(--p1) !important; border-color: var(--p1) !important; }
+.dp-cal-nav { display: flex; align-items: center; justify-content: space-between; padding: 3px 2px 5px; }
+.dp-cal-nav-btn { background: none; border: 1px solid var(--border2); border-radius: 3px; cursor: pointer; color: var(--text2); font-size: 14px; line-height: 1; padding: 1px 6px; }
+.dp-cal-title { font-size: 12px; font-weight: 600; color: var(--text); }
+.dp-cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 1px; }
+.dp-cal-dow { text-align: center; font-size: 10px; color: var(--text3); padding: 2px 0; font-weight: 600; }
+.dp-cal-day { text-align: center; font-size: 12px; padding: 3px 2px; cursor: pointer; border-radius: 3px; color: var(--text2); }
+.dp-cal-day:hover { background: var(--accent-light); color: var(--accent); }
+.dp-cal-day.is-today { color: var(--accent); font-weight: 700; }
+.dp-cal-day.is-selected { background: var(--accent); color: #fff !important; }
+.dp-cal-day.is-empty { cursor: default; pointer-events: none; }
+
+#snackbar { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%) translateY(60px); background: var(--snack-bg); color: #fff; padding: 8px 16px; border-radius: 5px; font-size: 12.5px; display: flex; align-items: center; gap: 10px; z-index: 6000; transition: transform .22s ease; white-space: nowrap; box-shadow: 0 4px 16px rgba(0,0,0,.28); }
+#snackbar.show { transform: translateX(-50%) translateY(0); }
+.undo-btn { background: none; border: none; color: #7ec8f7; cursor: pointer; font-size: 12.5px; font-weight: 600; padding: 0; font-family: var(--font); }
+#statusbar { display: flex; align-items: center; justify-content: space-between; padding: 3px 12px; background: var(--surface); border-top: 1px solid var(--border); flex-shrink: 0; font-size: 11px; color: var(--text3); }
+#empty-state { display: none; padding: 40px; text-align: center; color: var(--text3); font-size: 13px; }
+
+/* ===== 批量操作条 ===== */
+#batch-bar { display: none; align-items: center; gap: 8px; padding: 5px 12px; background: var(--accent-light); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+#batch-bar.show { display: flex; }
+#batch-bar .n { font-size: 12px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+#batch-bar .btn { height: 24px; font-size: 11.5px; }
+tbody tr.sel-row { background: #eaf2f8; }
+tbody tr.sel-row:hover { background: #e0ecf5; }
+td.col-sel, th.col-sel { text-align: center; padding: 0; }
+.cb-sel { width: 14px; height: 14px; cursor: pointer; accent-color: var(--accent); }
+
+/* ===== 任务详情表单 ===== */
+.detail-grid { display: grid; grid-template-columns: 84px 1fr 84px 1fr; gap: 7px 8px; align-items: center; }
+.detail-grid label { font-size: 12px; color: var(--text2); text-align: right; }
+.detail-grid .full { grid-column: 2 / 5; }
+.detail-grid .full-row { grid-column: 1 / 5; }
+.detail-grid input, .detail-grid select, .detail-grid textarea {
+  width: 100%; height: 27px; padding: 0 7px; border: 1px solid var(--border2); border-radius: 4px;
+  font-family: var(--font); font-size: 12.5px; color: var(--text); background: #fff; outline: none; }
+.detail-grid textarea { height: auto; min-height: 54px; padding: 5px 7px; line-height: 1.6; resize: vertical; }
+.detail-grid input:focus, .detail-grid select:focus, .detail-grid textarea:focus { border-color: var(--accent); }
+.detail-meta { margin-top: 12px; padding-top: 8px; border-top: 1px dashed var(--border); font-size: 11px; color: var(--text3); }
+
+/* ===== 列配置 ===== */
+.col-cfg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 10px; }
+.col-cfg .it { display: flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--text2); padding: 3px 4px; border-radius: 3px; }
+.col-cfg .it:hover { background: var(--bg); }
+.col-cfg input { accent-color: var(--accent); cursor: pointer; }
+.col-cfg label { cursor: pointer; }
+</style>
+</head>
+<body>
+
+<div id="topbar">
+  <span class="logo">📋 科技规划处工作管理</span>
+  <div id="nav"></div>
+  <div id="topbar-right">
+    <select id="year-select"></select>
+    <span class="me-tag" id="me-tag" data-act="set-me">未设置使用者</span>
+  </div>
+</div>
+
+<div id="main">
+  <div id="sidebar"></div>
+  <div id="content">
+    <div id="toolbar"></div>
+    <div id="pages" style="flex:1;display:flex;flex-direction:column;overflow:hidden">
+      <div class="page" id="page-dashboard"></div>
+      <div class="page" id="page-tasks">
+        <div id="batch-bar"></div>
+        <div class="scroll-body" id="tasks-scroll">
+          <table><thead><tr id="tasks-head"></tr></thead><tbody id="tasks-body"></tbody></table>
+          <div id="empty-state">暂无数据</div>
+        </div>
+      </div>
+      <div class="page" id="page-works">
+        <div class="scroll-body" id="works-scroll">
+          <table><thead><tr id="works-head"></tr></thead><tbody id="works-body"></tbody></table>
+        </div>
+      </div>
+      <div class="page" id="page-duties">
+        <div class="scroll-body" id="duties-scroll">
+          <table><thead><tr id="duties-head"></tr></thead><tbody id="duties-body"></tbody></table>
+        </div>
+      </div>
+      <div class="page" id="page-charts"></div>
+      <div class="page" id="page-data"></div>
+    </div>
+    <div id="statusbar">
+      <span id="status-left">就绪</span>
+      <span id="status-right">Ctrl+S 备份 &nbsp;|&nbsp; Ctrl+Z 撤销 &nbsp;|&nbsp; / 搜索</span>
+    </div>
+  </div>
+</div>
+
+<div id="snackbar"><span id="snack-msg"></span><button class="undo-btn" data-act="undo">撤销</button></div>
+
+<div id="modal-overlay">
+  <div id="modal-box">
+    <h3 id="modal-title"></h3>
+    <div id="modal-body"></div>
+    <div class="modal-btns">
+      <button class="btn-cancel" data-act="modal-cancel">取消</button>
+      <button class="btn-confirm" id="modal-ok-btn" data-act="modal-ok">确定</button>
+    </div>
+  </div>
+</div>
+
+<div id="select-popup"></div>
+<div id="date-picker-wrap">
+  <div class="dp-shortcuts">
+    <span class="dp-sc" data-act="dp-sc" data-tok="today">今天</span>
+    <span class="dp-sc" data-act="dp-sc" data-tok="tomorrow">明天</span>
+    <span class="dp-sc" data-act="dp-sc" data-tok="next-mon">下周一</span>
+    <span class="dp-sc" data-act="dp-sc" data-tok="+30">30天后</span>
+    <span class="dp-sc dp-clear-sc" data-act="dp-clear">清除</span>
+  </div>
+  <div id="dp-calendar"></div>
+</div>
+<input type="file" id="file-input" accept=".csv" style="display:none">
+
+<script>
+'use strict';
+/* =============================================================
+   0. 基础工具
+   ============================================================= */
+const $  = s => document.querySelector(s);
+const $$ = s => [...document.querySelectorAll(s)];
+
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+}
+
+/* ★ 可迁移性设计 1：随机串主键。
+   多人各自新建记录时自增整数必然撞号，合并数据将无法区分。
+   前缀便于肉眼识别实体类型，时间戳保证大致有序。 */
+function uid(prefix) {
+  return prefix + '_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+}
+function clone(o) { return JSON.parse(JSON.stringify(o)); }
+function uniq(a) { return [...new Set(a)]; }
+
+/* =============================================================
+   1. 枚举与常量
+   ============================================================= */
+const CATEGORIES = [
+  { v: '一、前瞻研判', label: '一、前瞻研判', color: '#2c5f8a' },
+  { v: '二、集团治理', label: '二、集团治理', color: '#7d5ba6' },
+  { v: '三、价值共创', label: '三、价值共创', color: '#2e8b57' },
+  { v: '四、其它工作', label: '四、其它工作', color: '#8a7f70' },
+];
+const TASK_STATUS = [
+  { v: 'todo',  label: '未开始', color: '#6b6660', cls: 'st-todo' },
+  { v: 'doing', label: '进行中', color: '#2c5f8a', cls: 'st-doing' },
+  { v: 'done',  label: '已完成', color: '#2e7d32', cls: 'st-done' },
+  { v: 'hold',  label: '已挂起', color: '#9a9590', cls: 'st-hold' },
+];
+const WORK_STATUS = [
+  { v: 'doing', label: '进行中', color: '#2c5f8a', cls: 'st-doing' },
+  { v: 'done',  label: '已完成', color: '#2e7d32', cls: 'st-done' },
+  { v: 'hold',  label: '暂停',   color: '#9a9590', cls: 'st-hold' },
+];
+const MS_STATUS = [
+  { v: 'todo',  label: '未开始', color: '#6b6660', cls: 'st-todo' },
+  { v: 'doing', label: '进行中', color: '#2c5f8a', cls: 'st-doing' },
+  { v: 'done',  label: '已完成', color: '#2e7d32', cls: 'st-done' },
+];
+const PRIORITIES = [
+  { v: '1', label: '高', color: '#c0392b', cls: 'pri-1' },
+  { v: '2', label: '中', color: '#e67e22', cls: 'pri-2' },
+  { v: '3', label: '低', color: '#4a7fa5', cls: 'pri-3' },
+];
+const ROLES = [
+  { v: 'member',  label: '处员' },
+  { v: 'manager', label: '管理者' },
+];
+
+/* =============================================================
+   2. 实体元数据（单一事实来源）
+   -------------------------------------------------------------
+   四个实体共用同一套渲染 / 筛选 / 排序 / 编辑 / CSV 引擎。
+   字段 type：
+     text  单行文本   lines 多行文本(数组)   single 单选标签   multi 多选标签
+     person 单人      persons 多人           enum 固定枚举     ref 引用其它实体
+     date 日期        num 数字
+   ============================================================= */
+const SCHEMAS = {
+  duty: {
+    key: 'duty', label: '职责', pk: 'code', titleField: 'name',
+    fields: [
+      { key: 'code',     label: '编号',     type: 'text', width: 56,  sortable: true, readonly: true, align: 'center' },
+      { key: 'category', label: '职责分类', type: 'enum', width: 118, sortable: true, facet: true, options: CATEGORIES },
+      { key: 'name',     label: '核心职责', type: 'text', width: 400, sortable: true },
+      { key: 'ref',      label: '2025发文', type: 'text', width: 90,  sortable: true, align: 'center' },
+    ],
+  },
+  work: {
+    key: 'work', label: '工作', pk: 'code', titleField: 'name',
+    fields: [
+      { key: 'code',          label: '工作编号',     type: 'text',    width: 78,  sortable: true, readonly: true, align: 'center' },
+      { key: 'duty',          label: '所属职责',     type: 'ref',     width: 170, sortable: true, facet: true, ref: 'duty' },
+      { key: 'name',          label: '工作名称',     type: 'text',    width: 210, sortable: true },
+      { key: 'content',       label: '主要工作内容', type: 'lines',   width: 300 },
+      { key: 'owner',         label: '牵头人',       type: 'person',  width: 82,  sortable: true, facet: true },
+      { key: 'collaborators', label: '协同人员',     type: 'persons', width: 140, facet: true },
+      { key: 'year',          label: '年度',         type: 'num',     width: 58,  sortable: true, align: 'center' },
+      { key: 'status',        label: '状态',         type: 'enum',    width: 68,  sortable: true, facet: true, options: WORK_STATUS },
+    ],
+  },
+  milestone: {
+    key: 'milestone', label: '里程碑', pk: 'id', titleField: 'name',
+    fields: [
+      { key: 'work',        label: '所属工作', type: 'ref',  ref: 'work' },
+      { key: 'name',        label: '里程碑',   type: 'text' },
+      { key: 'plan_date',   label: '计划日期', type: 'date' },
+      { key: 'actual_date', label: '实际日期', type: 'date' },
+      { key: 'status',      label: '状态',     type: 'enum', options: MS_STATUS },
+    ],
+  },
+  task: {
+    key: 'task', label: '任务', pk: 'id', titleField: 'title',
+    fields: [
+      // 虚拟字段：任务不存职责，从所属工作推导，用于按职责筛选与统计
+      { key: '_duty', label: '职责', type: 'ref', ref: 'duty', width: 150, virtual: true, facet: true,
+        derive: t => { const w = byId('work', t.work); return w ? w.duty : ''; } },
+      { key: 'work',        label: '所属工作', type: 'ref',     width: 175, sortable: true, facet: true, ref: 'work' },
+      { key: 'title',       label: '任务',     type: 'text',    width: 230, sortable: true },
+      { key: 'owner',       label: '负责人',   type: 'person',  width: 78,  sortable: true, facet: true },
+      { key: 'assignees',   label: '参与人',   type: 'persons', width: 120, facet: true },
+      { key: 'status',      label: '状态',     type: 'enum',    width: 68,  sortable: true, facet: true, options: TASK_STATUS },
+      { key: 'priority',    label: '优先级',   type: 'enum',    width: 56,  sortable: true, facet: true, options: PRIORITIES },
+      { key: 'plan_date',   label: '计划完成', type: 'date',    width: 84,  sortable: true },
+      { key: 'milestone',   label: '里程碑',   type: 'ref',     width: 120, sortable: true, ref: 'milestone',
+        refScope: t => DB.milestones.filter(m => m.work === t.work && !m.deleted_at) },
+      { key: 'deliverable', label: '交付物',   type: 'text',    width: 120, sortable: true },
+      { key: 'progress',    label: '进度',     type: 'num',     width: 84,  sortable: true },
+      { key: 'actual_date', label: '实际完成', type: 'date',    width: 84,  sortable: true },
+      { key: 'source',      label: '来源',     type: 'single',  width: 84,  sortable: true, facet: true },
+      { key: 'custom',      label: '标签',     type: 'single',  width: 74,  sortable: true, facet: true },
+    ],
+  },
+};
+const TASK_DEFAULT_COLS = ['work', 'title', 'owner', 'assignees', 'status', 'priority', 'plan_date', 'milestone', 'deliverable', 'progress'];
+
+function schema(e) { return SCHEMAS[e]; }
+function fieldDef(e, k) { return SCHEMAS[e].fields.find(f => f.key === k); }
+
+const TASK_VIEWS = [
+  { key: 'all',     label: '全部任务', match: t => !t.deleted_at },
+  { key: 'mine',    label: '我的任务', match: t => !t.deleted_at && isMine(t) },
+  { key: 'overdue', label: '逾期',     match: t => !t.deleted_at && isOverdue(t) },
+  { key: 'today',   label: '今日到期', match: t => !t.deleted_at && isOpen(t) && t.plan_date === todayStr() },
+  { key: 'week',    label: '本周',     match: t => !t.deleted_at && isOpen(t) && t.plan_date && t.plan_date >= todayStr() && t.plan_date <= endOfWeek() },
+  { key: 'doing',   label: '进行中',   match: t => !t.deleted_at && t.status === 'doing' },
+  { key: 'todo',    label: '未开始',   match: t => !t.deleted_at && t.status === 'todo' },
+  { key: 'done',    label: '已完成',   match: t => !t.deleted_at && t.status === 'done' },
+  { key: 'hold',    label: '已挂起',   match: t => !t.deleted_at && t.status === 'hold' },
+  { key: 'deleted', label: '已删除',   match: t => !!t.deleted_at },
+];
+const TASK_VIEW_MAP = Object.fromEntries(TASK_VIEWS.map(v => [v.key, v]));
+
+const PAGES = [
+  { key: 'dashboard', label: '工作台' },
+  { key: 'tasks',     label: '任务' },
+  { key: 'works',     label: '工作' },
+  { key: 'duties',    label: '职责' },
+  { key: 'charts',    label: '图表' },
+  { key: 'data',      label: '数据' },
+];
+
+/* =============================================================
+   3. 数据层
+   ============================================================= */
+const STORAGE_KEY = 'todo_v4';
+
+let DB = {
+  duties: [], works: [], milestones: [], tasks: [],
+  settings: { me: '', role: 'manager', year: new Date().getFullYear() },
+};
+
+// 主键索引，避免每次 find 线性扫描
+const IDX = { duty: new Map(), work: new Map(), milestone: new Map(), task: new Map() };
+const COLL = { duty: 'duties', work: 'works', milestone: 'milestones', task: 'tasks' };
+function coll(e) { return DB[COLL[e]]; }
+function rebuildIndex() {
+  for (const e of Object.keys(IDX)) {
+    IDX[e].clear();
+    coll(e).forEach(r => IDX[e].set(r[schema(e).pk], r));
+  }
+}
+function byId(e, id) { return id ? (IDX[e].get(id) || null) : null; }
+
+/* ★ 可迁移性设计 2：存储层抽象为异步接口。
+   localStorage 只是其中一个实现；将来换成内网服务端，只需替换本对象，
+   上层页面与交互代码一行不改。 */
+const Repo = {
+  name: 'localStorage',
+  async load() {
+    try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : null; }
+    catch (e) { return null; }
+  },
+  async persist(db) {
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); return true; }
+    catch (e) { showSnack('保存失败：本地存储可能已满，请到「数据」页导出备份'); return false; }
+  },
+  async upsert(entity, rec) {              // 单条写入；HTTP 实现时只发这一条
+    stampMeta(rec);
+    const list = coll(entity), pk = schema(entity).pk;
+    const i = list.findIndex(r => r[pk] === rec[pk]);
+    if (i === -1) list.push(rec); else list[i] = rec;
+    IDX[entity].set(rec[pk], rec);
+    await this.persist(DB);
+    return rec;
+  },
+  async removeHard(entity, id) {
+    const list = coll(entity), pk = schema(entity).pk;
+    const i = list.findIndex(r => r[pk] === id);
+    if (i !== -1) list.splice(i, 1);
+    IDX[entity].delete(id);
+    await this.persist(DB);
+  },
+  async bulk(fn) {                          // 批量操作只持久化一次
+    fn(); rebuildIndex(); await this.persist(DB);
+  },
+};
+
+/* ★ 可迁移性设计 3：每条记录带 updated_by / updated_at / rev。
+   rev 是冲突检测的最小前提，updated_by 支撑「谁改的」。 */
+function stampMeta(rec) {
+  const now = new Date().toISOString();
+  if (!rec.created_at) rec.created_at = now;
+  rec.updated_at = now;
+  rec.updated_by = DB.settings.me || '未署名';
+  rec.rev = (rec.rev || 0) + 1;
+  return rec;
+}
+
+/* ★ 可迁移性设计 4：软删除保留墓碑，合并多人数据时不会"复活"已删记录 */
+function softDelete(entity, id) {
+  const r = byId(entity, id);
+  if (r) r.deleted_at = new Date().toISOString();
+  return r;
+}
+function undelete(entity, id) {
+  const r = byId(entity, id);
+  if (r) delete r.deleted_at;
+  return r;
+}
+
+/* 人员池：所有 person / persons 字段的取值汇总 */
+function allPeople() {
+  const s = new Set();
+  for (const e of Object.keys(SCHEMAS)) {
+    for (const f of schema(e).fields) {
+      if (f.type !== 'person' && f.type !== 'persons') continue;
+      coll(e).forEach(r => {
+        const v = r[f.key];
+        if (Array.isArray(v)) v.forEach(x => x && s.add(x));
+        else if (v) s.add(v);
+      });
+    }
+  }
+  return [...s].sort((a, b) => a.localeCompare(b, 'zh'));
+}
+
+/* =============================================================
+   4. 记录归一化
+   ============================================================= */
+function normalize(entity, r) {
+  schema(entity).fields.forEach(f => {
+    if (f.virtual) return;
+    const v = r[f.key];
+    switch (f.type) {
+      case 'lines': case 'multi': case 'persons':
+        if (typeof v === 'string') r[f.key] = v ? v.split('\n').map(s => s.trim()).filter(Boolean) : [];
+        else if (!Array.isArray(v)) r[f.key] = [];
+        break;
+      case 'num':
+        r[f.key] = (v === '' || v == null) ? (f.key === 'progress' ? 0 : '') : Number(v);
+        break;
+      case 'enum':
+        r[f.key] = (v == null || v === '') ? f.options[0].v : String(v);
+        break;
+      default:
+        if (v == null) r[f.key] = '';
+    }
+  });
+  if (!r.rev) r.rev = 1;
+  return r;
+}
+function blank(entity, over) {
+  const sc = schema(entity), r = {};
+  sc.fields.forEach(f => { if (!f.virtual) r[f.key] = ''; });
+  Object.assign(r, over || {});
+  if (sc.pk === 'id' && !r.id) r.id = uid(entity[0]);
+  return normalize(entity, r);
+}
+
+/* =============================================================
+   5. 日期工具
+   ============================================================= */
+function fmtLocal(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+function todayStr() { return fmtLocal(new Date()); }
+function offsetDate(n) { const d = new Date(); d.setDate(d.getDate() + n); return fmtLocal(d); }
+function weekdayDate(wd) {
+  const t = new Date(); let diff = wd - t.getDay(); if (diff <= 0) diff += 7;
+  const d = new Date(t); d.setDate(t.getDate() + diff); return fmtLocal(d);
+}
+function endOfWeek() {
+  const t = new Date(), day = t.getDay(), diff = day === 0 ? 0 : 7 - day;
+  const d = new Date(t); d.setDate(t.getDate() + diff); return fmtLocal(d);
+}
+function parseDue(tok) {
+  const t = String(tok || '').toLowerCase();
+  if (t === 'today') return todayStr();
+  if (t === 'tomorrow') return offsetDate(1);
+  if (t === 'next-mon') return weekdayDate(1);
+  const dm = { mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6, sun: 0 };
+  if (dm[t] !== undefined) return weekdayDate(dm[t]);
+  const m = t.match(/^\+(\d+)d?$/); if (m) return offsetDate(parseInt(m[1]));
+  if (/^\d{4}-\d{1,2}-\d{1,2}$/.test(t)) {
+    const [y, mo, d] = t.split('-').map(Number);
+    return `${y}-${String(mo).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  }
+  return null;
+}
+function fmtDate(str) {
+  if (!str) return '';
+  const today = todayStr();
+  if (str === today) return '今天';
+  if (str === offsetDate(1)) return '明天';
+  const d = new Date(str + 'T00:00:00');
+  if (isNaN(d)) return str;
+  if (str >= today && str <= endOfWeek()) return '周' + ['日', '一', '二', '三', '四', '五', '六'][d.getDay()];
+  return d.getFullYear() === new Date().getFullYear()
+    ? `${d.getMonth() + 1}/${d.getDate()}`
+    : `${String(d.getFullYear()).slice(2)}/${d.getMonth() + 1}/${d.getDate()}`;
+}
+function dateClass(str) {
+  if (!str) return '';
+  const today = todayStr();
+  if (str < today) return 'due-overdue';
+  if (str === today) return 'due-today';
+  return '';
+}
+
+/* 任务语义 */
+function isOpen(t) { return t.status === 'todo' || t.status === 'doing'; }
+function isOverdue(t) { return isOpen(t) && !!t.plan_date && t.plan_date < todayStr(); }   // 挂起不计逾期
+function isMine(t) {
+  const me = DB.settings.me;
+  return me ? (t.owner === me || (t.assignees || []).includes(me)) : false;
+}
+
+/* =============================================================
+   6. 字段取值 / 展示
+   ============================================================= */
+function values(entity, rec, f) {
+  if (f.derive) { const v = f.derive(rec); return v ? [String(v)] : []; }
+  const v = rec[f.key];
+  if (Array.isArray(v)) return v.filter(Boolean).map(String);
+  if (v === '' || v == null) return [];
+  return [String(v)];
+}
+function label(entity, f, v) {
+  if (f.options) { const o = f.options.find(x => x.v === String(v)); return o ? o.label : String(v); }
+  if (f.type === 'ref') {
+    const r = byId(f.ref, v);
+    if (!r) return String(v);
+    const rs = schema(f.ref);
+    return (rs.pk === 'code' ? r.code + ' ' : '') + (r[rs.titleField] || '');
+  }
+  return String(v);
+}
+function displayText(entity, rec, f) {
+  return values(entity, rec, f).map(v => label(entity, f, v)).join(' / ');
+}
+function searchText(entity, rec) {
+  return schema(entity).fields.map(f => displayText(entity, rec, f)).join(' ').toLowerCase();
+}
+function sortValue(entity, rec, key) {
+  const f = fieldDef(entity, key);
+  if (!f) return '';
+  if (f.type === 'num') return Number(rec[key]) || 0;
+  if (f.type === 'enum') {
+    const i = f.options.findIndex(o => o.v === String(rec[key]));
+    return i < 0 ? 99 : i;
+  }
+  if (f.type === 'date') return rec[key] || '';
+  return values(entity, rec, f).map(v => label(entity, f, v)).join(',');
+}
+
+/* =============================================================
+   7. 撤销：整库快照
+   ============================================================= */
+const UNDO_LIMIT = 20;
+let undoStack = [];
+function snapshot() {
+  undoStack.push(JSON.stringify({ duties: DB.duties, works: DB.works, milestones: DB.milestones, tasks: DB.tasks }));
+  if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+}
+async function undoLast() {
+  const s = undoStack.pop();
+  if (!s) { showSnack('没有可撤销的操作'); return; }
+  const d = JSON.parse(s);
+  DB.duties = d.duties; DB.works = d.works; DB.milestones = d.milestones; DB.tasks = d.tasks;
+  rebuildIndex();
+  await Repo.persist(DB);
+  hideSnack();
+  if ($('#modal-overlay').classList.contains('show')) closeModal();
+  renderShell(); renderPage();
+}
+
+/* =============================================================
+   8. 查询：过滤 / 排序 / 分面
+   ============================================================= */
+function matchFilters(entity, rec, filters) {
+  for (const [k, sel] of Object.entries(filters || {})) {
+    if (!sel) continue;
+    const f = fieldDef(entity, k);
+    if (!f) continue;
+    const vals = values(entity, rec, f);
+    if (sel === '__empty__') { if (vals.length) return false; }
+    else if (!vals.includes(sel)) return false;
+  }
+  return true;
+}
+function query(entity, opt) {
+  const q = (opt.search || '').trim().toLowerCase();
+  const rows = (opt.pool || coll(entity)).filter(r => {
+    if (!matchFilters(entity, r, opt.filters)) return false;
+    if (q && !searchText(entity, r).includes(q)) return false;
+    return true;
+  });
+  if (opt.sortKey) {
+    const dir = opt.sortDir || 1;
+    const f = fieldDef(entity, opt.sortKey);
+    rows.sort((a, b) => {
+      const va = sortValue(entity, a, opt.sortKey), vb = sortValue(entity, b, opt.sortKey);
+      if (f && f.type === 'date') {           // 无日期的排最前，便于补录
+        if (!va && !vb) return (b.created_at || '').localeCompare(a.created_at || '');
+        if (!va) return -1;
+        if (!vb) return 1;
+      }
+      if (va < vb) return -dir;
+      if (va > vb) return dir;
+      return 0;
+    });
+  }
+  return rows;
+}
+/* 分面统计口径与当前视图一致，但不受其它分面影响 */
+function facet(entity, f, rows) {
+  const cnt = new Map();
+  let empty = 0;
+  rows.forEach(r => {
+    const vals = values(entity, r, f);
+    if (!vals.length) { empty++; return; }
+    vals.forEach(v => cnt.set(v, (cnt.get(v) || 0) + 1));
+  });
+  let items;
+  if (f.options) items = f.options.map(o => ({ value: o.v, label: o.label, color: o.color, count: cnt.get(o.v) || 0 }));
+  else items = [...cnt.entries()]
+    .sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), 'zh'))
+    .map(([v, n]) => ({ value: v, label: label(entity, f, v), count: n }));
+  items.push({ value: '__empty__', label: '（空）', count: empty, isEmpty: true });
+  return items;
+}
+function optionsOf(entity, f, rec) {
+  if (f.type === 'ref') {
+    let list = f.refScope && rec ? f.refScope(rec) : coll(f.ref).filter(r => !r.deleted_at);
+    if (f.ref === 'work') list = list.filter(w => inYear(w));
+    const rs = schema(f.ref);
+    return list.map(r => ({ v: r[rs.pk], label: (rs.pk === 'code' ? r.code + ' ' : '') + (r[rs.titleField] || '') }));
+  }
+  if (f.type === 'person' || f.type === 'persons') return allPeople().map(p => ({ v: p, label: p }));
+  if (f.options) return f.options.map(o => ({ v: o.v, label: o.label }));
+  const cnt = new Map();
+  coll(entity).forEach(r => values(entity, r, f).forEach(v => cnt.set(v, (cnt.get(v) || 0) + 1)));
+  return [...cnt.entries()].sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), 'zh'))
+    .map(([v]) => ({ v, label: v }));
+}
+
+/* =============================================================
+   9. 页面状态与路由
+   ============================================================= */
+let currentPage = 'dashboard';
+const UI = {
+  tasks: {
+    view: 'all', filters: {}, search: '', sortKey: 'plan_date', sortDir: 1,
+    cols: [...TASK_DEFAULT_COLS], widths: {},
+    expanded: new Set(),   // 树形筛选中展开的职责编号
+    sel: new Set(),        // 批量操作选中的任务 id
+    lastSelIdx: -1,        // Shift 范围选择的锚点
+  },
+  works:  { filters: {}, search: '', sortKey: 'code', sortDir: 1, widths: {} },
+  duties: { filters: {}, search: '', sortKey: 'code', sortDir: 1, widths: {} },
+};
+
+/* 列显示/列宽属于个人偏好，随 settings 一起持久化 */
+function persistUI() {
+  // 必须存副本：直接存引用会让 settings 与 UI 变成同一个对象，
+  // 之后任何列宽改动都会静默改写 settings，restore 也就成了空操作
+  DB.settings.ui = {
+    taskCols: [...UI.tasks.cols],
+    widths: {
+      tasks: { ...UI.tasks.widths },
+      works: { ...UI.works.widths },
+      duties: { ...UI.duties.widths },
+    },
+  };
+  return Repo.persist(DB);
+}
+function restoreUI() {
+  const ui = DB.settings.ui;
+  if (!ui) return;
+  if (Array.isArray(ui.taskCols)) {
+    const valid = ui.taskCols.filter(k => fieldDef('task', k));
+    if (valid.length) UI.tasks.cols = valid;
+  }
+  if (ui.widths) ['tasks', 'works', 'duties'].forEach(p => Object.assign(UI[p].widths, ui.widths[p] || {}));
+}
+schema('task').fields.forEach(f => { UI.tasks.widths[f.key] = f.width || 100; });
+UI.tasks.widths.sel = 30; UI.tasks.widths.check = 32; UI.tasks.widths.action = 84;
+schema('work').fields.forEach(f => { UI.works.widths[f.key] = f.width || 100; });
+UI.works.widths.ms = 76; UI.works.widths.stat = 104; UI.works.widths.action = 44;
+schema('duty').fields.forEach(f => { UI.duties.widths[f.key] = f.width || 100; });
+UI.duties.widths.stat = 150; UI.duties.widths.action = 44;
+
+function goto(page) {
+  if (!PAGES.some(p => p.key === page)) page = 'dashboard';
+  currentPage = page;
+  if (location.hash !== '#/' + page) location.hash = '#/' + page;
+  renderShell(); renderPage();
+}
+window.addEventListener('hashchange', () => {
+  const p = (location.hash || '').replace(/^#\//, '');
+  if (p && p !== currentPage) goto(p);
+});
+
+/* =============================================================
+   10. 外壳：导航 / 侧栏 / 工具栏
+   ============================================================= */
+function renderShell() {
+  $('#nav').innerHTML = PAGES.map(p =>
+    `<div class="nav-item${currentPage === p.key ? ' active' : ''}" data-act="goto" data-page="${p.key}">${esc(p.label)}</div>`).join('');
+
+  const years = uniq(DB.works.map(w => w.year).filter(Boolean)).sort((a, b) => b - a);
+  if (DB.settings.year && !years.includes(DB.settings.year)) years.unshift(DB.settings.year);
+  $('#year-select').innerHTML =
+    years.map(y => `<option value="${y}"${y === DB.settings.year ? ' selected' : ''}>${y} 年度</option>`).join('') +
+    `<option value="0"${!DB.settings.year ? ' selected' : ''}>全部年度</option>`;
+
+  const me = DB.settings.me;
+  $('#me-tag').textContent = me ? `${me}（${(ROLES.find(r => r.v === DB.settings.role) || {}).label}）` : '未设置使用者';
+
+  $$('.page').forEach(el => el.classList.toggle('active', el.id === 'page-' + currentPage));
+  renderSidebar();
+  renderToolbar();
+}
+
+function facetBlock(entity, f, rows, filters, act) {
+  const items = facet(entity, f, rows).filter(i => i.count > 0 || filters[f.key] === i.value);
+  if (!items.length) return '';
+  let h = `<div class="sb-section-title">◆ ${esc(f.label)}</div>`;
+  h += `<div class="sb-item${!filters[f.key] ? ' active' : ''}" data-act="${act}" data-field="${f.key}" data-val=""><span class="sb-label">全部</span></div>`;
+  h += items.map(i =>
+    `<div class="sb-item indent${filters[f.key] === i.value ? ' active' : ''}" data-act="${act}" data-field="${f.key}" data-val="${esc(i.value)}">
+       <span class="sb-label${i.isEmpty ? ' is-empty-val' : ''}"${i.color ? ` style="color:${i.color}"` : ''}>${esc(i.label)}</span>
+       <span class="cnt">${i.count || ''}</span></div>`).join('');
+  return h + '<hr class="sb-divider">';
+}
+
+function renderSidebar() {
+  const sb = $('#sidebar');
+  const foot = `<div class="sb-copyright">&#174; 科技规划处&nbsp;徐捷<br><span style="opacity:.7">存储：${esc(Repo.name)}</span></div>`;
+  let html = '';
+
+  if (currentPage === 'tasks') {
+    const st = UI.tasks, all = visibleTasks();
+    html += `<div class="sb-section-title">◆ 视图</div>` + TASK_VIEWS.map(v =>
+      `<div class="sb-item${st.view === v.key ? ' active' : ''}" data-act="task-view" data-view="${v.key}">
+         <span class="sb-label">${esc(v.label)}</span><span class="cnt">${all.filter(v.match).length || ''}</span></div>`).join('');
+    html += '<hr class="sb-divider">';
+    const rows = all.filter(TASK_VIEW_MAP[st.view].match);
+    html += renderTaskTree(rows);
+    // 职责与工作已由树承担，其余分面仍平铺
+    schema('task').fields.filter(f => f.facet && f.key !== '_duty' && f.key !== 'work')
+      .forEach(f => { html += facetBlock('task', f, rows, st.filters, 'task-filter'); });
+  } else if (currentPage === 'works') {
+    const st = UI.works, rows = visibleWorks();
+    schema('work').fields.filter(f => f.facet).forEach(f => { html += facetBlock('work', f, rows, st.filters, 'work-filter'); });
+  } else if (currentPage === 'duties') {
+    const st = UI.duties, rows = DB.duties.filter(d => !d.deleted_at);
+    html += facetBlock('duty', fieldDef('duty', 'category'), rows, st.filters, 'duty-filter');
+  } else {
+    sb.classList.add('hidden'); sb.innerHTML = ''; return;
+  }
+  sb.classList.remove('hidden');
+  sb.innerHTML = html + foot;
+}
+
+/* 两级树筛选：职责 → 工作。
+   计数按当前视图统计；选中某工作时自动展开其所属职责。
+   点职责 = 按职责筛选（含其下全部工作），点工作 = 按单个工作筛选。 */
+function renderTaskTree(rows) {
+  const st = UI.tasks;
+  const byWork = new Map();
+  let noWork = 0;
+  rows.forEach(t => {
+    if (!t.work) noWork++;
+    else byWork.set(t.work, (byWork.get(t.work) || 0) + 1);
+  });
+
+  const dutyMap = new Map();
+  visibleWorks().forEach(w => {
+    const c = byWork.get(w.code) || 0;
+    if (!dutyMap.has(w.duty)) dutyMap.set(w.duty, { count: 0, works: [] });
+    const e = dutyMap.get(w.duty);
+    e.count += c;
+    if (c > 0 || st.filters.work === w.code) e.works.push({ w, c });
+  });
+
+  const selWork = st.filters.work && st.filters.work !== '__empty__' ? byId('work', st.filters.work) : null;
+  const noneSelected = !st.filters._duty && !st.filters.work;
+
+  let h = `<div class="sb-section-title">◆ 职责 / 工作</div>`;
+  h += `<div class="sb-item${noneSelected ? ' active' : ''}" data-act="tree-pick" data-duty="" data-work="">
+          <span class="sb-label">全部</span><span class="cnt">${rows.length || ''}</span></div>`;
+
+  DB.duties.filter(d => !d.deleted_at).forEach(d => {
+    const e = dutyMap.get(d.code);
+    if (!e || (!e.count && st.filters._duty !== d.code)) return;
+    const open = st.expanded.has(d.code) || (selWork && selWork.duty === d.code);
+    h += `<div class="sb-item tree-duty${st.filters._duty === d.code ? ' active' : ''}" data-act="tree-pick" data-duty="${esc(d.code)}" data-work="" title="${esc(d.code + ' ' + d.name)}">
+            <span class="sb-caret" data-act="tree-toggle" data-duty="${esc(d.code)}">${open ? '▾' : '▸'}</span>
+            <span class="sb-label">${esc(d.code + ' ' + d.name)}</span>
+            <span class="cnt">${e.count || ''}</span></div>`;
+    if (open) h += e.works.map(({ w, c }) =>
+      `<div class="sb-item indent2${st.filters.work === w.code ? ' active' : ''}" data-act="tree-pick" data-duty="" data-work="${esc(w.code)}" title="${esc(w.code + ' ' + w.name)}">
+         <span class="sb-label">${esc(w.name)}</span><span class="cnt">${c || ''}</span></div>`).join('');
+  });
+
+  if (noWork || st.filters.work === '__empty__') {
+    h += `<div class="sb-item${st.filters.work === '__empty__' ? ' active' : ''}" data-act="tree-pick" data-duty="" data-work="__empty__">
+            <span class="sb-label is-empty-val">未归属工作</span><span class="cnt">${noWork || ''}</span></div>`;
+  }
+  return h + '<hr class="sb-divider">';
+}
+
+function renderToolbar() {
+  const tb = $('#toolbar');
+  if (currentPage === 'tasks') {
+    const st = UI.tasks;
+    const chips = Object.entries(st.filters).filter(([, v]) => v).map(([k, v]) => {
+      const f = fieldDef('task', k);
+      const txt = v === '__empty__' ? '空' : label('task', f, v);
+      return `<span class="filter-chip" data-act="task-filter" data-field="${k}" data-val="">${esc(f.label)}:${esc(txt)} ×</span>`;
+    }).join('');
+    tb.innerHTML = `<span id="view-label">${esc(TASK_VIEW_MAP[st.view].label)}</span>${chips}` +
+      `<input id="quick-input" type="text" placeholder="新建任务… 标题 $0101 @参与人 !1 ~2026-08-31  回车提交">` +
+      `<button class="btn" data-act="col-config" title="选择显示哪些列">▦ 列</button>` +
+      `<input id="search-input" type="text" placeholder="/ 搜索…" value="${esc(st.search)}">`;
+  } else if (currentPage === 'works' || currentPage === 'duties') {
+    const st = UI[currentPage];
+    tb.innerHTML = `<span id="view-label">${currentPage === 'works' ? '工作管理' : '职责管理'}</span>` +
+      `<button class="btn primary" data-act="${currentPage === 'works' ? 'work-new' : 'duty-new'}">+ 新建${currentPage === 'works' ? '工作' : '职责'}</button>` +
+      `<span class="hint">双击单元格编辑</span>` +
+      `<input id="search-input" type="text" placeholder="/ 搜索…" value="${esc(st.search)}">`;
+  } else {
+    const p = PAGES.find(x => x.key === currentPage);
+    tb.innerHTML = `<span id="view-label">${esc(p ? p.label : '')}</span>`;
+    return;
+  }
+  bindToolbarInputs(currentPage);
+}
+
+function bindToolbarInputs(page) {
+  const si = $('#search-input');
+  if (si) {
+    let timer = null;
+    si.addEventListener('input', () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => { UI[page].search = si.value; renderPage(); si.focus(); }, 150);
+    });
+  }
+  const qi = $('#quick-input');
+  if (qi) qi.addEventListener('keydown', async e => {
+    if (e.key !== 'Enter') return;
+    e.stopPropagation();
+    const raw = qi.value.trim();
+    if (!raw) return;
+    snapshot();
+    const t = parseQuickInput(raw);
+    await Repo.upsert('task', t);
+    qi.value = '';
+    if (UI.tasks.view === 'deleted') UI.tasks.view = 'all';
+    renderShell(); renderPage();
+    showSnack(`已添加：${t.title}`);
+  });
+}
+
+/* =============================================================
+   11. 页面分发 / 年度过滤
+   ============================================================= */
+function inYear(w) { return !DB.settings.year || !w.year || w.year === DB.settings.year; }
+function visibleWorks() { return DB.works.filter(w => !w.deleted_at && inYear(w)); }
+function visibleTasks() {
+  const ok = new Set(visibleWorks().map(w => w.code));
+  return DB.tasks.filter(t => !t.work || ok.has(t.work));
+}
+
+function renderPage() {
+  switch (currentPage) {
+    case 'dashboard': renderDashboard(); break;
+    case 'tasks':     renderTasks();     break;
+    case 'works':     renderWorks();     break;
+    case 'duties':    renderDuties();    break;
+    case 'charts':    renderCharts();    break;
+    case 'data':      renderData();      break;
+  }
+  if (['tasks', 'works', 'duties'].includes(currentPage)) renderSidebar();
+}
+
+/* =============================================================
+   12. 通用表头 / 单元格
+   ============================================================= */
+function renderHead(hostSel, entity, cols, st, extra) {
+  const all = [...((extra && extra.lead) || []), ...cols, ...((extra && extra.tail) || [])];
+  const lastKey = typeof all[all.length - 1] === 'string' ? all[all.length - 1] : all[all.length - 1].key;
+  $(hostSel).innerHTML = all.map(c => {
+    const isField = typeof c === 'string';
+    const f = isField ? fieldDef(entity, c) : null;
+    const key = isField ? c : c.key;
+    const cls = [];
+    const attrs = [`data-key="${key}"`, `style="width:${st.widths[key] || 90}px"`];
+    let inner = esc(isField ? f.label : c.label);
+    if (key === 'check') cls.push('col-check');
+    if (key === 'sel') cls.push('col-sel');
+    if (!isField && c.act) { attrs.push(`data-act="${c.act}"`, 'style="cursor:pointer"', `title="${esc(c.title || '')}"`); }
+    if (isField && f.sortable) {
+      cls.push('sortable');
+      attrs.push(`data-sort="${key}"`);
+      inner += `<span class="sort-icon">${st.sortKey === key ? (st.sortDir === 1 ? '▲' : '▼') : '⇅'}</span>`;
+    }
+    if (cls.length) attrs.push(`class="${cls.join(' ')}"`);
+    const handle = key !== lastKey ? `<div class="col-resize" data-resize="${key}"></div>` : '';
+    return `<th ${attrs.join(' ')}>${inner}${handle}</th>`;
+  }).join('');
+}
+
+function renderCellValue(entity, rec, f, editable) {
+  const id = rec[schema(entity).pk];
+  const can = editable && !f.readonly;
+  const editAttr = can ? ` data-dblact="edit" data-entity="${entity}" data-id="${esc(id)}" data-field="${f.key}"` : '';
+
+  switch (f.type) {
+    case 'enum': {
+      const o = (f.options || []).find(x => x.v === String(rec[f.key])) || {};
+      const clk = can ? ` data-act="cycle" data-entity="${entity}" data-id="${esc(id)}" data-field="${f.key}"` : '';
+      return `<td class="cell-center"><span class="badge ${o.cls || ''}${clk ? '' : ' ro'}"${clk}>${esc(o.label || '')}</span></td>`;
+    }
+    case 'date':
+      return `<td class="cell-center"${editAttr}><span class="${dateClass(rec[f.key])}">${esc(fmtDate(rec[f.key]))}</span></td>`;
+    case 'num': {
+      if (f.key === 'progress') {
+        const n = Math.max(0, Math.min(100, Number(rec[f.key]) || 0));
+        return `<td${editAttr}><div class="progress-wrap"><div class="progress-bar"><div class="progress-fill" style="width:${n}%"></div></div><span class="progress-num">${n}%</span></div></td>`;
+      }
+      return `<td class="cell-center"${editAttr}>${esc(rec[f.key] === '' ? '' : rec[f.key])}</td>`;
+    }
+    case 'lines': {
+      const arr = rec[f.key] || [];
+      const txt = arr.map((l, i) => `${i + 1}、${l}`).join('  ');
+      return `<td${editAttr} title="${esc(arr.map((l, i) => (i + 1) + '、' + l).join('\n'))}"><span class="lines-preview">${esc(txt)}</span></td>`;
+    }
+    case 'persons': case 'multi':
+      return `<td class="cell-center"${editAttr}>${(rec[f.key] || []).map(v =>
+        `<span class="tag-chip${f.type === 'persons' ? ' tag-person' : ''}">${esc(v)}</span>`).join('')}</td>`;
+    case 'person':
+      return `<td class="cell-center"${editAttr}>${rec[f.key] ? `<span class="tag-chip tag-person">${esc(rec[f.key])}</span>` : ''}</td>`;
+    case 'ref': {
+      const v = rec[f.key];
+      if (!v) return `<td class="cell-center"${editAttr}></td>`;
+      const r = byId(f.ref, v);
+      if (!r) return `<td class="cell-center"${editAttr}><span style="color:var(--text3)">${esc(v)}?</span></td>`;
+      const rs = schema(f.ref);
+      const full = (r.code ? r.code + ' ' : '') + (r[rs.titleField] || '');
+      if (f.ref === 'milestone') {
+        const d = r.plan_date ? ` <span style="opacity:.75">${esc(fmtDate(r.plan_date))}</span>` : '';
+        return `<td class="cell-center"${editAttr} title="${esc(r.name + (r.plan_date ? ' ' + r.plan_date : ''))}"><span class="ms-chip">${esc(r.name)}${d}</span></td>`;
+      }
+      return `<td${editAttr} title="${esc(full)}"><span class="cell-title">${rs.pk === 'code' ? `<span class="code-chip">${esc(r.code)}</span>` : ''}${esc(r[rs.titleField] || '')}</span></td>`;
+    }
+    default:
+      return `<td class="${f.align === 'center' ? 'cell-center' : ''}"${editAttr}><span class="cell-title">${esc(rec[f.key])}</span></td>`;
+  }
+}
+
+/* =============================================================
+   13. 任务页（虚拟滚动）
+   ============================================================= */
+const ROW_H = parseInt(getComputedStyle(document.documentElement).getPropertyValue('--row-h')) || 36;
+const VS_BUFFER = 12;
+let _taskRows = [];
+
+function renderTasks() {
+  const st = UI.tasks;
+  renderHead('#tasks-head', 'task', st.cols, st, {
+    lead: [{ key: 'sel', label: st.sel.size && st.sel.size === _taskRows.length ? '☑' : '☐', act: 'sel-all', title: '全选 / 取消全选' },
+           { key: 'check', label: st.view === 'deleted' ? '↩' : '✓' }],
+    tail: [{ key: 'action', label: '✕' }],
+  });
+  _taskRows = query('task', {
+    pool: visibleTasks().filter(TASK_VIEW_MAP[st.view].match),
+    filters: st.filters, search: st.search, sortKey: st.sortKey, sortDir: st.sortDir,
+  });
+  // 选中项可能因筛选/视图变化而不在当前结果里，清掉避免"看不见却被批量改"
+  const visible = new Set(_taskRows.map(t => t.id));
+  [...st.sel].forEach(id => { if (!visible.has(id)) st.sel.delete(id); });
+
+  $('#status-left').textContent = `${_taskRows.length} 条任务` + (st.sel.size ? ` · 已选 ${st.sel.size}` : '');
+  renderBatchBar();
+  const empty = $('#empty-state');
+  if (!_taskRows.length) { $('#tasks-body').innerHTML = ''; empty.style.display = 'block'; return; }
+  empty.style.display = 'none';
+  renderTaskViewport();
+}
+
+/* 批量操作条：选中任意行后出现 */
+function renderBatchBar() {
+  const st = UI.tasks, bar = $('#batch-bar');
+  if (!st.sel.size) { bar.classList.remove('show'); bar.innerHTML = ''; return; }
+  bar.classList.add('show');
+  bar.innerHTML =
+    `<span class="n">已选 ${st.sel.size} 项</span>` +
+    `<button class="btn" data-act="batch" data-field="status">改状态</button>` +
+    `<button class="btn" data-act="batch" data-field="owner">改负责人</button>` +
+    `<button class="btn" data-act="batch" data-field="assignees">改参与人</button>` +
+    `<button class="btn" data-act="batch" data-field="work">改所属工作</button>` +
+    `<button class="btn" data-act="batch" data-field="plan_date">改计划完成</button>` +
+    `<button class="btn" data-act="batch" data-field="priority">改优先级</button>` +
+    `<button class="btn" data-act="batch-delete" style="color:var(--p1)">删除</button>` +
+    `<button class="btn" data-act="sel-clear" style="margin-left:auto">取消选择</button>`;
+}
+
+function renderTaskViewport() {
+  const wrap = $('#tasks-scroll');
+  const total = _taskRows.length;
+  const colCount = UI.tasks.cols.length + 3;   // 选择列 + 完成列 + 操作列
+  const theadH = ($('#page-tasks thead') || {}).offsetHeight || 0;
+  const top = Math.max(0, wrap.scrollTop - theadH);
+  const start = Math.max(0, Math.floor(top / ROW_H) - VS_BUFFER);
+  let end = Math.min(total, Math.ceil((top + wrap.clientHeight) / ROW_H) + VS_BUFFER);
+  if (end <= start) end = Math.min(total, start + 1);
+  const pad = h => h > 0 ? `<tr class="vs-pad" style="height:${h}px"><td colspan="${colCount}"></td></tr>` : '';
+  $('#tasks-body').innerHTML =
+    pad(start * ROW_H) + _taskRows.slice(start, end).map(renderTaskRow).join('') + pad((total - end) * ROW_H);
+}
+
+function renderTaskRow(t) {
+  const del = !!t.deleted_at;
+  const selected = UI.tasks.sel.has(t.id);
+  const cls = [t.status === 'done' ? 'done-row' : '', t.status === 'hold' ? 'hold-row' : '',
+               del ? 'deleted-row' : '', selected ? 'sel-row' : ''].filter(Boolean).join(' ');
+  const sel = `<td class="col-sel"><input type="checkbox" class="cb-sel" data-act="sel-row" data-id="${t.id}"${selected ? ' checked' : ''}></td>`;
+  const lead = del
+    ? `<td class="col-check"><button class="action-btn restore" data-act="task-restore" data-id="${t.id}" title="恢复">↩</button></td>`
+    : `<td class="col-check"><input type="checkbox" class="cb" data-act="task-done" data-id="${t.id}"${t.status === 'done' ? ' checked' : ''}></td>`;
+  const tail = del
+    ? `<td class="cell-center"><button class="action-btn del" data-act="task-purge" data-id="${t.id}" title="彻底删除">🗑</button></td>`
+    : `<td class="cell-center"><button class="action-btn ms" data-act="task-detail" data-id="${t.id}" title="详情（全部字段）">☰</button><button class="action-btn copy" data-act="task-dup" data-id="${t.id}" title="复制">⧉</button><button class="action-btn del" data-act="task-del" data-id="${t.id}" title="删除">×</button></td>`;
+  const cells = UI.tasks.cols.map(k => renderCellValue('task', t, fieldDef('task', k), !del)).join('');
+  return `<tr data-id="${t.id}" class="${cls}">${sel}${lead}${cells}${tail}</tr>`;
+}
+
+function refreshTaskRow(id) {
+  const tr = $(`#tasks-body tr[data-id="${id}"]`);
+  const t = byId('task', id);
+  if (!tr || !t) { renderTasks(); return; }
+  const i = _taskRows.findIndex(x => x.id === id);
+  if (i >= 0) _taskRows[i] = t;
+  tr.outerHTML = renderTaskRow(t);
+}
+
+/* =============================================================
+   14. 工作页
+   ============================================================= */
+function renderWorks() {
+  const st = UI.works;
+  const cols = schema('work').fields.map(f => f.key);
+  renderHead('#works-head', 'work', cols, st, {
+    tail: [{ key: 'ms', label: '里程碑' }, { key: 'stat', label: '任务进度' }, { key: 'action', label: '✕' }],
+  });
+  const rows = query('work', { pool: visibleWorks(), filters: st.filters, search: st.search, sortKey: st.sortKey, sortDir: st.sortDir });
+  $('#status-left').textContent = `${rows.length} 项工作`;
+
+  $('#works-body').innerHTML = rows.map(w => {
+    const cells = cols.map(k => renderCellValue('work', w, fieldDef('work', k), true)).join('');
+    const ms = DB.milestones.filter(m => m.work === w.code && !m.deleted_at);
+    const msDone = ms.filter(m => m.status === 'done').length;
+    const msCell = `<td class="cell-center"><button class="action-btn ms" data-act="ms-panel" data-code="${esc(w.code)}" title="管理里程碑">◈ ${ms.length ? msDone + '/' + ms.length : '＋'}</button></td>`;
+    const ts = DB.tasks.filter(t => t.work === w.code && !t.deleted_at);
+    const done = ts.filter(t => t.status === 'done').length;
+    const doing = ts.filter(t => t.status === 'doing').length;
+    const over = ts.filter(isOverdue).length;
+    const pct = ts.length ? Math.round(done / ts.length * 100) : 0;
+    const statCell = `<td class="cell-center" data-act="work-drill" data-code="${esc(w.code)}" style="cursor:pointer" title="查看该工作下的任务">
+        <div class="progress-wrap"><div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
+        <span class="progress-num">${ts.length ? done + '/' + ts.length : '—'}</span></div>
+        ${over ? `<div style="font-size:10px;color:var(--overdue);line-height:1">逾期 ${over}</div>`
+               : (doing ? `<div style="font-size:10px;color:var(--text3);line-height:1">进行 ${doing}</div>` : '')}</td>`;
+    const act = `<td class="cell-center"><button class="action-btn del" data-act="work-del" data-code="${esc(w.code)}" title="停用">×</button></td>`;
+    return `<tr data-id="${esc(w.code)}">${cells}${msCell}${statCell}${act}</tr>`;
+  }).join('');
+}
+
+/* =============================================================
+   15. 职责页
+   ============================================================= */
+function renderDuties() {
+  const st = UI.duties;
+  const cols = schema('duty').fields.map(f => f.key);
+  renderHead('#duties-head', 'duty', cols, st, {
+    tail: [{ key: 'stat', label: '工作 / 任务' }, { key: 'action', label: '✕' }],
+  });
+  const rows = query('duty', {
+    pool: DB.duties.filter(d => !d.deleted_at),
+    filters: st.filters, search: st.search, sortKey: st.sortKey, sortDir: st.sortDir,
+  });
+  $('#status-left').textContent = `${rows.length} 项职责`;
+
+  $('#duties-body').innerHTML = rows.map(d => {
+    const cells = cols.map(k => renderCellValue('duty', d, fieldDef('duty', k), true)).join('');
+    const ws = visibleWorks().filter(w => w.duty === d.code);
+    const codes = new Set(ws.map(w => w.code));
+    const ts = DB.tasks.filter(t => !t.deleted_at && codes.has(t.work));
+    const done = ts.filter(t => t.status === 'done').length;
+    const stat = `<td class="cell-center" data-act="duty-drill" data-code="${esc(d.code)}" style="cursor:pointer" title="查看该职责下的工作">
+       <span style="color:var(--text2)">${ws.length} 项工作</span><span class="cell-sub"> · ${ts.length ? done + '/' + ts.length + ' 任务' : '无任务'}</span></td>`;
+    const act = `<td class="cell-center"><button class="action-btn del" data-act="duty-del" data-code="${esc(d.code)}" title="停用">×</button></td>`;
+    return `<tr data-id="${esc(d.code)}">${cells}${stat}${act}</tr>`;
+  }).join('');
+}
+
+/* =============================================================
+   16. 工作台
+   ============================================================= */
+let dashFocus = 'overdue';           // 「需要关注」面板当前分段
+
+function daysFromToday(d) {
+  return Math.round((new Date(d + 'T00:00:00') - new Date(todayStr() + 'T00:00:00')) / 86400000);
+}
+function relTime(iso) {
+  if (!iso) return '';
+  const diff = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (diff < 60) return '刚刚';
+  if (diff < 3600) return Math.floor(diff / 60) + ' 分钟前';
+  if (diff < 86400) return Math.floor(diff / 3600) + ' 小时前';
+  if (diff < 86400 * 30) return Math.floor(diff / 86400) + ' 天前';
+  return iso.slice(0, 10);
+}
+
+function renderDashboard() {
+  const tasks = visibleTasks().filter(t => !t.deleted_at);
+  const works = visibleWorks();
+  const me = DB.settings.me;
+  const today = todayStr();
+
+  const open    = tasks.filter(isOpen);
+  const overdue = tasks.filter(isOverdue).sort((a, b) => (a.plan_date || '').localeCompare(b.plan_date || ''));
+  const dueToday= tasks.filter(t => isOpen(t) && t.plan_date === today);
+  const week    = tasks.filter(t => isOpen(t) && t.plan_date && t.plan_date >= today && t.plan_date <= endOfWeek());
+  const noOwner = tasks.filter(t => isOpen(t) && !t.owner);
+  const monthDone = tasks.filter(t => t.status === 'done' && (t.actual_date || '').slice(0, 7) === today.slice(0, 7));
+  const mineOpen = tasks.filter(t => isMine(t) && isOpen(t));
+
+  const card = (k, v, cls, view) =>
+    `<div class="card${view ? ' clickable' : ''}"${view ? ` data-act="goto-view" data-page="tasks" data-view="${view}"` : ''}>
+       <div class="k">${k}</div><div class="v ${cls || ''}">${v}</div></div>`;
+
+  /* ---------- ① 需要关注：分段列表 ---------- */
+  const FOCUS = {
+    overdue: { label: '逾期',     rows: overdue,  view: 'overdue' },
+    today:   { label: '今日到期', rows: dueToday, view: 'today' },
+    week:    { label: '本周到期', rows: week,     view: 'week' },
+    noowner: { label: '未指派',   rows: noOwner,  view: 'all' },
+  };
+  if (!FOCUS[dashFocus] || !FOCUS[dashFocus].rows.length) {
+    dashFocus = Object.keys(FOCUS).find(k => FOCUS[k].rows.length) || 'overdue';
+  }
+  const focus = FOCUS[dashFocus];
+  const seg = Object.entries(FOCUS).map(([k, v]) =>
+    `<span class="s${dashFocus === k ? ' on' : ''}" data-act="dash-focus" data-k="${k}">${v.label}<span class="c">${v.rows.length}</span></span>`).join('');
+
+  const focusList = focus.rows.length
+    ? `<div class="mini-list">${focus.rows.slice(0, 10).map(t => `
+        <div class="li" data-act="focus-task" data-id="${t.id}" title="${esc(t.title)}">
+          <span class="d ${dateClass(t.plan_date)}">${esc(t.plan_date ? fmtDate(t.plan_date) : '无日期')}</span>
+          <span class="t">${esc(t.title)}</span>
+          <span class="p">${esc(workName(t.work))} · ${esc(t.owner || '未指派')}</span></div>`).join('')}
+       ${focus.rows.length > 10 ? `<div class="empty-mini">还有 ${focus.rows.length - 10} 条…</div>` : ''}</div>`
+    : `<div class="empty-mini">没有${focus.label}的任务 👍</div>`;
+
+  /* ---------- ② 里程碑时间线 ---------- */
+  const msAll = DB.milestones.filter(m => !m.deleted_at && m.plan_date &&
+                                          works.some(w => w.code === m.work));
+  const msShow = msAll.filter(m => m.status !== 'done' || daysFromToday(m.plan_date) >= -14)
+    .sort((a, b) => a.plan_date.localeCompare(b.plan_date)).slice(0, 10);
+
+  let timeline = '<div class="empty-mini">暂无里程碑，可在「工作」页为工作添加</div>';
+  if (msShow.length) {
+    // 时间轴范围：覆盖全部待显示里程碑并留边距，最短 30 天
+    const offs = msShow.map(m => daysFromToday(m.plan_date));
+    let lo = Math.min(0, ...offs) - 3, hi = Math.max(...offs) + 3;
+    if (hi - lo < 30) hi = lo + 30;
+    const pct = d => ((d - lo) / (hi - lo) * 100).toFixed(2) + '%';
+
+    // 刻度：起止 + 每月 1 号
+    const ticks = [];
+    for (let d = lo; d <= hi; d++) {
+      const ds = offsetDate(d);
+      if (ds.endsWith('-01') || d === lo || d === hi) ticks.push({ d, label: fmtDate(ds).replace('今天', '今天') });
+    }
+    const rows = msShow.map(m => {
+      const off = daysFromToday(m.plan_date);
+      const cls = m.status === 'done' ? 'done' : off < 0 ? 'late' : off <= 7 ? 'soon' : 'norm';
+      const state = m.status === 'done' ? '已完成' : off < 0 ? `逾期 ${-off} 天` : off === 0 ? '今天' : `还有 ${off} 天`;
+      return `<div class="tl-row" data-act="ms-panel" data-code="${esc(m.work)}" title="${esc(m.name + ' · ' + workName(m.work) + ' · ' + m.plan_date + ' · ' + state)}">
+        <span class="tl-name">${esc(m.name)} <span class="sub">${esc(workName(m.work))}</span></span>
+        <span class="tl-track" style="--today:${pct(0)}"><span class="tl-dot ${cls}" style="left:${pct(off)}"></span></span>
+        <span class="tl-date ${off < 0 && m.status !== 'done' ? 'due-overdue' : ''}">${esc(state)}</span></div>`;
+    }).join('');
+    timeline = `<div class="tl">
+      <div class="tl-axis"><span class="tl-name" style="font-size:10px">里程碑</span>
+        <span class="tl-ticks">${ticks.map(t => `<span class="tk" style="left:${pct(t.d)}">${esc(t.label)}</span>`).join('')}</span>
+        <span class="tl-date" style="font-size:10px;color:var(--text3)">状态</span></div>
+      ${rows}
+      <div class="legend">
+        <span><i style="background:var(--c-late)"></i>逾期</span>
+        <span><i style="background:var(--c-soon)"></i>7天内</span>
+        <span><i style="background:var(--c-doing)"></i>后续</span>
+        <span><i style="background:var(--c-done)"></i>已完成</span>
+        <span style="color:var(--accent)">│ 竖线为今天</span>
+      </div></div>`;
+  }
+
+  /* ---------- ③ 各职责推进 ---------- */
+  const dutyStat = DB.duties.filter(d => !d.deleted_at).map(d => {
+    const codes = new Set(works.filter(w => w.duty === d.code).map(w => w.code));
+    const ts = tasks.filter(t => codes.has(t.work));
+    return {
+      code: d.code, name: d.code + ' ' + d.name, total: ts.length,
+      done: ts.filter(t => t.status === 'done').length,
+      doing: ts.filter(t => t.status === 'doing' && !isOverdue(t)).length,
+      late: ts.filter(isOverdue).length,
+    };
+  }).filter(x => x.total > 0).sort((a, b) => b.late - a.late || b.total - a.total);
+
+  const bar = x => {
+    const p = n => (n / x.total * 100).toFixed(1) + '%';
+    return `<div class="bar-row clickable" data-act="duty-drill" data-code="${esc(x.code)}" title="${esc(x.name)}：共 ${x.total} 条，已完成 ${x.done}，进行中 ${x.doing}，逾期 ${x.late}">
+      <span class="nm">${esc(x.name)}</span>
+      <span class="track">
+        <span class="seg seg-done" style="width:${p(x.done)}"></span>
+        <span class="seg seg-doing" style="width:${p(x.doing)}"></span>
+        <span class="seg seg-late" style="width:${p(x.late)}"></span>
+      </span>
+      <span class="num">${x.done}/${x.total}${x.late ? ` · 逾${x.late}` : ''}</span></div>`;
+  };
+
+  /* ---------- ④ 我的工作台 ---------- */
+  const myPanel = me ? (() => {
+    const myWorks = works.filter(w => w.owner === me);
+    const myTasks = mineOpen.slice().sort((a, b) => (a.plan_date || '9999').localeCompare(b.plan_date || '9999'));
+    return `<div class="hint" style="margin-bottom:6px">牵头 <b>${myWorks.length}</b> 项工作 · 在办 <b>${mineOpen.length}</b> 条任务 · 逾期 <b style="color:var(--overdue)">${mineOpen.filter(isOverdue).length}</b> 条</div>
+      ${myTasks.length ? `<div class="mini-list">${myTasks.slice(0, 7).map(t => `
+        <div class="li" data-act="focus-task" data-id="${t.id}" title="${esc(t.title)}">
+          <span class="d ${dateClass(t.plan_date)}">${esc(t.plan_date ? fmtDate(t.plan_date) : '—')}</span>
+          <span class="t">${esc(t.title)}</span></div>`).join('')}</div>` : '<div class="empty-mini">暂无在办任务</div>'}`;
+  })() : `<div class="empty-mini">尚未设置本机使用者。<a href="#/data" style="color:var(--accent)">去「数据」页设置</a>后，这里会显示你牵头的工作和在办任务。</div>`;
+
+  /* ---------- ⑤ 人员负荷 ---------- */
+  const loadMap = new Map();
+  tasks.forEach(t => {
+    const who = t.owner || '（未指派）';
+    if (!loadMap.has(who)) loadMap.set(who, { open: 0, late: 0, done: 0 });
+    const e = loadMap.get(who);
+    if (isOverdue(t)) e.late++;
+    else if (isOpen(t)) e.open++;
+    else if (t.status === 'done') e.done++;
+  });
+  const loads = [...loadMap.entries()].map(([nm, v]) => ({ nm, ...v, total: v.open + v.late + v.done }))
+    .sort((a, b) => (b.open + b.late) - (a.open + a.late)).slice(0, 9);
+  const maxLoad = Math.max(1, ...loads.map(l => l.total));
+  const loadRows = loads.map(l => `
+    <div class="load-row" data-act="filter-owner" data-owner="${esc(l.nm === '（未指派）' ? '__empty__' : l.nm)}"
+         title="${esc(l.nm)}：在办 ${l.open}，逾期 ${l.late}，已完成 ${l.done}">
+      <span class="nm">${esc(l.nm)}</span>
+      <span class="track">
+        <span class="seg seg-late" style="width:${l.late / maxLoad * 100}%"></span>
+        <span class="seg seg-doing" style="width:${l.open / maxLoad * 100}%"></span>
+        <span class="seg seg-done" style="width:${l.done / maxLoad * 100}%"></span>
+      </span>
+      <span class="num">${l.open + l.late} 在办</span></div>`).join('');
+
+  /* ---------- ⑥ 最近动态 ---------- */
+  const feed = tasks.slice().filter(t => t.updated_at)
+    .sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 8);
+
+  $('#page-dashboard').innerHTML = `<div class="pad">
+    <div class="cards">
+      ${card('未完成任务', open.length, '', 'all')}
+      ${card('逾期', overdue.length, overdue.length ? 'warn' : '', 'overdue')}
+      ${card('今日到期', dueToday.length, '', 'today')}
+      ${card('本周到期', week.length, '', 'week')}
+      ${card('本月完成', monthDone.length, 'ok', 'done')}
+      ${card('我的在办', me ? mineOpen.length : '—', '', me ? 'mine' : '')}
+    </div>
+
+    <div class="dash-grid">
+      <div class="dash-col">
+        <div class="panel"><div class="panel-h"><span>⚠ 需要关注</span><span class="seg-ctrl">${seg}</span></div>
+          <div class="panel-b">${focusList}</div></div>
+
+        <div class="panel"><div class="panel-h"><span>◈ 里程碑时间线</span>
+          <span class="hint">${msShow.length ? `显示 ${msShow.length} / ${msAll.length} 个` : ''}</span></div>
+          <div class="panel-b">${timeline}</div></div>
+
+        <div class="panel"><div class="panel-h"><span>▤ 各职责推进情况</span>
+          <span class="hint">按逾期数排序 · 点击下钻</span></div>
+          <div class="panel-b">
+            ${dutyStat.length ? dutyStat.map(bar).join('') : '<div class="empty-mini">暂无数据</div>'}
+            <div class="legend">
+              <span><i style="background:var(--c-done)"></i>已完成</span>
+              <span><i style="background:var(--c-doing)"></i>进行中</span>
+              <span><i style="background:var(--c-late)"></i>逾期</span>
+              <span><i style="background:var(--c-track)"></i>未开始</span>
+            </div></div></div>
+      </div>
+
+      <div class="dash-col">
+        <div class="panel"><div class="panel-h"><span>👤 我的工作台</span></div>
+          <div class="panel-b">${myPanel}</div></div>
+
+        <div class="panel"><div class="panel-h"><span>▥ 人员负荷</span>
+          <span class="hint">点击筛选</span></div>
+          <div class="panel-b">${loads.length ? loadRows : '<div class="empty-mini">暂无数据</div>'}
+            <div class="legend">
+              <span><i style="background:var(--c-late)"></i>逾期</span>
+              <span><i style="background:var(--c-doing)"></i>在办</span>
+              <span><i style="background:var(--c-done)"></i>已完成</span>
+            </div></div></div>
+
+        <div class="panel"><div class="panel-h"><span>🕘 最近动态</span></div>
+          <div class="panel-b feed">${feed.length ? feed.map(t => `
+            <div class="li" data-act="focus-task" data-id="${t.id}" title="${esc(t.title)}">
+              <span class="who">${esc(t.updated_by || '—')}</span>
+              <span class="what">${esc(t.title)}</span>
+              <span class="when">${esc(relTime(t.updated_at))}</span></div>`).join('') : '<div class="empty-mini">暂无</div>'}</div></div>
+      </div>
+    </div>
+  </div>`;
+  $('#status-left').textContent = `${tasks.length} 条任务 · ${works.length} 项工作 · ${DB.duties.filter(d => !d.deleted_at).length} 项职责`;
+}
+function workName(code) { const w = byId('work', code); return w ? w.name : (code ? code + '?' : '未归属'); }
+
+/* =============================================================
+   17. 图表页（P4）
+   ============================================================= */
+function renderCharts() {
+  $('#page-charts').innerHTML = `<div class="pad"><div class="panel">
+    <div class="panel-h">图表分析</div><div class="panel-b hint">
+    本页将在 <b>P4 阶段</b>实现，三个分析视角：<br>
+    · <b>按人</b>：各人牵头/参与任务数、完成率对比、工作负荷<br>
+    · <b>按分类</b>：四大职责类别 → 15 项职责 → 工作，任务量与完成率堆叠<br>
+    · <b>按时间</b>：月度新增/完成折线、未来 30 天到期分布、里程碑甘特图<br><br>
+    图表全部用手写 SVG 实现，不引入任何第三方库。
+  </div></div></div>`;
+  $('#status-left').textContent = '图表（P4 阶段实现）';
+}
+
+/* =============================================================
+   18. 数据页
+   ============================================================= */
+function renderData() {
+  const counts = {
+    职责: DB.duties.filter(d => !d.deleted_at).length,
+    工作: DB.works.filter(w => !w.deleted_at).length,
+    里程碑: DB.milestones.filter(m => !m.deleted_at).length,
+    任务: DB.tasks.filter(t => !t.deleted_at).length,
+    已删除任务: DB.tasks.filter(t => t.deleted_at).length,
+  };
+  const testN = DB.tasks.filter(t => t.custom === '测试').length;
+  let size = 0;
+  try { size = (localStorage.getItem(STORAGE_KEY) || '').length; } catch (e) {}
+
+  $('#page-data').innerHTML = `<div class="pad">
+    <div class="panel"><div class="panel-h">使用者</div><div class="panel-b">
+      <div class="form-row"><label>姓名</label><input id="set-me" value="${esc(DB.settings.me)}" placeholder="本机使用者姓名，如 徐捷"></div>
+      <div class="form-row"><label>角色</label><select id="set-role">${ROLES.map(r => `<option value="${r.v}"${DB.settings.role === r.v ? ' selected' : ''}>${r.label}</option>`).join('')}</select></div>
+      <div class="form-row"><label></label><button class="btn primary" data-act="save-settings">保存</button></div>
+      <div class="hint">设定后「我的任务」视图与图表中的"我"才成立。该值仅存本机。</div>
+    </div></div>
+
+    <div class="panel"><div class="panel-h">数据概况</div><div class="panel-b hint">
+      ${Object.entries(counts).map(([k, v]) => `${k}：<b>${v}</b>`).join(' &nbsp;·&nbsp; ')}<br>
+      本地存储占用：约 <b>${(size / 1024).toFixed(0)} KB</b>（localStorage 上限通常 5 MB）<br>
+      存储实现：<code>${esc(Repo.name)}</code>　接入内网服务端后此处会变为 <code>http</code>，页面代码无需改动。
+    </div></div>
+
+    <div class="panel"><div class="panel-h">导入 / 导出</div><div class="panel-b">
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <button class="btn" data-act="export" data-entity="duty">导出职责</button>
+        <button class="btn" data-act="export" data-entity="work">导出工作</button>
+        <button class="btn" data-act="export" data-entity="milestone">导出里程碑</button>
+        <button class="btn" data-act="export" data-entity="task">导出任务</button>
+        <button class="btn primary" data-act="export-all">导出全部（JSON 备份）</button>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <button class="btn" data-act="import" data-entity="duty">导入职责 CSV</button>
+        <button class="btn" data-act="import" data-entity="work">导入工作 CSV</button>
+        <button class="btn" data-act="import" data-entity="milestone">导入里程碑 CSV</button>
+        <button class="btn" data-act="import" data-entity="task">导入任务 CSV</button>
+      </div>
+      <div class="hint">CSV 按主键 upsert（存在则更新，不存在则新增）。<b>导出的文件即导入模板</b>——先导出一份，
+      按其列名整理 Excel 后再导入。工作编号请保持 <code>0101</code> 四位；Excel 会吃掉前导零，导入时会自动把
+      <code>101</code> 补成 <code>0101</code>。多值字段（协同人员/参与人）用英文逗号分隔，
+      值内若含逗号会自动转义。</div>
+    </div></div>
+
+    <div class="panel"><div class="panel-h">测试数据</div><div class="panel-b">
+      <div class="hint">当前有 <b>${testN}</b> 条标记为「测试」的任务（标签字段 = 测试）。正式使用前可一键清除。</div>
+      <div style="margin-top:8px">
+        <button class="btn" data-act="clear-test">清除全部测试任务</button>
+        <button class="btn" data-act="reset-all" style="margin-left:8px;color:var(--p1)">重置全部数据</button></div>
+    </div></div>
+  </div>`;
+  $('#status-left').textContent = '数据管理';
+}
+
+/* =============================================================
+   19. 快捷输入
+   ============================================================= */
+// Excel 会把 0101 存成数字 101，输入/导入时统一补齐为 4 位
+function padCode(s) {
+  const v = String(s == null ? '' : s).trim();
+  return /^\d{3}$/.test(v) ? '0' + v : v;
+}
+function parseQuickInput(raw) {
+  const t = blank('task', { status: 'todo', priority: '2', progress: 0 });
+  const parts = [];
+  for (const tok of raw.trim().split(/\s+/)) {
+    if (tok.startsWith('$') && tok.length > 1) {
+      const key = tok.slice(1), code = padCode(key);
+      if (byId('work', code)) { t.work = code; continue; }
+      const w = DB.works.find(x => !x.deleted_at && x.name.includes(key));
+      if (w) { t.work = w.code; continue; }
+      continue;
+    }
+    if (tok.startsWith('@') && tok.length > 1) { t.assignees.push(tok.slice(1)); continue; }
+    if (tok.startsWith('~') && tok.length > 1) { const d = parseDue(tok.slice(1)); if (d) { t.plan_date = d; continue; } }
+    if (/^!([123])$/.test(tok)) { t.priority = tok[1]; continue; }
+    const d = parseDue(tok);
+    if (d && !t.plan_date) { t.plan_date = d; continue; }
+    parts.push(tok);
+  }
+  t.title = parts.join(' ') || '未命名任务';
+  if (!t.owner && t.work) { const w = byId('work', t.work); if (w) t.owner = w.owner; }   // 负责人默认取工作牵头人
+  return t;
+}
+
+/* =============================================================
+   20. 动作表 + 事件委托
+   ============================================================= */
+const ACTIONS = {
+  goto: d => goto(d.page),
+  'goto-view': d => { UI.tasks.view = d.view; UI.tasks.filters = {}; UI.tasks.search = ''; goto(d.page); },
+  undo: () => undoLast(),
+
+  'task-view': d => { UI.tasks.view = d.view; UI.tasks.sel.clear(); $('#tasks-scroll').scrollTop = 0; renderShell(); renderPage(); },
+  'task-filter': d => { UI.tasks.filters[d.field] = d.val; UI.tasks.sel.clear(); $('#tasks-scroll').scrollTop = 0; renderShell(); renderPage(); },
+
+  /* --- 两级树筛选 --- */
+  'tree-pick': d => {
+    const st = UI.tasks;
+    st.filters._duty = d.duty || '';
+    st.filters.work = d.work || '';
+    if (d.duty) st.expanded.add(d.duty);
+    st.sel.clear();
+    $('#tasks-scroll').scrollTop = 0;
+    renderShell(); renderPage();
+  },
+  'tree-toggle': (d, el, e) => {
+    e.stopPropagation();
+    const st = UI.tasks;
+    if (st.expanded.has(d.duty)) st.expanded.delete(d.duty); else st.expanded.add(d.duty);
+    renderSidebar();
+  },
+
+  /* --- 批量选择 --- */
+  'sel-row': (d, el, e) => {
+    const st = UI.tasks;
+    const idx = _taskRows.findIndex(t => t.id === d.id);
+    if (e && e.shiftKey && st.lastSelIdx >= 0 && idx >= 0) {   // Shift 范围选择
+      const [a, b] = [Math.min(st.lastSelIdx, idx), Math.max(st.lastSelIdx, idx)];
+      for (let i = a; i <= b; i++) st.sel.add(_taskRows[i].id);
+    } else {
+      if (st.sel.has(d.id)) st.sel.delete(d.id); else st.sel.add(d.id);
+    }
+    st.lastSelIdx = idx;
+    renderTaskViewport(); renderBatchBar();
+    $('#status-left').textContent = `${_taskRows.length} 条任务` + (st.sel.size ? ` · 已选 ${st.sel.size}` : '');
+  },
+  'sel-all': () => {
+    const st = UI.tasks;
+    if (st.sel.size === _taskRows.length) st.sel.clear();
+    else _taskRows.forEach(t => st.sel.add(t.id));
+    renderTasks();
+  },
+  'sel-clear': () => { UI.tasks.sel.clear(); renderTasks(); },
+  batch: d => openBatchEdit(d.field),
+  'batch-delete': () => {
+    const ids = [...UI.tasks.sel];
+    confirmModal('批量删除', `将删除选中的 ${ids.length} 条任务，可在「已删除」视图中恢复。`, '删除', async () => {
+      snapshot();
+      await Repo.bulk(() => { ids.forEach(id => softDelete('task', id)); });
+      UI.tasks.sel.clear();
+      renderShell(); renderPage();
+      showSnack(`已删除 ${ids.length} 条`);
+    }, true);
+  },
+
+  'col-config': () => openColConfig(),
+  'task-detail': d => openTaskDetail(d.id),
+
+  /* --- 工作台 --- */
+  'dash-focus': d => { dashFocus = d.k; renderDashboard(); },
+  'filter-owner': d => {
+    UI.tasks.view = 'all';
+    UI.tasks.filters = { owner: d.owner };
+    UI.tasks.search = '';
+    goto('tasks');
+  },
+
+  'work-filter': d => { UI.works.filters[d.field] = d.val; renderPage(); },
+  'duty-filter': d => { UI.duties.filters[d.field] = d.val; renderPage(); },
+
+  'work-drill': d => { UI.tasks.view = 'all'; UI.tasks.filters = { work: d.code }; UI.tasks.search = ''; goto('tasks'); },
+  'duty-drill': d => { UI.works.filters = { duty: d.code }; goto('works'); },
+  'focus-task': d => {
+    const t = byId('task', d.id); if (!t) return;
+    UI.tasks.view = 'all'; UI.tasks.filters = {}; UI.tasks.search = t.title; goto('tasks');
+  },
+
+  'task-done': async (d, el) => {
+    const t = byId('task', d.id); if (!t) return;
+    snapshot();
+    t.status = el.checked ? 'done' : 'todo';
+    t.actual_date = el.checked ? todayStr() : '';
+    if (el.checked) t.progress = 100;
+    await Repo.upsert('task', t);
+    renderTasks(); renderSidebar();
+    if (el.checked) showSnack(`已完成：${t.title}`);
+  },
+  cycle: async d => {
+    const f = fieldDef(d.entity, d.field), r = byId(d.entity, d.id);
+    if (!f || !r) return;
+    snapshot();
+    const vals = f.options.map(o => o.v);
+    r[d.field] = vals[(vals.indexOf(String(r[d.field])) + 1) % vals.length];
+    if (d.entity === 'task' && d.field === 'status') {
+      if (r.status === 'done') { r.actual_date = r.actual_date || todayStr(); r.progress = 100; }
+      else r.actual_date = '';
+    }
+    if (d.entity === 'milestone' && d.field === 'status' && r.status === 'done' && !r.actual_date) r.actual_date = todayStr();
+    await Repo.upsert(d.entity, r);
+    afterEdit(d.entity, d.id, d.field);
+  },
+  'task-dup': async d => {
+    const t = byId('task', d.id); if (!t) return;
+    snapshot();
+    const c = clone(t);
+    c.id = uid('t'); c.status = 'todo'; c.actual_date = ''; c.progress = 0;
+    delete c.created_at; delete c.rev; delete c.deleted_at;
+    await Repo.upsert('task', c);
+    renderTasks(); renderSidebar();
+    showSnack(`已复制：${c.title}`);
+  },
+  'task-del': d => {
+    const t = byId('task', d.id); if (!t) return;
+    confirmModal('确认删除', `将删除任务「${t.title}」，可在「已删除」视图中恢复。`, '删除', async () => {
+      snapshot(); softDelete('task', d.id); await Repo.upsert('task', t);
+      renderTasks(); renderSidebar(); showSnack('已删除');
+    }, true);
+  },
+  'task-restore': async d => {
+    const t = undelete('task', d.id); if (!t) return;
+    snapshot(); await Repo.upsert('task', t);
+    renderTasks(); renderSidebar(); showSnack('已恢复');
+  },
+  'task-purge': d => {
+    const t = byId('task', d.id); if (!t) return;
+    confirmModal('彻底删除', `彻底删除「${t.title}」？（Ctrl+Z 仍可撤销）`, '彻底删除', async () => {
+      snapshot(); await Repo.removeHard('task', d.id);
+      renderTasks(); renderSidebar(); showSnack('已彻底删除');
+    }, true);
+  },
+
+  'work-new': () => openWorkForm(),
+  'work-del': d => {
+    const w = byId('work', d.code); if (!w) return;
+    const n = DB.tasks.filter(t => t.work === w.code && !t.deleted_at).length;
+    confirmModal('停用工作', `停用「${w.code} ${w.name}」？${n ? `该工作下有 ${n} 条任务，不会被删除，但会变为"未归属"。` : ''}`, '停用', async () => {
+      snapshot(); softDelete('work', d.code); await Repo.upsert('work', w);
+      renderShell(); renderPage(); showSnack('已停用');
+    }, true);
+  },
+  'duty-new': () => openDutyForm(),
+  'duty-del': d => {
+    const dt = byId('duty', d.code); if (!dt) return;
+    const n = visibleWorks().filter(w => w.duty === dt.code).length;
+    confirmModal('停用职责', `停用「${dt.code} ${dt.name}」？${n ? `其下有 ${n} 项工作，不会被删除。` : ''}`, '停用', async () => {
+      snapshot(); softDelete('duty', d.code); await Repo.upsert('duty', dt);
+      renderPage(); showSnack('已停用');
+    }, true);
+  },
+  'ms-panel': d => openMilestonePanel(d.code),
+
+  'set-me': () => goto('data'),
+  'save-settings': async () => {
+    DB.settings.me = $('#set-me').value.trim();
+    DB.settings.role = $('#set-role').value;
+    await Repo.persist(DB);
+    renderShell(); renderPage(); showSnack('已保存');
+  },
+  export: d => exportCSV(d.entity),
+  'export-all': () => exportJSON(),
+  import: d => { _importEntity = d.entity; $('#file-input').click(); },
+  'clear-test': () => {
+    const n = DB.tasks.filter(t => t.custom === '测试').length;
+    if (!n) { showSnack('没有测试数据'); return; }
+    confirmModal('清除测试数据', `将删除 ${n} 条标记为「测试」的任务（Ctrl+Z 可撤销）。`, '清除', async () => {
+      snapshot();
+      await Repo.bulk(() => { DB.tasks = DB.tasks.filter(t => t.custom !== '测试'); });
+      renderShell(); renderPage(); showSnack(`已清除 ${n} 条测试任务`);
+    }, true);
+  },
+  'reset-all': () => {
+    confirmModal('重置全部数据', '将清空职责、工作、里程碑、任务，恢复到初始种子数据（含测试任务）。可用 Ctrl+Z 撤销。', '重置', async () => {
+      snapshot();
+      await Repo.bulk(() => seedAll());
+      renderShell(); renderPage(); showSnack('已重置');
+    }, true);
+  },
+
+  edit: (d, el) => openEditor(d.entity, d.id, d.field, el),
+  'sp-pick': d => spCommitSingle(d.val),
+  'sp-add': () => spAddFromInput(),
+  'sp-commit': () => spCommitMulti(),
+  'dp-pick': d => dpCommit(d.date),
+  'dp-sc': d => dpCommit(parseDue(d.tok) || ''),
+  'dp-clear': () => dpCommit(''),
+  'dp-nav': d => dpNav(+d.dir),
+  'modal-cancel': () => closeModal(),
+  'modal-ok': () => { const cb = modalCallback; if (cb) cb(); else closeModal(); },
+};
+
+// 编辑后：判断只刷一行还是整页重绘
+function afterEdit(entity, id, fieldKey) {
+  if (entity === 'task' && currentPage === 'tasks') {
+    const st = UI.tasks;
+    const full = fieldKey === st.sortKey || fieldKey === 'status' || st.filters[fieldKey] || fieldKey === 'work';
+    if (full) renderTasks(); else refreshTaskRow(id);
+    renderSidebar();
+  } else {
+    renderPage();
+  }
+}
+
+document.addEventListener('click', e => {
+  if (e.target.closest('.col-resize')) return;
+  const el = e.target.closest('[data-act]');
+  if (el) {
+    if (el.dataset.act !== 'task-done') {
+      const fn = ACTIONS[el.dataset.act];
+      if (fn) { fn(el.dataset, el, e); return; }
+    } else return;
+  }
+  const th = e.target.closest('th[data-sort]');
+  if (th && UI[currentPage]) {
+    const st = UI[currentPage], key = th.dataset.sort;
+    if (st.sortKey === key) st.sortDir *= -1; else { st.sortKey = key; st.sortDir = 1; }
+    renderPage();
+  }
+});
+document.addEventListener('change', e => {
+  const el = e.target.closest('[data-act="task-done"]');
+  if (el) ACTIONS['task-done'](el.dataset, el, e);
+});
+document.addEventListener('dblclick', e => {
+  const el = e.target.closest('[data-dblact]');
+  if (!el) return;
+  const fn = ACTIONS[el.dataset.dblact];
+  if (fn) fn(el.dataset, el, e);
+});
+document.addEventListener('mousedown', e => {
+  const h = e.target.closest('.col-resize');
+  if (h) startResize(e, h.dataset.resize, h);
+});
+
+function startResize(e, key, handle) {
+  e.preventDefault(); e.stopPropagation();
+  const st = UI[currentPage]; if (!st) return;
+  const startX = e.clientX, startW = st.widths[key] || 90;
+  handle.classList.add('resizing');
+  const th = handle.closest('th');
+  const onMove = ev => {
+    const w = Math.max(40, startW + (ev.clientX - startX));
+    st.widths[key] = w;
+    if (th) th.style.width = w + 'px';
+  };
+  const onUp = () => {
+    handle.classList.remove('resizing');
+    document.removeEventListener('mousemove', onMove);
+    document.removeEventListener('mouseup', onUp);
+    persistUI();
+    renderPage();
+  };
+  document.addEventListener('mousemove', onMove);
+  document.addEventListener('mouseup', onUp);
+}
+
+/* =============================================================
+   21. 编辑器
+   ============================================================= */
+let _activeEdit = null;
+
+function openEditor(entity, id, fieldKey, td) {
+  const f = fieldDef(entity, fieldKey);
+  if (!f || f.readonly) return;
+  if (['single', 'multi', 'person', 'persons', 'enum', 'ref'].includes(f.type)) return openSelectPopup(entity, id, f, td);
+  if (f.type === 'lines') return openLinesEditor(entity, id, fieldKey);
+  if (f.type === 'date') return openDatePicker(entity, id, fieldKey, td);
+  openInlineEdit(entity, id, f, td);
+}
+
+function openInlineEdit(entity, id, f, td) {
+  commitActiveEdit();
+  const r = byId(entity, id); if (!r) return;
+  const original = (r[f.key] === '' || r[f.key] == null) ? '' : String(r[f.key]);
+  const input = document.createElement('input');
+  input.className = 'inline-input';
+  input.value = original;
+  td.innerHTML = ''; td.appendChild(input);
+  input.focus(); input.select();
+
+  let done = false;
+  const finish = async cancel => {
+    if (done) return; done = true; _activeEdit = null;
+    let val = input.value.trim();
+    if (cancel || val === original) { rerenderRow(entity, id); return; }
+    if (f.type === 'num') {
+      val = val === '' ? '' : Math.max(0, Number(val) || 0);
+      if (f.key === 'progress') val = Math.min(100, val);
+    }
+    snapshot();
+    r[f.key] = val;
+    await Repo.upsert(entity, r);
+    afterEdit(entity, id, f.key);
+  };
+  _activeEdit = { commit: () => finish(false) };
+  input.addEventListener('keydown', ev => {
+    ev.stopPropagation();
+    if (ev.key === 'Enter') { ev.preventDefault(); finish(false); }
+    if (ev.key === 'Escape') { ev.preventDefault(); finish(true); }
+  });
+  input.addEventListener('blur', () => setTimeout(() => finish(false), 80));
+}
+function commitActiveEdit() { if (_activeEdit) { const c = _activeEdit; _activeEdit = null; c.commit(); } }
+function rerenderRow(entity, id) {
+  if (entity === 'task' && currentPage === 'tasks') refreshTaskRow(id); else renderPage();
+}
+
+/* ---- 选择弹层（single/multi/person/persons/enum/ref 通用） ---- */
+let _sp = null, spCloseListener = null;
+
+function openSelectPopup(entity, id, f, td) {
+  commitActiveEdit();
+  const r = byId(entity, id); if (!r) return;
+  const multi = f.type === 'multi' || f.type === 'persons';
+  const allowNew = !['enum', 'ref'].includes(f.type);
+  const cur = values(entity, r, f);
+  _sp = { entity, id, field: f.key, order: [...cur], multi, allowNew };
+
+  const opts = optionsOf(entity, f, r);
+  const popup = $('#select-popup');
+  let html = `<div class="sp-header">${esc(f.label)}${multi ? '（可多选）' : ''}</div>`;
+  if (allowNew || opts.length > 8) {
+    html += `<div style="padding:0 2px 5px"><input id="sp-manual-input" type="text" class="inline-input" style="height:24px;font-size:12px" placeholder="${allowNew ? '筛选或输入新值…' : '筛选…'}" autocomplete="off"></div>`;
+  }
+  html += `<div id="sp-list">`;
+  if (!multi) {
+    if (allowNew) html += `<div class="sp-item sp-addnew" id="sp-addnew" data-act="sp-add" style="display:none"></div>`;
+    if (!f.options) html += `<div class="sp-item${!cur.length ? ' selected' : ''}" data-act="sp-pick" data-val="">（无）</div>`;
+    opts.forEach(o => {
+      html += `<div class="sp-item${cur[0] === o.v ? ' selected' : ''}" data-act="sp-pick" data-val="${esc(o.v)}" data-opt="${esc(o.label)}" title="${esc(o.label)}">${esc(o.label)}</div>`;
+    });
+    if (f.type === 'ref' && !opts.length) html += `<div class="sp-item" style="color:var(--text3);cursor:default">（无可选项${f.ref === 'milestone' ? '，请先在工作页添加里程碑' : ''}）</div>`;
+  } else {
+    html += `<div class="sp-item"><input type="checkbox" id="sp-none"${!cur.length ? ' checked' : ''}><label for="sp-none">（无）</label></div>`;
+    opts.forEach((o, i) => {
+      html += `<div class="sp-item" data-opt="${esc(o.label)}"><input type="checkbox" class="sp-cb" id="sp-o${i}" value="${esc(o.v)}"${cur.includes(o.v) ? ' checked' : ''}><label for="sp-o${i}">${esc(o.label)}</label></div>`;
+    });
+  }
+  html += `</div>`;
+  if (multi) html += `<button class="sp-confirm" data-act="sp-commit">确定</button>`;
+  popup.innerHTML = html;
+
+  const rect = td.getBoundingClientRect();
+  popup.style.left = Math.min(rect.left, window.innerWidth - 310) + 'px';
+  popup.style.top = (rect.bottom + 2) + 'px';
+  popup.classList.add('show');
+  requestAnimationFrame(() => {
+    const h = popup.offsetHeight;
+    if (rect.bottom + 2 + h > window.innerHeight - 8) popup.style.top = Math.max(8, rect.top - h - 2) + 'px';
+  });
+
+  const inp = $('#sp-manual-input');
+  if (inp) {
+    inp.addEventListener('input', () => spFilterList());
+    inp.addEventListener('keydown', ev => {
+      ev.stopPropagation();
+      if (ev.key === 'Enter') { ev.preventDefault(); spAddFromInput(); }
+      if (ev.key === 'Escape') { ev.preventDefault(); closeSelectPopup(); }
+    });
+    setTimeout(() => inp.focus(), 50);
+  }
+  popup.addEventListener('change', ev => {
+    if (ev.target.classList.contains('sp-cb')) {
+      if (ev.target.checked) {
+        const n = $('#sp-none'); if (n) n.checked = false;
+        if (!_sp.order.includes(ev.target.value)) _sp.order.push(ev.target.value);
+      } else _sp.order = _sp.order.filter(v => v !== ev.target.value);
+    } else if (ev.target.id === 'sp-none' && ev.target.checked) {
+      popup.querySelectorAll('.sp-cb').forEach(cb => { cb.checked = false; });
+      _sp.order = [];
+    }
+  });
+
+  if (spCloseListener) document.removeEventListener('mousedown', spCloseListener);
+  spCloseListener = ev => { if (!popup.contains(ev.target) && !td.contains(ev.target)) closeSelectPopup(); };
+  setTimeout(() => document.addEventListener('mousedown', spCloseListener), 0);
+}
+
+function spFilterList() {
+  const inp = $('#sp-manual-input'); if (!inp) return;
+  const raw = (inp.value || '').trim(), q = raw.toLowerCase();
+  $$('#sp-list [data-opt]').forEach(el => {
+    el.style.display = (!q || (el.dataset.opt || '').toLowerCase().includes(q)) ? '' : 'none';
+  });
+  const add = $('#sp-addnew');
+  if (add && _sp && _sp.allowNew) {
+    const exists = $$('#sp-list [data-opt]').some(el => el.dataset.opt === raw);
+    if (raw && !exists) { add.textContent = `+ 新增「${raw}」`; add.style.display = ''; }
+    else add.style.display = 'none';
+  }
+}
+function splitNames(raw) { return raw.split(/[,，、\s]+/).map(s => s.trim()).filter(Boolean); }
+
+function spAddFromInput() {
+  if (!_sp) return;
+  const inp = $('#sp-manual-input'); if (!inp) return;
+  const raw = (inp.value || '').trim(); if (!raw) return;
+  if (!_sp.allowNew) {                       // enum / ref 不允许新增：回车选中首个可见项
+    const first = $$('#sp-list [data-act="sp-pick"]').find(el => el.style.display !== 'none' && el.dataset.opt);
+    if (first) spCommitSingle(first.dataset.val);
+    return;
+  }
+  if (_sp.multi) {
+    splitNames(raw).forEach(n => { if (!_sp.order.includes(n)) _sp.order.push(n); });
+    inp.value = '';
+    spCommitMulti();
+  } else spCommitSingle(raw);
+}
+
+async function spCommitSingle(val) {
+  if (!_sp) return;
+  const { entity, id, field } = _sp;
+  closeSelectPopup();
+  const r = byId(entity, id); if (!r) return;
+  snapshot();
+  r[field] = val;
+  if (entity === 'task' && field === 'work') {
+    // 换了所属工作，原里程碑可能不属于新工作，清掉避免脏引用
+    const ms = byId('milestone', r.milestone);
+    if (ms && ms.work !== val) r.milestone = '';
+    if (!r.owner) { const w = byId('work', val); if (w) r.owner = w.owner; }
+  }
+  await Repo.upsert(entity, r);
+  afterEdit(entity, id, field);
+}
+
+async function spCommitMulti() {
+  if (!_sp) return;
+  const { entity, id, field, order } = _sp;
+  const popup = $('#select-popup');
+  const checked = new Set([...popup.querySelectorAll('.sp-cb:checked')].map(cb => cb.value));
+  const inDom = new Set([...popup.querySelectorAll('.sp-cb')].map(cb => cb.value));
+  // order 里既有勾选框中的项，也有刚输入新增、尚未在列表中的项，后者一律保留
+  const vals = order.filter(v => checked.has(v) || !inDom.has(v));
+  closeSelectPopup();
+  const r = byId(entity, id); if (!r) return;
+  snapshot();
+  r[field] = vals;
+  await Repo.upsert(entity, r);
+  afterEdit(entity, id, field);
+}
+
+function closeSelectPopup() {
+  const p = $('#select-popup');
+  p.classList.remove('show'); p.innerHTML = ''; _sp = null;
+  if (spCloseListener) { document.removeEventListener('mousedown', spCloseListener); spCloseListener = null; }
+}
+
+/* ---- 日期选择器 ---- */
+let _dp = null, dpCloseListener = null;
+
+function openDatePicker(entity, id, fieldKey, td) {
+  commitActiveEdit();
+  const r = byId(entity, id); if (!r) return;
+  const ref = r[fieldKey] ? new Date(r[fieldKey] + 'T00:00:00') : new Date();
+  _dp = { entity, id, field: fieldKey, year: ref.getFullYear(), month: ref.getMonth() };
+  renderDpCalendar();
+  const wrap = $('#date-picker-wrap');
+  const rect = td.getBoundingClientRect();
+  wrap.style.left = Math.min(rect.left, window.innerWidth - 220) + 'px';
+  wrap.style.top = (rect.bottom + 4) + 'px';
+  wrap.classList.add('show');
+  requestAnimationFrame(() => {
+    const h = wrap.offsetHeight;
+    if (rect.bottom + 4 + h > window.innerHeight - 8) wrap.style.top = Math.max(8, rect.top - h - 4) + 'px';
+  });
+  if (dpCloseListener) document.removeEventListener('mousedown', dpCloseListener);
+  dpCloseListener = ev => { if (!wrap.contains(ev.target) && !td.contains(ev.target)) dpClose(); };
+  setTimeout(() => document.addEventListener('mousedown', dpCloseListener), 0);
+}
+function renderDpCalendar() {
+  if (!_dp) return;
+  const r = byId(_dp.entity, _dp.id);
+  const sel = r ? (r[_dp.field] || '') : '';
+  const today = todayStr();
+  const firstDow = new Date(_dp.year, _dp.month, 1).getDay();
+  const days = new Date(_dp.year, _dp.month + 1, 0).getDate();
+  let html = `<div class="dp-cal-nav">
+      <button class="dp-cal-nav-btn" data-act="dp-nav" data-dir="-1">&#8249;</button>
+      <span class="dp-cal-title">${_dp.year}年${_dp.month + 1}月</span>
+      <button class="dp-cal-nav-btn" data-act="dp-nav" data-dir="1">&#8250;</button>
+    </div><div class="dp-cal-grid">
+    ${['日', '一', '二', '三', '四', '五', '六'].map(d => `<div class="dp-cal-dow">${d}</div>`).join('')}`;
+  for (let i = 0; i < firstDow; i++) html += '<div class="dp-cal-day is-empty"></div>';
+  for (let d = 1; d <= days; d++) {
+    const ds = `${_dp.year}-${String(_dp.month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+    let cls = 'dp-cal-day';
+    if (ds === today) cls += ' is-today';
+    if (ds === sel) cls += ' is-selected';
+    html += `<div class="${cls}" data-act="dp-pick" data-date="${ds}">${d}</div>`;
+  }
+  $('#dp-calendar').innerHTML = html + '</div>';
+}
+function dpNav(dir) {
+  if (!_dp) return;
+  _dp.month += dir;
+  if (_dp.month > 11) { _dp.month = 0; _dp.year++; }
+  if (_dp.month < 0) { _dp.month = 11; _dp.year--; }
+  renderDpCalendar();
+}
+async function dpCommit(date) {
+  if (!_dp) return;
+  const { entity, id, field } = _dp;
+  dpClose();
+  const r = byId(entity, id); if (!r) return;
+  snapshot();
+  r[field] = date;
+  if (entity === 'task' && field === 'actual_date' && date && r.status !== 'done') { r.status = 'done'; r.progress = 100; }
+  await Repo.upsert(entity, r);
+  afterEdit(entity, id, field);
+}
+function dpClose() {
+  $('#date-picker-wrap').classList.remove('show'); _dp = null;
+  if (dpCloseListener) { document.removeEventListener('mousedown', dpCloseListener); dpCloseListener = null; }
+}
+function closeFloating() { dpClose(); if ($('#select-popup').classList.contains('show')) closeSelectPopup(); }
+
+/* ---- 多行文本编辑器 ---- */
+function openLinesEditor(entity, id, fieldKey) {
+  const r = byId(entity, id); if (!r) return;
+  const f = fieldDef(entity, fieldKey);
+  openModal(`编辑${f.label}`, `<div class="hint" style="margin-bottom:6px">每行一条，保存后自动编号。</div>
+    <textarea class="modal-textarea" id="lines-ta">${esc((r[fieldKey] || []).join('\n'))}</textarea>`, '保存', async () => {
+    snapshot();
+    r[fieldKey] = $('#lines-ta').value.split('\n').map(s => s.trim()).filter(Boolean);
+    await Repo.upsert(entity, r);
+    closeModal(); renderPage(); showSnack('已保存');
+  });
+  setTimeout(() => { const ta = $('#lines-ta'); if (ta) ta.focus(); }, 60);
+}
+
+/* =============================================================
+   21b. 批量编辑 / 列配置 / 任务详情
+   ============================================================= */
+// 按字段类型生成一个录入控件（批量编辑与任务详情共用）
+function fieldControl(f, val, idPrefix) {
+  const id = idPrefix + f.key;
+  switch (f.type) {
+    case 'enum':
+      return `<select id="${id}">${f.options.map(o => `<option value="${o.v}"${String(val) === o.v ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
+    case 'ref': {
+      const opts = optionsOf('task', f, null);
+      return `<select id="${id}"><option value="">（无）</option>${opts.map(o =>
+        `<option value="${esc(o.v)}"${val === o.v ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
+    }
+    case 'person':
+      return `<input id="${id}" list="dl-people" value="${esc(val || '')}" placeholder="姓名，可留空">`;
+    case 'persons':
+      return `<input id="${id}" value="${esc((val || []).join('、'))}" placeholder="多人用顿号或逗号分隔">`;
+    case 'date':
+      return `<input id="${id}" value="${esc(val || '')}" placeholder="YYYY-MM-DD / today / +7">`;
+    case 'num':
+      return `<input id="${id}" type="number" value="${esc(val === '' || val == null ? '' : val)}"${f.key === 'progress' ? ' min="0" max="100"' : ''}>`;
+    case 'lines':
+      return `<textarea id="${id}" placeholder="每行一条">${esc((val || []).join('\n'))}</textarea>`;
+    default:
+      return `<input id="${id}" value="${esc(val || '')}">`;
+  }
+}
+// 从控件读回符合字段类型的值
+function readControl(f, idPrefix) {
+  const el = $('#' + idPrefix + f.key);
+  if (!el) return undefined;
+  const raw = el.value.trim();
+  switch (f.type) {
+    case 'persons': return splitNames(raw);
+    case 'lines':   return el.value.split('\n').map(s => s.trim()).filter(Boolean);
+    case 'date':    return raw ? (parseDue(raw) || raw) : '';
+    case 'num': {
+      if (raw === '') return f.key === 'progress' ? 0 : '';
+      let n = Math.max(0, Number(raw) || 0);
+      if (f.key === 'progress') n = Math.min(100, n);
+      return n;
+    }
+    default: return raw;
+  }
+}
+function peopleDatalist() {
+  return `<datalist id="dl-people">${allPeople().map(p => `<option value="${esc(p)}">`).join('')}</datalist>`;
+}
+
+/* 批量修改选中任务的某一个字段 */
+function openBatchEdit(fieldKey) {
+  const st = UI.tasks;
+  const ids = [...st.sel];
+  if (!ids.length) return;
+  const f = fieldDef('task', fieldKey);
+  openModal(`批量修改 · ${f.label}`,
+    `<div class="hint" style="margin-bottom:8px">将对选中的 <b>${ids.length}</b> 条任务统一设置「${esc(f.label)}」，其余字段不变。</div>
+     <div class="form-row"><label>${esc(f.label)}</label>${fieldControl(f, f.type === 'persons' ? [] : '', 'be-')}</div>
+     ${peopleDatalist()}`,
+    '应用', async () => {
+      const val = readControl(f, 'be-');
+      closeModal();
+      snapshot();
+      await Repo.bulk(() => {
+        ids.forEach(id => {
+          const t = byId('task', id);
+          if (!t) return;
+          t[fieldKey] = val;
+          if (fieldKey === 'status') {
+            if (val === 'done') { t.actual_date = t.actual_date || todayStr(); t.progress = 100; }
+            else t.actual_date = '';
+          }
+          if (fieldKey === 'work') {                    // 换工作后清理跨工作的脏里程碑引用
+            const ms = byId('milestone', t.milestone);
+            if (ms && ms.work !== val) t.milestone = '';
+          }
+          stampMeta(t);
+        });
+      });
+      renderShell(); renderPage();
+      showSnack(`已修改 ${ids.length} 条任务的${f.label}`);
+    });
+  setTimeout(() => { const el = $('#be-' + fieldKey); if (el) el.focus(); }, 60);
+}
+
+/* 选择任务表格显示哪些列（顺序沿用 schema 定义顺序） */
+function openColConfig() {
+  const fields = schema('task').fields.filter(f => !f.virtual);
+  openModal('显示列',
+    `<div class="col-cfg">${fields.map(f =>
+      `<div class="it"><input type="checkbox" id="cc-${f.key}" value="${f.key}"${UI.tasks.cols.includes(f.key) ? ' checked' : ''}>
+       <label for="cc-${f.key}">${esc(f.label)}</label></div>`).join('')}</div>
+     <div class="hint" style="margin-top:10px">列宽可在表头右边缘拖动调整；列的显示与宽度都会记住。</div>`,
+    '应用', async () => {
+      const picked = fields.filter(f => $('#cc-' + f.key).checked).map(f => f.key);
+      if (!picked.length) { showSnack('至少保留一列'); return; }
+      UI.tasks.cols = picked;
+      closeModal();
+      await persistUI();
+      renderPage();
+      showSnack('已更新显示列');
+    });
+}
+
+/* 任务详情：一次编辑全部字段（表格列放不下的都在这里） */
+function openTaskDetail(id) {
+  const t = byId('task', id);
+  if (!t) return;
+  const fs = schema('task').fields.filter(f => !f.virtual);
+  const wide = k => ['title', 'deliverable'].includes(k);
+  const cell = f => `<label for="td-${f.key}">${esc(f.label)}</label>
+    <div class="${wide(f.key) ? 'full' : ''}">${fieldControl(f, t[f.key], 'td-')}</div>`;
+  const w = byId('work', t.work);
+
+  openModal('任务详情',
+    `<div class="detail-grid">${fs.map(cell).join('')}</div>
+     ${peopleDatalist()}
+     <div class="detail-meta">
+       所属职责：${esc(w ? (w.duty + ' ' + (byId('duty', w.duty) || {}).name) : '未归属')}　·
+       创建：${esc((t.created_at || '').slice(0, 10))}　·
+       最后修改：${esc((t.updated_at || '').slice(0, 10))} by ${esc(t.updated_by || '—')}　·
+       版本 rev ${t.rev}　·　id ${esc(t.id)}
+     </div>`,
+    '保存', async () => {
+      snapshot();
+      fs.forEach(f => {
+        const v = readControl(f, 'td-');
+        if (v !== undefined) t[f.key] = v;
+      });
+      if (t.status === 'done') { t.actual_date = t.actual_date || todayStr(); if (!t.progress) t.progress = 100; }
+      const ms = byId('milestone', t.milestone);
+      if (ms && ms.work !== t.work) t.milestone = '';
+      await Repo.upsert('task', t);
+      closeModal();
+      renderShell(); renderPage();
+      showSnack('已保存');
+    });
+  setTimeout(() => { const el = $('#td-title'); if (el) { el.focus(); el.select(); } }, 60);
+}
+
+/* =============================================================
+   22. 表单：新建工作 / 新建职责 / 里程碑面板
+   ============================================================= */
+function nextWorkCode(dutyCode) {
+  const used = DB.works.filter(w => w.duty === dutyCode).map(w => parseInt(String(w.code).slice(2)) || 0);
+  return dutyCode + String((used.length ? Math.max(...used) : 0) + 1).padStart(2, '0');
+}
+function openWorkForm() {
+  const duties = DB.duties.filter(d => !d.deleted_at);
+  if (!duties.length) { showSnack('请先创建职责'); return; }
+  const people = allPeople();
+  openModal('新建工作', `
+    <div class="form-row"><label>所属职责</label><select id="wf-duty">${duties.map(d => `<option value="${esc(d.code)}">${esc(d.code + ' ' + d.name)}</option>`).join('')}</select></div>
+    <div class="form-row"><label>工作名称</label><input id="wf-name" placeholder="必填"></div>
+    <div class="form-row"><label>牵头人</label><input id="wf-owner" list="wf-people" placeholder="可留空"></div>
+    <div class="form-row"><label>年度</label><input id="wf-year" type="number" value="${DB.settings.year || new Date().getFullYear()}"></div>
+    <datalist id="wf-people">${people.map(p => `<option value="${esc(p)}">`).join('')}</datalist>
+    <div class="hint">工作编号按所属职责自动生成（2位职责号 + 2位序号）。创建后可在表格中双击补充工作内容、协同人员与里程碑。</div>`,
+    '创建', async () => {
+      const name = $('#wf-name').value.trim();
+      if (!name) { showSnack('工作名称不能为空'); return; }
+      const duty = $('#wf-duty').value;
+      snapshot();
+      const w = blank('work', {
+        code: nextWorkCode(duty), duty, name,
+        owner: $('#wf-owner').value.trim(),
+        year: Number($('#wf-year').value) || new Date().getFullYear(),
+        status: 'doing',
+      });
+      await Repo.upsert('work', w);
+      closeModal(); renderShell(); renderPage();
+      showSnack(`已创建工作 ${w.code}`);
+    });
+  setTimeout(() => { const el = $('#wf-name'); if (el) el.focus(); }, 60);
+}
+
+function openDutyForm() {
+  const used = DB.duties.map(d => parseInt(d.code) || 0);
+  const code = String((used.length ? Math.max(...used) : 0) + 1).padStart(2, '0');
+  openModal('新建职责', `
+    <div class="form-row"><label>编号</label><input id="df-code" value="${code}"></div>
+    <div class="form-row"><label>职责分类</label><select id="df-cat">${CATEGORIES.map(c => `<option value="${esc(c.v)}">${esc(c.label)}</option>`).join('')}</select></div>
+    <div class="form-row"><label>核心职责</label><input id="df-name" placeholder="必填"></div>`,
+    '创建', async () => {
+      const name = $('#df-name').value.trim(), c = $('#df-code').value.trim();
+      if (!name) { showSnack('核心职责不能为空'); return; }
+      if (byId('duty', c)) { showSnack('该编号已存在'); return; }
+      snapshot();
+      await Repo.upsert('duty', blank('duty', { code: c, category: $('#df-cat').value, name }));
+      closeModal(); renderPage(); showSnack('已创建');
+    });
+  setTimeout(() => { const el = $('#df-name'); if (el) el.focus(); }, 60);
+}
+
+/* 里程碑面板：一个工作下的全部里程碑，行内增删改，即时保存 */
+let _msWork = null;
+function openMilestonePanel(code) {
+  const w = byId('work', code);
+  if (!w) { showSnack('工作不存在'); return; }
+  _msWork = code;
+  openModal(`里程碑 · ${w.code} ${w.name}`, msPanelHTML(code), '完成', () => { closeModal(); renderPage(); });
+  bindMsPanel();
+}
+function msList(code) {
+  return DB.milestones.filter(m => m.work === code && !m.deleted_at)
+    .sort((a, b) => (a.plan_date || '9999').localeCompare(b.plan_date || '9999'));
+}
+function msPanelHTML(code) {
+  const list = msList(code);
+  const rows = list.map(m => `
+    <tr data-ms="${m.id}">
+      <td><input data-msf="name" value="${esc(m.name)}" placeholder="里程碑名称"></td>
+      <td style="width:112px"><input data-msf="plan_date" value="${esc(m.plan_date)}" placeholder="YYYY-MM-DD"></td>
+      <td style="width:112px"><input data-msf="actual_date" value="${esc(m.actual_date)}" placeholder="实际日期"></td>
+      <td style="width:86px"><select data-msf="status">${MS_STATUS.map(s => `<option value="${s.v}"${m.status === s.v ? ' selected' : ''}>${s.label}</option>`).join('')}</select></td>
+      <td style="width:28px"><button class="action-btn del" data-msdel="${m.id}" title="删除">×</button></td>
+    </tr>`).join('');
+  const ids = new Set(list.map(m => m.id));
+  const n = DB.tasks.filter(t => !t.deleted_at && ids.has(t.milestone)).length;
+  return `<table class="ms-table">
+      <thead><tr><th>里程碑</th><th>计划日期</th><th>实际日期</th><th>状态</th><th></th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="5" style="color:var(--text3);padding:8px 6px">暂无里程碑</td></tr>'}</tbody>
+    </table>
+    <div style="margin-top:8px"><button class="btn" id="ms-add">+ 添加里程碑</button>
+    <span class="hint" style="margin-left:8px">共 ${list.length} 个，已关联 ${n} 条任务。修改即时保存。</span></div>`;
+}
+function bindMsPanel() {
+  const body = $('#modal-body');
+  body.addEventListener('input', async e => {
+    const f = e.target.dataset.msf; if (!f) return;
+    const m = byId('milestone', e.target.closest('tr').dataset.ms); if (!m) return;
+    let v = e.target.value.trim();
+    if ((f === 'plan_date' || f === 'actual_date') && v) { const p = parseDue(v); if (p) v = p; }
+    m[f] = v;
+    await Repo.upsert('milestone', m);
+  });
+  body.addEventListener('change', async e => {
+    if (e.target.dataset.msf !== 'status') return;
+    const m = byId('milestone', e.target.closest('tr').dataset.ms); if (!m) return;
+    m.status = e.target.value;
+    if (m.status === 'done' && !m.actual_date) m.actual_date = todayStr();
+    await Repo.upsert('milestone', m);
+    body.innerHTML = msPanelHTML(_msWork);
+  });
+  body.addEventListener('click', async e => {
+    if (e.target.id === 'ms-add') {
+      snapshot();
+      await Repo.upsert('milestone', blank('milestone', { work: _msWork, name: '新里程碑', plan_date: '', status: 'todo' }));
+      body.innerHTML = msPanelHTML(_msWork);
+      return;
+    }
+    const del = e.target.dataset.msdel;
+    if (del) {
+      snapshot();
+      const m = byId('milestone', del);
+      if (m) { softDelete('milestone', del); await Repo.upsert('milestone', m); }
+      await Repo.bulk(() => { DB.tasks.forEach(t => { if (t.milestone === del) t.milestone = ''; }); });
+      body.innerHTML = msPanelHTML(_msWork);
+    }
+  });
+}
+
+/* =============================================================
+   23. 弹窗 / 提示条
+   ============================================================= */
+let modalCallback = null;
+function openModal(title, bodyHTML, okText, cb, danger) {
+  $('#modal-title').textContent = title;
+  $('#modal-body').innerHTML = bodyHTML;
+  $('#modal-ok-btn').textContent = okText || '确定';
+  $('#modal-ok-btn').classList.toggle('danger', !!danger);
+  modalCallback = cb;
+  $('#modal-overlay').classList.add('show');
+}
+function confirmModal(title, msg, okText, cb, danger) {
+  openModal(title, `<p>${esc(msg)}</p>`, okText, async () => { closeModal(); await cb(); }, danger);
+}
+function closeModal() {
+  modalCallback = null; _msWork = null;
+  $('#modal-overlay').classList.remove('show');
+  $('#modal-body').innerHTML = '';
+}
+$('#modal-overlay').addEventListener('click', function (e) { if (e.target === this) closeModal(); });
+
+let snackTimer = null;
+function showSnack(msg) {
+  $('#snack-msg').textContent = msg;
+  $('#snackbar').classList.add('show');
+  clearTimeout(snackTimer);
+  snackTimer = setTimeout(hideSnack, 3500);
+}
+function hideSnack() { $('#snackbar').classList.remove('show'); }
+
+/* =============================================================
+   24. CSV / JSON 导入导出
+   ============================================================= */
+// 多值字段用逗号拼接；值内含逗号或反斜杠时转义，保证往返无损
+function joinMulti(arr) {
+  return (arr || []).map(v => String(v).replace(/\\/g, '\\\\').replace(/,/g, '\\,')).join(',');
+}
+function splitMulti(raw) {
+  if (!raw) return [];
+  const out = []; let cur = '', escd = false;
+  for (const c of String(raw)) {
+    if (escd) { cur += c; escd = false; }
+    else if (c === '\\') escd = true;
+    else if (c === ',') { out.push(cur); cur = ''; }
+    else cur += c;
+  }
+  out.push(cur);
+  return out.map(s => s.trim()).filter(Boolean);
+}
+function toCSVField(v) {
+  const s = String(v == null ? '' : v);
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function parseCSV(text) {
+  const rows = []; let row = [], cur = '', inQ = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (inQ) { if (c === '"') { if (text[i + 1] === '"') { cur += '"'; i++; } else inQ = false; } else cur += c; }
+    else if (c === '"') inQ = true;
+    else if (c === ',') { row.push(cur); cur = ''; }
+    else if (c === '\n') { row.push(cur); rows.push(row); row = []; cur = ''; }
+    else if (c === '\r') { /* 由 \n 收行 */ }
+    else cur += c;
+  }
+  if (cur !== '' || row.length) { row.push(cur); rows.push(row); }
+  return rows.filter(r => r.some(c => c !== ''));
+}
+function csvHeaders(entity) {
+  const sc = schema(entity);
+  const keys = sc.fields.filter(f => !f.virtual).map(f => f.key);
+  return [...(sc.pk === 'id' ? ['id'] : []), ...keys, 'created_at', 'updated_at', 'updated_by', 'rev', 'deleted_at'];
+}
+function csvCell(entity, r, key) {
+  const f = fieldDef(entity, key);
+  if (!f) return r[key];
+  if (f.type === 'lines') return (r[key] || []).join('\n');
+  if (f.type === 'multi' || f.type === 'persons') return joinMulti(r[key]);
+  return r[key];
+}
+function download(name, content, mime) {
+  const blob = new Blob([content], { type: mime });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = name; a.style.display = 'none';
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { document.body.removeChild(a); URL.revokeObjectURL(url); }, 500);
+}
+function stamp() { return new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 15); }
+
+function exportCSV(entity) {
+  const h = csvHeaders(entity);
+  const rows = [h.join(',')];
+  coll(entity).forEach(r => rows.push(h.map(k => toCSVField(csvCell(entity, r, k))).join(',')));
+  download(`${entity}_${stamp()}.csv`, '﻿' + rows.join('\r\n'), 'text/csv;charset=utf-8;');
+  showSnack(`已导出 ${coll(entity).length} 条${schema(entity).label}`);
+}
+function exportJSON() {
+  download(`工作管理备份_${stamp()}.json`, JSON.stringify(DB, null, 1), 'application/json');
+  showSnack('已导出 JSON 全量备份');
+}
+
+let _importEntity = 'task';
+$('#file-input').addEventListener('change', evt => {
+  const file = evt.target.files[0]; if (!file) return;
+  const entity = _importEntity, sc = schema(entity);
+  const reader = new FileReader();
+  reader.onload = async e => {
+    let text = e.target.result;
+    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+    const rows = parseCSV(text);
+    if (rows.length < 2) { showSnack('CSV 内容为空'); return; }
+    const head = rows[0].map(s => s.trim());
+    const get = (cols, k) => { const i = head.indexOf(k); return i >= 0 ? (cols[i] || '') : ''; };
+    let n = 0;
+    snapshot();
+    await Repo.bulk(() => {
+      for (let i = 1; i < rows.length; i++) {
+        const cols = rows[i], rec = {};
+        sc.fields.filter(f => !f.virtual).forEach(f => {
+          const raw = get(cols, f.key);
+          if (f.type === 'lines') rec[f.key] = raw ? raw.split('\n').map(s => s.trim()).filter(Boolean) : [];
+          else if (f.type === 'multi' || f.type === 'persons') rec[f.key] = splitMulti(raw);
+          else if (['code', 'work', 'duty'].includes(f.key)) rec[f.key] = padCode(raw);
+          else rec[f.key] = raw;
+        });
+        if (sc.pk === 'id') rec.id = get(cols, 'id') || uid(entity[0]);
+        else if (!rec[sc.pk]) continue;
+        ['created_at', 'updated_at', 'updated_by', 'deleted_at'].forEach(k => { const v = get(cols, k); if (v) rec[k] = v; });
+        rec.rev = Number(get(cols, 'rev')) || 1;
+        normalize(entity, rec);
+        const list = coll(entity);
+        const j = list.findIndex(x => x[sc.pk] === rec[sc.pk]);
+        if (j === -1) list.push(rec); else list[j] = rec;
+        n++;
+      }
+    });
+    renderShell(); renderPage();
+    showSnack(`已导入 ${n} 条${sc.label}（Ctrl+Z 可撤销）`);
+  };
+  reader.readAsText(file, 'UTF-8');
+  evt.target.value = '';
+});
+
+/* =============================================================
+   25. 键盘 / 滚动
+   ============================================================= */
+document.addEventListener('keydown', e => {
+  const tag = document.activeElement.tagName;
+  const editing = tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  if (e.ctrlKey && (e.key === 's' || e.key === 'S')) { e.preventDefault(); exportJSON(); return; }
+  if (e.ctrlKey && (e.key === 'z' || e.key === 'Z')) { e.preventDefault(); undoLast(); return; }
+  if (e.key === 'Escape') {
+    if ($('#modal-overlay').classList.contains('show')) { closeModal(); return; }
+    closeFloating();
+    if (editing) document.activeElement.blur();
+    return;
+  }
+  if (editing) return;
+  if (e.key === '/') { const s = $('#search-input'); if (s) { e.preventDefault(); s.focus(); } }
+  if (e.key === 'n' || e.key === 'N') { const q = $('#quick-input'); if (q) { e.preventDefault(); q.focus(); } }
+});
+
+let _vsTick = false;
+$('#tasks-scroll').addEventListener('scroll', () => {
+  commitActiveEdit(); closeFloating();
+  if (_vsTick) return;
+  _vsTick = true;
+  requestAnimationFrame(() => { _vsTick = false; if (currentPage === 'tasks' && _taskRows.length) renderTaskViewport(); });
+});
+window.addEventListener('resize', () => { closeFloating(); if (currentPage === 'tasks' && _taskRows.length) renderTaskViewport(); });
+$('#year-select').addEventListener('change', async e => {
+  DB.settings.year = Number(e.target.value);
+  await Repo.persist(DB);
+  renderShell(); renderPage();
+});
+
+/* =============================================================
+   26. 种子数据（图1 职责 / 图2 工作 / 测试任务）
+   ============================================================= */
+const SEED_DUTIES = [
+  ['01', '二、集团治理', '企业级科技发展规划', '新增'],
+  ['02', '一、前瞻研判', '前沿新技术专题研究', '（3）'],
+  ['03', '一、前瞻研判', 'Gartner资讯服务', ''],
+  ['04', '三、价值共创', '全行数智化转型与数字金融，配合绿色金融大文章工作', '（1）'],
+  ['05', '二、集团治理', '集团科技治理', '新增'],
+  ['06', '三、价值共创', '专利和计算机软件著作权的申报与管理', '（7）'],
+  ['07', '三、价值共创', '重要科技成果的申报', '（7）'],
+  ['08', '二、集团治理', '科技资源数智化精细管理', '新增'],
+  ['09', '二、集团治理', '信创建设', '（5）'],
+  ['10', '四、其它工作', '总控PMO工作', ''],
+  ['11', '四、其它工作', '信息科技管理委员会办公室、全行数字化转型领导小组办公室、安全可靠能力建设推进领导小组办公室等日常工作', '（5）'],
+  ['12', '二、集团治理', '技术标准管理体系', '（4）'],
+  ['13', '二、集团治理', '软件正版化管理', '（8）'],
+  ['14', '一、前瞻研判', '外部生态协同', '（6）'],
+  ['15', '四、其它工作', '其它领导交办的工作', ''],
+];
+
+const PLAN_CYCLE = '建成"规划-执行-督办-评估-优化"全周期闭环管理机制，实现科技规划执行全程可追溯、成效可量化、问题可预警、改进可持续。';
+
+const SEED_WORKS = [
+  ['0101', '01', 'IDC基础设施专项规划', ['完成IDC基础设施专项规划的编制和发布。', PLAN_CYCLE], '卞一茗', ['李兰', '诸慧玲']],
+  ['0102', '01', '境外分行专项规划', ['完成境外分行专项规划的编制和发布。', PLAN_CYCLE], '孙宇颉', ['郭妙吉']],
+  ['0201', '02', '前沿新技术专题研究', [], '徐捷', ['朱轶杰', '蒋双樑']],
+  ['0202', '02', '行业信息技术动态汇编月报', [
+    '行业信息技术动态汇编。每月汇总Gartner、信通院等外部渠道技术动态进行的常态化技术报告汇编，报送行领导并于数字浦发发布。',
+    '热点技术趋势专题报告撰写。为紧跟前沿科技发展态势，根据时下热点技术与发布（如Gartner十大技术趋势等）进行专题报告撰写。',
+    '根据需要，组织开展专题技术讲座。'], '朱轶杰', []],
+  ['0203', '02', '研究课题管理', ['根据浦银研究院通知要求，组织牵头总行科技发展部内部研究工作征集、初稿审批、进度跟踪等。'], '朱轶杰', []],
+  ['0301', '03', 'Gartner服务账号的采购与管理', ['Gartner服务账号的采购与管理。'], '蒋双樑', []],
+  ['0302', '03', 'Gartner每年全球峰会和重要大型会议的组织参与', ['Gartner每年全球峰会和重要大型会议的组织参与。'], '蒋双樑', []],
+  ['0303', '03', 'Gartner银行业资讯周报', ['根据各单位需求，邀约Gartner分析师进行沟通交流。'], '蒋双樑', []],
+  ['0401', '04', '数字化转型指标体系', ['根据行领导和部门领导要求，结合人行关于数字化智能化转型通知、数字化评估指引和我行各项战略规划，重新梳理全行数字化转型指标体系，并开展常态化跟踪和报送。'], '邱洋', ['梁怡飞', '凌象政']],
+  ['0402', '04', '数字化转型领导小组办公室及数字化转型相关的其它任务', [
+    '有效推进全行数字化转型领导小组办公室日常运作。', '编制数字化规划和数字化总结。',
+    '细化分解任务并定期跟踪监测。', '落实各类"数字化转型"相关工作。'], '邱洋', ['梁怡飞', '凌象政']],
+  ['0403', '04', '数字金融', [
+    '监管报表报送：S74数字领域相关情况统计表（金融统计监管报送系统）、数字经济贷款汇总指标数据（人行金融基础数据报送系统）。',
+    '人行数字金融服务质效通报工作。',
+    '"数字金融"相关的其它任务（对外披露信息反馈、数字金融专家委员会征集、支持分行数字金融情况材料报送等）。'], '蒋双樑', []],
+  ['0404', '04', '绿金委和ESG相关工作', ['配合公司业务部牵头的绿金委工作。', '配合浦银研究院牵头的ESG工作。'], '凌象政', []],
+  ['0501', '05', '全面实现系统压降工作目标（分行系统集成压降）', [
+    '严控新建系统，参与分行及子公司新建系统的立项与审批流程，杜绝系统重复建设。',
+    '制定分行及子公司每年的系统压降计划，构建可量化的系统压降里程碑视图。',
+    '负责建立系统压降工作的常态化跟踪督办机制，定期检查执行进度，协调解决推进过程中的问题，确保年度压降任务按期完成。'], '孙宇颉', ['诸慧玲', '卞一茗']],
+];
+
+/* 可重现的伪随机：每次生成的测试数据一致，便于比对与复现问题 */
+function makeRng(seed) {
+  let s = seed;
+  return () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
+}
+const TASK_TPL = [
+  ['编制{n}初稿', '初稿文档'], ['{n}内部评审', '评审纪要'], ['{n}数据收集与整理', '数据台账'],
+  ['{n}材料报送', '报送回执'], ['{n}方案定稿与发布', '正式文本'], ['{n}进度跟踪与督办', '跟踪表'],
+  ['{n}季度汇报', '汇报材料'], ['与相关部门沟通{n}事项', '会议纪要'], ['{n}问题整改', '整改清单'],
+  ['{n}年度总结', '总结报告'],
+];
+
+function seedAll() {
+  const year = DB.settings.year || new Date().getFullYear();
+  DB.duties = SEED_DUTIES.map(([code, category, name, ref]) => stampMeta(blank('duty', { code, category, name, ref })));
+  DB.works = SEED_WORKS.map(([code, duty, name, content, owner, collaborators]) =>
+    stampMeta(blank('work', { code, duty, name, content, owner, collaborators, year, status: 'doing' })));
+  DB.milestones = [];
+  DB.tasks = [];
+  rebuildIndex();
+
+  const rng = makeRng(20260720);
+  const pick = a => a[Math.floor(rng() * a.length)];
+  const people = uniq(SEED_WORKS.flatMap(w => [w[4], ...w[5]]));
+  const MS_NAMES = ['一期启动', '中期检查', '初稿完成', '评审通过', '正式发布', '年度验收'];
+
+  // 里程碑：给一半工作各配 1–3 个
+  DB.works.forEach((w, wi) => {
+    if (wi % 2) return;
+    const n = 1 + Math.floor(rng() * 3);
+    for (let i = 0; i < n; i++) {
+      const off = -30 + Math.floor(rng() * 150);
+      const plan = offsetDate(off);
+      const passed = off < 0;
+      DB.milestones.push(stampMeta(blank('milestone', {
+        work: w.code, name: MS_NAMES[(wi + i) % MS_NAMES.length], plan_date: plan,
+        actual_date: passed && rng() > 0.4 ? plan : '',
+        status: passed ? (rng() > 0.4 ? 'done' : 'doing') : 'todo',
+      })));
+    }
+  });
+  rebuildIndex();
+
+  // 任务：每项工作 4–7 条，覆盖各种状态与日期边界
+  DB.works.forEach(w => {
+    const n = 4 + Math.floor(rng() * 4);
+    const ms = DB.milestones.filter(m => m.work === w.code);
+    const short = w.name.length > 12 ? w.name.slice(0, 10) + '…' : w.name;
+    for (let i = 0; i < n; i++) {
+      const tpl = TASK_TPL[Math.floor(rng() * TASK_TPL.length)];
+      const r = rng();
+      let status, plan, actual = '', progress = 0;
+      if (r < 0.30)      { status = 'done';  plan = offsetDate(-40 + Math.floor(rng() * 40)); actual = plan; progress = 100; }
+      else if (r < 0.48) { status = 'doing'; plan = offsetDate(2 + Math.floor(rng() * 40));   progress = 10 + Math.floor(rng() * 80); }
+      else if (r < 0.62) { status = 'doing'; plan = offsetDate(-25 + Math.floor(rng() * 20)); progress = 20 + Math.floor(rng() * 50); } // 含逾期
+      else if (r < 0.72) { status = 'hold';  plan = offsetDate(-20 + Math.floor(rng() * 60)); }
+      else if (r < 0.80) { status = 'todo';  plan = ''; }                                        // 无计划日期
+      else               { status = 'todo';  plan = offsetDate(Math.floor(rng() * 60)); }
+      if (rng() > 0.88 && status !== 'done') plan = todayStr();                                   // 今日到期
+
+      const others = people.filter(p => p !== w.owner);
+      const assignees = rng() > 0.45 ? [pick(others)] : (rng() > 0.6 ? [pick(others), pick(others)] : []);
+      DB.tasks.push(stampMeta(blank('task', {
+        work: w.code,
+        title: tpl[0].replace('{n}', short),
+        owner: rng() > 0.25 ? w.owner : pick(people),
+        assignees: uniq(assignees),
+        status, priority: String(1 + Math.floor(rng() * 3)),
+        plan_date: plan, actual_date: actual, progress,
+        milestone: ms.length && rng() > 0.55 ? pick(ms).id : '',
+        deliverable: rng() > 0.35 ? tpl[1] : '',
+        source: pick(['领导交办', '例行工作', '监管要求', '内部发起', '']),
+        custom: '测试',
+      })));
+    }
+  });
+  rebuildIndex();
+}
+
+/* =============================================================
+   27. 启动
+   ============================================================= */
+async function boot() {
+  const saved = await Repo.load();
+  if (saved && saved.duties) {
+    DB = Object.assign(DB, saved);
+    DB.settings = Object.assign({ me: '', role: 'manager', year: new Date().getFullYear() }, saved.settings || {});
+    ['duty', 'work', 'milestone', 'task'].forEach(e => coll(e).forEach(r => normalize(e, r)));
+    rebuildIndex();
+    restoreUI();
+  } else {
+    seedAll();
+    await Repo.persist(DB);
+  }
+  const p = (location.hash || '').replace(/^#\//, '');
+  currentPage = PAGES.some(x => x.key === p) ? p : 'dashboard';
+  goto(currentPage);
+}
+boot();
+</script>
+</body>
+</html>
