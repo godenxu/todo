@@ -232,6 +232,12 @@ td.col-check, th.col-check { text-align: center; padding: 0; }
 .chart-note { font-size: 11px; color: var(--text3); margin-top: 8px; line-height: 1.7; }
 .svg-wrap { position: relative; }
 .svg-wrap svg { display: block; }
+/* 横条/柱状图 + 占比饼图并排：饼图作补充视图，不单独提供表格切换（跟随所在面板） */
+.chart-flex { display: flex; gap: 22px; flex-wrap: wrap; align-items: flex-start; }
+.chart-flex-bars { flex: 1 1 260px; min-width: 220px; }
+.chart-flex-pie { flex-shrink: 0; text-align: center; }
+.chart-flex-pie .pie-legend { justify-content: center; margin-top: 10px; }
+.pie-label { font-size: 10.5px; font-weight: 700; fill: #fff; paint-order: stroke; stroke: rgba(0,0,0,.55); stroke-width: 2.5px; stroke-linejoin: round; pointer-events: none; }
 .ax-line { stroke: var(--border); stroke-width: 1; }
 .ax-grid { stroke: var(--border); stroke-width: 1; opacity: .55; }
 .ax-text { font-family: var(--font); font-size: 10px; fill: var(--text3); }
@@ -334,6 +340,11 @@ td.col-check, th.col-check { text-align: center; padding: 0; }
 .sp-header { padding: 3px 8px 5px; font-size: 10px; font-weight: 700; color: var(--text3); letter-spacing: .06em; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
 .sp-addnew { color: var(--accent); font-weight: 600; }
 .sp-confirm { width: 100%; margin-top: 5px; height: 24px; border: none; border-radius: 3px; background: var(--accent); color: #fff; font-family: var(--font); font-size: 11px; cursor: pointer; }
+/* 二级级联选择（所属工作：先选职责，划过展开该职责下的工作） */
+.sp-item.sp-duty { justify-content: space-between; }
+.sp-arrow { color: var(--text3); font-size: 10px; flex-shrink: 0; }
+.sp-sub { display: none; position: fixed; z-index: 5001; background: var(--surface); border: 1px solid var(--border2); border-radius: 5px; box-shadow: 0 4px 16px rgba(0,0,0,.15); padding: 6px; min-width: 170px; max-width: 260px; max-height: 340px; overflow-y: auto; }
+.sp-sub.show { display: block; }
 #date-picker-wrap { display: none; position: fixed; z-index: 4000; background: var(--surface); border: 1px solid var(--border2); border-radius: 5px; box-shadow: 0 4px 16px rgba(0,0,0,.15); padding: 10px; width: 210px; }
 #date-picker-wrap.show { display: block; }
 .dp-shortcuts { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 7px; }
@@ -379,6 +390,7 @@ td.col-sel, th.col-sel { text-align: center; padding: 0; }
 .detail-grid textarea { height: auto; min-height: 54px; padding: 5px 7px; line-height: 1.6; resize: vertical; }
 .detail-grid input:focus, .detail-grid select:focus, .detail-grid textarea:focus { border-color: var(--accent); }
 .detail-meta { margin-top: 12px; padding-top: 8px; border-top: 1px dashed var(--border); font-size: 11px; color: var(--text3); }
+.detail-ro { display: inline-block; padding: 5px 0; font-size: 12.5px; color: var(--text2); }
 
 /* ===== 列配置 ===== */
 .col-cfg { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px 10px; }
@@ -530,9 +542,8 @@ const SCHEMAS = {
     key: 'duty', label: '职责', pk: 'code', titleField: 'name',
     fields: [
       { key: 'code',     label: '编号',     type: 'text', width: 56,  sortable: true, readonly: true, align: 'center' },
-      { key: 'category', label: '职责分类', type: 'enum', width: 118, sortable: true, facet: true, options: CATEGORIES },
+      { key: 'category', label: '职责分类', type: 'enum', width: 118, sortable: true, facet: true, options: CATEGORIES, picker: true },
       { key: 'name',     label: '核心职责', type: 'text', width: 400, sortable: true },
-      { key: 'ref',      label: '2025发文', type: 'text', width: 90,  sortable: true, align: 'center' },
     ],
   },
   /* 工作的主键是随机 id，code 只是业务编号：
@@ -542,7 +553,7 @@ const SCHEMAS = {
     key: 'work', label: '工作', pk: 'id', titleField: 'name',
     fields: [
       { key: 'code',          label: '工作编号',     type: 'text',    width: 78,  sortable: true, readonly: true, align: 'center' },
-      { key: 'duty',          label: '所属职责',     type: 'ref',     width: 170, sortable: true, facet: true, ref: 'duty' },
+      { key: 'duty',          label: '所属职责',     type: 'ref',     width: 170, sortable: true, facet: true, ref: 'duty', required: true },
       { key: 'name',          label: '工作名称',     type: 'text',    width: 210, sortable: true },
       { key: 'content',       label: '主要工作内容', type: 'lines',   width: 300 },
       { key: 'owner',         label: '牵头人',       type: 'person',  width: 82,  sortable: true, facet: true },
@@ -567,6 +578,7 @@ const SCHEMAS = {
       // 虚拟字段：任务不存职责，从所属工作推导，用于按职责筛选与统计
       { key: '_duty', label: '职责', type: 'ref', ref: 'duty', width: 150, virtual: true, facet: true,
         derive: t => { const w = byId('work', t.work); return w ? w.duty : ''; } },
+      { key: 'code',        label: '任务编号', type: 'text',    width: 92,  sortable: true, readonly: true, align: 'center' },
       { key: 'work',        label: '所属工作', type: 'ref',     width: 175, sortable: true, facet: true, ref: 'work' },
       { key: 'title',       label: '任务',     type: 'text',    width: 230, sortable: true },
       { key: 'owner',       label: '负责人',   type: 'person',  width: 78,  sortable: true, facet: true },
@@ -584,14 +596,14 @@ const SCHEMAS = {
     ],
   },
 };
-const TASK_DEFAULT_COLS = ['work', 'title', 'owner', 'assignees', 'status', 'priority', 'plan_date', 'milestone', 'deliverable', 'progress'];
+const TASK_DEFAULT_COLS = ['code', 'work', 'title', 'owner', 'assignees', 'status', 'priority', 'plan_date', 'milestone', 'deliverable', 'progress'];
 
 function schema(e) { return SCHEMAS[e]; }
 function fieldDef(e, k) { return SCHEMAS[e].fields.find(f => f.key === k); }
 
 const TASK_VIEWS = [
-  { key: 'all',     label: '全部任务', match: t => !t.deleted_at },
-  { key: 'mine',    label: '我的任务', match: t => !t.deleted_at && isMine(t) },
+  { key: 'all',     label: '全部待完成', match: t => !t.deleted_at && t.status !== 'done' },
+  { key: 'mine',    label: '我的任务',   match: t => !t.deleted_at && t.status !== 'done' && isMine(t) },
   { key: 'overdue', label: '逾期',     match: t => !t.deleted_at && isOverdue(t) },
   { key: 'today',   label: '今日到期', match: t => !t.deleted_at && isOpen(t) && t.plan_date === todayStr() },
   { key: 'week',    label: '本周',     match: t => !t.deleted_at && isOpen(t) && t.plan_date && t.plan_date >= todayStr() && t.plan_date <= endOfWeek() },
@@ -753,6 +765,34 @@ function migrateWorkIds() {
   };
   DB.tasks.forEach(t => remap(t, 'work'));
   DB.milestones.forEach(m => remap(m, 'work'));
+  return changed;
+}
+
+/* 任务编号：职责号(2) + 工作号(2) + 年度后两位(2) + 当年序号(2)，共 8 位。
+   序号按「所属工作 + 年度」递增，换年（工作年度不同）自然重新计数。
+   换工作会改变前 6 位，故编号跟着工作重新生成，不当作永久不变的主键使用。 */
+function nextTaskCode(workId) {
+  const w = byId('work', workId);
+  if (!w || !w.code) return '';
+  const yy = String((w.year || new Date().getFullYear()) % 100).padStart(2, '0');
+  const prefix = w.code + yy;
+  const used = DB.tasks.filter(t => t.code && t.code.startsWith(prefix) && t.code.length === 8)
+    .map(t => parseInt(t.code.slice(6), 10) || 0);
+  return prefix + String((used.length ? Math.max(...used) : 0) + 1).padStart(2, '0');
+}
+/* 迁移：老任务没有编号字段，按所属工作分组、创建时间排序后统一补上。幂等。 */
+function migrateTaskCodes() {
+  let changed = false;
+  const groups = new Map();
+  DB.tasks.forEach(t => {
+    if (t.code || !t.work) return;
+    if (!groups.has(t.work)) groups.set(t.work, []);
+    groups.get(t.work).push(t);
+  });
+  groups.forEach((list, workId) => {
+    list.sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
+    list.forEach(t => { t.code = nextTaskCode(workId); changed = true; });
+  });
   return changed;
 }
 
@@ -1227,6 +1267,8 @@ function renderCellValue(entity, rec, f, editable) {
   switch (f.type) {
     case 'enum': {
       const o = (f.options || []).find(x => x.v === String(rec[f.key])) || {};
+      // picker 字段走双击下拉选择（如里程碑引用），不用单击循环切换
+      if (f.picker) return `<td class="cell-center"${editAttr}><span class="badge ${o.cls || ''}">${esc(o.label || '')}</span></td>`;
       const clk = can ? ` data-act="cycle" data-entity="${entity}" data-id="${esc(id)}" data-field="${f.key}"` : '';
       return `<td class="cell-center"><span class="badge ${o.cls || ''}${clk ? '' : ' ro'}"${clk}>${esc(o.label || '')}</span></td>`;
     }
@@ -1723,6 +1765,20 @@ function dueBuckets(tasks) {
   b.push({ label: '无日期', cls: 'bar-norm', n: open.filter(t => !t.plan_date).length });
   return b;
 }
+/* 到期分布的粗粒度占比（供饼图用，切太多小段不好看）：逾期 / 本周内 / 更远 / 无日期 */
+function dueSummary(tasks) {
+  const open = tasks.filter(isOpen);
+  const late = open.filter(isOverdue).length;
+  const soon = open.filter(t => !isOverdue(t) && t.plan_date && t.plan_date >= todayStr() && t.plan_date <= offsetDate(6)).length;
+  const none = open.filter(t => !t.plan_date).length;
+  const later = open.length - late - soon - none;
+  return [
+    { key: 'late', label: '已逾期', n: late, color: 'var(--c-late)' },
+    { key: 'soon', label: '本周内', n: soon, color: 'var(--c-soon)' },
+    { key: 'later', label: '更远', n: later, color: 'var(--c-doing)' },
+    { key: 'none', label: '无日期', n: none, color: 'var(--c-track)' },
+  ].filter(x => x.n > 0);
+}
 
 /* ---------- 通用绘制件 ---------- */
 // 横向堆叠条（HTML 实现：文字是真实文本，天然响应式）
@@ -1826,6 +1882,44 @@ function barChart(buckets, w) {
     ${g}<line class="ax-line" x1="${padL}" y1="${padT + ih}" x2="${w - padR}" y2="${padT + ih}"/>${bars}</svg>`;
 }
 
+/* ---------- 饼图（占比，配合柱状/横条图的绝对量互补） ---------- */
+// data: [{label, n, color}]；color 可以是十六进制或 var(--x)，统一走 style 而非 fill 属性
+function pieChart(data, size, ariaLabel) {
+  const list = data.filter(d => d.n > 0);
+  const r = size / 2 - 3, cx = size / 2, cy = size / 2;
+  const total = list.reduce((a, d) => a + d.n, 0) || 1;
+  let angle = -Math.PI / 2;
+  const slices = list.map(d => {
+    const frac = d.n / total;
+    const a0 = angle, a1 = angle + frac * Math.PI * 2;
+    angle = a1;
+    const large = (a1 - a0) > Math.PI ? 1 : 0;
+    const x0 = cx + r * Math.cos(a0), y0 = cy + r * Math.sin(a0);
+    const x1 = cx + r * Math.cos(a1), y1 = cy + r * Math.sin(a1);
+    const mid = (a0 + a1) / 2;
+    const mx = cx + r * 0.66 * Math.cos(mid), my = cy + r * 0.66 * Math.sin(mid);
+    const pct = Math.round(frac * 100);
+    const path = frac >= 0.999
+      ? `M${cx},${(cy - r).toFixed(2)} A${r},${r} 0 1 1 ${(cx - 0.01).toFixed(2)},${(cy - r).toFixed(2)} Z`
+      : `M${cx},${cy} L${x0.toFixed(2)},${y0.toFixed(2)} A${r},${r} 0 ${large} 1 ${x1.toFixed(2)},${y1.toFixed(2)} Z`;
+    return { d, path, pct, mx, my };
+  });
+
+  const paths = slices.map(s =>
+    `<path d="${s.path}" style="fill:${s.d.color}"><title>${esc(s.d.label)}：${s.d.n} 条（${s.pct}%）</title></path>`).join('');
+  // 占比标签直接写百分比：太窄的扇区（<6%）省略，避免文字互相重叠
+  const labels = slices.filter(s => s.pct >= 6).map(s =>
+    `<text class="pie-label" x="${s.mx.toFixed(1)}" y="${s.my.toFixed(1)}" text-anchor="middle" dominant-baseline="middle">${s.pct}%</text>`).join('');
+
+  return `<svg width="${size}" height="${size}" viewBox="0 0 ${size} ${size}" role="img" aria-label="${esc(ariaLabel || '占比饼图')}">
+    ${paths}${labels}
+  </svg>`;
+}
+function pieLegend(data) {
+  return `<div class="legend pie-legend">${data.filter(d => d.n > 0).map(d =>
+    `<span><i style="background:${d.color}"></i>${esc(d.label)} ${d.n}</span>`).join('')}</div>`;
+}
+
 /* ---------- 甘特 ---------- */
 function ganttPanel(tasks) {
   const works = visibleWorks();
@@ -1888,28 +1982,41 @@ function renderCharts() {
   if (chartTab === 'person') {
     const st = statsByPerson(tasks);
     const max = Math.max(1, ...st.map(s => s.total));
+    const overall = tally(tasks);
+    const statusPie = [
+      { label: '已完成', n: overall.done, color: 'var(--c-done)' },
+      { label: '进行中', n: overall.doing, color: 'var(--c-doing)' },
+      { label: '逾期', n: overall.late, color: 'var(--c-late)' },
+      { label: '未开始/挂起', n: overall.todo + overall.hold, color: 'var(--c-track)' },
+    ];
     body = `<div class="panel">
       ${panelHead('▥ 各人任务量与完成率', 'person', '按未完成量排序 · 点击下钻')}
       <div class="panel-b">${chartTableView.person
         ? dataTable(['姓名', '牵头合计', '已完成', '进行中', '逾期', '未开始', '完成率', '参与'],
             st.map(s => [s.name, s.total, s.done, s.doing, s.late, s.todo + s.hold, s.rate + '%', s.join]))
-        : (st.length ? st.map(s => hBar(s.name, s, max,
-            ` data-act="filter-owner" data-owner="${esc(s.name === '（未指派）' ? '__empty__' : s.name)}"`)).join('') + statusLegend
-                     : '<div class="empty-mini">暂无数据</div>')}
+        : (st.length ? `<div class="chart-flex">
+             <div class="chart-flex-bars">${st.map(s => hBar(s.name, s, max,
+               ` data-act="filter-owner" data-owner="${esc(s.name === '（未指派）' ? '__empty__' : s.name)}"`)).join('')}${statusLegend}</div>
+             <div class="chart-flex-pie">${pieChart(statusPie, 140, '全部任务状态占比')}${pieLegend(statusPie)}</div>
+           </div>` : '<div class="empty-mini">暂无数据</div>')}
         <div class="chart-note">条长表示该人牵头的任务总量（同一标尺可横向比较）；右侧为「已完成/合计 · 完成率」。
-        「参与」列统计其作为参与人的任务数，不计入条长。</div></div></div>`;
+        「参与」列统计其作为参与人的任务数，不计入条长。右侧饼图是全体任务的状态构成，与逐人对比互补。</div></div></div>`;
 
   } else if (chartTab === 'category') {
     const cat = statsByCategory(tasks), duty = statsByDuty(tasks);
     const maxC = Math.max(1, ...cat.map(s => s.total));
     const maxD = Math.max(1, ...duty.map(s => s.total));
+    const catPie = cat.map(c => ({ label: c.name, n: c.total, color: c.color }));
     body = `<div class="panel">
       ${panelHead('▤ 四大职责类别', 'cat')}
       <div class="panel-b">${chartTableView.cat
         ? dataTable(['类别', '合计', '已完成', '进行中', '逾期', '未开始', '完成率'],
             cat.map(s => [s.name, s.total, s.done, s.doing, s.late, s.todo + s.hold, s.rate + '%']))
-        : (cat.length ? cat.map(s => hBar(s.name, s, maxC)).join('') + statusLegend : '<div class="empty-mini">暂无数据</div>')}
-      </div></div>
+        : (cat.length ? `<div class="chart-flex">
+             <div class="chart-flex-bars">${cat.map(s => hBar(s.name, s, maxC)).join('')}${statusLegend}</div>
+             <div class="chart-flex-pie">${pieChart(catPie, 140, '四大类别任务占比')}${pieLegend(catPie)}</div>
+           </div>` : '<div class="empty-mini">暂无数据</div>')}
+        <div class="chart-note">右侧饼图是四大类别的任务量占比，与左侧横条互补（横条看绝对量与完成情况，饼图看占比）。</div></div></div>
       <div class="panel">
       ${panelHead('▤ 15 项职责', 'duty', '点击下钻到工作')}
       <div class="panel-b">${chartTableView.duty
@@ -1917,11 +2024,12 @@ function renderCharts() {
             duty.map(s => [s.name, s.total, s.done, s.doing, s.late, s.todo + s.hold, s.rate + '%']))
         : (duty.length ? duty.map(s => hBar(s.name, s, maxD, ` data-act="duty-drill" data-code="${esc(s.code)}"`)).join('') + statusLegend
                        : '<div class="empty-mini">暂无数据</div>')}
-        <div class="chart-note">只显示已有任务的职责。条长用同一标尺，可直接横向比较任务量。</div></div></div>`;
+        <div class="chart-note">只显示已有任务的职责。条长用同一标尺，可直接横向比较任务量。职责有 15 项，饼图切片太多反而不好看，故此处不加饼图。</div></div></div>`;
 
   } else if (chartTab === 'time') {
     const series = monthlySeries(tasks, 12);
     const buckets = dueBuckets(tasks);
+    const duePie = dueSummary(tasks);
     body = `<div class="panel">
       ${panelHead('▧ 近 12 个月新增与完成', 'trend')}
       <div class="panel-b">${chartTableView.trend
@@ -1931,13 +2039,16 @@ function renderCharts() {
              <span><i style="background:var(--c-doing);border-radius:50%"></i>新增（实线圆点）</span>
              <span><i style="background:var(--c-done)"></i>完成（虚线方块）</span></div>`}
         <div class="chart-note">两条线共用同一纵轴（单位均为「条」），不使用双轴。
-        线型与标记形状同时区分两个系列，不单靠颜色。</div></div></div>
+        线型与标记形状同时区分两个系列，不单靠颜色。趋势是逐月变化，不是占比，故不适合用饼图。</div></div></div>
       <div class="panel">
       ${panelHead('▧ 未完成任务的到期分布', 'due')}
       <div class="panel-b">${chartTableView.due
         ? dataTable(['区间', '任务数'], buckets.map(b => [b.label, b.n]))
-        : barChart(buckets, w)}
-        <div class="chart-note">仅统计未开始与进行中的任务；已挂起不计入逾期。</div></div></div>`;
+        : (duePie.length ? `<div class="chart-flex">
+             <div class="chart-flex-bars">${barChart(buckets, w)}</div>
+             <div class="chart-flex-pie">${pieChart(duePie, 130, '到期分布占比')}${pieLegend(duePie)}</div>
+           </div>` : barChart(buckets, w))}
+        <div class="chart-note">仅统计未开始与进行中的任务；已挂起不计入逾期。柱状图看各区间绝对量，饼图看粗粒度占比（逾期/本周内/更远/无日期）。</div></div></div>`;
 
   } else {
     body = `<div class="panel">${panelHead('◈ 里程碑甘特', 'gantt', '点击工作名可编辑其里程碑')}
@@ -2098,6 +2209,7 @@ function parseQuickInput(raw) {
   }
   t.title = parts.join(' ') || '未命名任务';
   if (!t.owner && t.work) { const w = byId('work', t.work); if (w) t.owner = w.owner; }   // 负责人默认取工作牵头人
+  if (t.work) t.code = nextTaskCode(t.work);
   return t;
 }
 
@@ -2378,6 +2490,7 @@ let _activeEdit = null;
 function openEditor(entity, id, fieldKey, td) {
   const f = fieldDef(entity, fieldKey);
   if (!f || f.readonly) return;
+  if (entity === 'task' && fieldKey === 'work') return openWorkPicker(entity, id, f, td);
   if (['single', 'multi', 'person', 'persons', 'enum', 'ref'].includes(f.type)) return openSelectPopup(entity, id, f, td);
   if (f.type === 'lines') return openLinesEditor(entity, id, fieldKey);
   if (f.type === 'date') return openDatePicker(entity, id, fieldKey, td);
@@ -2426,6 +2539,7 @@ let _sp = null, spCloseListener = null;
 
 function openSelectPopup(entity, id, f, td) {
   commitActiveEdit();
+  closeWorkSub();
   const r = byId(entity, id); if (!r) return;
   const multi = f.type === 'multi' || f.type === 'persons';
   const allowNew = !['enum', 'ref'].includes(f.type);
@@ -2441,7 +2555,7 @@ function openSelectPopup(entity, id, f, td) {
   html += `<div id="sp-list">`;
   if (!multi) {
     if (allowNew) html += `<div class="sp-item sp-addnew" id="sp-addnew" data-act="sp-add" style="display:none"></div>`;
-    if (!f.options) html += `<div class="sp-item${!cur.length ? ' selected' : ''}" data-act="sp-pick" data-val="">（无）</div>`;
+    if (!f.options && !f.required) html += `<div class="sp-item${!cur.length ? ' selected' : ''}" data-act="sp-pick" data-val="">（无）</div>`;
     opts.forEach(o => {
       html += `<div class="sp-item${cur[0] === o.v ? ' selected' : ''}" data-act="sp-pick" data-val="${esc(o.v)}" data-opt="${esc(o.label)}" title="${esc(o.label)}">${esc(o.label)}</div>`;
     });
@@ -2559,7 +2673,106 @@ async function spCommitMulti() {
 function closeSelectPopup() {
   const p = $('#select-popup');
   p.classList.remove('show'); p.innerHTML = ''; _sp = null;
+  closeWorkSub();
   if (spCloseListener) { document.removeEventListener('mousedown', spCloseListener); spCloseListener = null; }
+}
+
+/* ---- 所属工作二级级联选择：先选职责，鼠标划过展开该职责下的工作，再点选 ---- */
+let _wpHideTimer = null;
+function closeWorkSub() {
+  if (_wpHideTimer) { clearTimeout(_wpHideTimer); _wpHideTimer = null; }
+  document.querySelectorAll('.sp-sub').forEach(el => el.remove());
+}
+function openWorkPicker(entity, id, f, td) {
+  commitActiveEdit();
+  closeWorkSub();
+  const r = byId(entity, id); if (!r) return;
+  const cur = r[f.key] || '';
+  const opts = optionsOf(entity, f, r);
+  const groups = new Map();      // 职责编号 -> 该职责下的工作选项
+  opts.forEach(o => {
+    const w = byId('work', o.v);
+    const dc = w ? w.duty : '';
+    if (!groups.has(dc)) groups.set(dc, []);
+    groups.get(dc).push(o);
+  });
+  const duties = [...groups.keys()].map(dc => byId('duty', dc)).filter(Boolean)
+    .sort((a, b) => a.code.localeCompare(b.code));
+
+  _sp = { entity, id, field: f.key };   // 复用通用的关闭 / 清理逻辑
+  const popup = $('#select-popup');
+  let html = `<div class="sp-header">${esc(f.label)}</div><div id="sp-list">`;
+  html += `<div class="sp-item${!cur ? ' selected' : ''}" data-act="wp-pick" data-val="">（无）</div>`;
+  if (!duties.length) html += `<div class="sp-item" style="color:var(--text3);cursor:default">（无可选项，请先在工作页添加工作）</div>`;
+  duties.forEach(d => {
+    const active = groups.get(d.code).some(o => o.v === cur);
+    html += `<div class="sp-item sp-duty${active ? ' selected' : ''}" data-duty="${esc(d.code)}">` +
+            `<span>${esc(d.code + ' ' + d.name)}</span><span class="sp-arrow">▸</span></div>`;
+  });
+  html += `</div>`;
+  popup.innerHTML = html;
+
+  const rect = td.getBoundingClientRect();
+  popup.style.left = Math.min(rect.left, window.innerWidth - 310) + 'px';
+  popup.style.top = (rect.bottom + 2) + 'px';
+  popup.classList.add('show');
+  requestAnimationFrame(() => {
+    const h = popup.offsetHeight;
+    if (rect.bottom + 2 + h > window.innerHeight - 8) popup.style.top = Math.max(8, rect.top - h - 2) + 'px';
+  });
+
+  const sub = document.createElement('div');
+  sub.className = 'sp-sub';
+  document.body.appendChild(sub);
+  const cancelHide = () => { if (_wpHideTimer) { clearTimeout(_wpHideTimer); _wpHideTimer = null; } };
+  const scheduleHide = () => { cancelHide(); _wpHideTimer = setTimeout(() => { sub.classList.remove('show'); sub.innerHTML = ''; }, 250); };
+
+  popup.querySelectorAll('.sp-duty').forEach(el => {
+    el.addEventListener('mouseenter', () => {
+      cancelHide();
+      const works = groups.get(el.dataset.duty) || [];
+      sub.innerHTML = works.map(o =>
+        `<div class="sp-item${o.v === cur ? ' selected' : ''}" data-act="wp-pick" data-val="${esc(o.v)}" title="${esc(o.label)}">${esc(o.label)}</div>`).join('');
+      const r2 = el.getBoundingClientRect();
+      sub.style.left = Math.min(r2.right + 2, window.innerWidth - 270) + 'px';
+      sub.style.top = Math.max(8, r2.top) + 'px';
+      sub.classList.add('show');
+      requestAnimationFrame(() => {
+        const h = sub.offsetHeight;
+        if (r2.top + h > window.innerHeight - 8) sub.style.top = Math.max(8, window.innerHeight - 8 - h) + 'px';
+      });
+    });
+    el.addEventListener('mouseleave', scheduleHide);
+  });
+  sub.addEventListener('mouseenter', cancelHide);
+  sub.addEventListener('mouseleave', scheduleHide);
+  sub.addEventListener('click', ev => {
+    const it = ev.target.closest('[data-act="wp-pick"]');
+    if (it) wpCommit(it.dataset.val);
+  });
+  popup.addEventListener('click', ev => {
+    const it = ev.target.closest('[data-act="wp-pick"]');
+    if (it) wpCommit(it.dataset.val);
+  });
+
+  if (spCloseListener) document.removeEventListener('mousedown', spCloseListener);
+  spCloseListener = ev => { if (!popup.contains(ev.target) && !sub.contains(ev.target) && !td.contains(ev.target)) closeSelectPopup(); };
+  setTimeout(() => document.addEventListener('mousedown', spCloseListener), 0);
+}
+async function wpCommit(val) {
+  if (!_sp) return;
+  const { entity, id, field } = _sp;
+  closeSelectPopup();
+  const r = byId(entity, id); if (!r) return;
+  snapshot();
+  r[field] = val;
+  r.code = val ? nextTaskCode(val) : '';
+  // 换了所属工作，原里程碑可能不属于新工作，清掉避免脏引用
+  const ms = byId('milestone', r.milestone);
+  if (ms && ms.work !== val) r.milestone = '';
+  if (val && !r.owner) { const w = byId('work', val); if (w) r.owner = w.owner; }
+  await Repo.upsert(entity, r);
+  afterEdit(entity, id, field);
 }
 
 /* ---- 日期选择器 ---- */
@@ -2718,9 +2931,10 @@ function openBatchEdit(fieldKey) {
             if (val === 'done') { t.actual_date = t.actual_date || todayStr(); t.progress = 100; }
             else t.actual_date = '';
           }
-          if (fieldKey === 'work') {                    // 换工作后清理跨工作的脏里程碑引用
+          if (fieldKey === 'work') {                    // 换工作后清理跨工作的脏里程碑引用，编号跟着新工作重新生成
             const ms = byId('milestone', t.milestone);
             if (ms && ms.work !== val) t.milestone = '';
+            t.code = val ? nextTaskCode(val) : '';
           }
           stampMeta(t);
         });
@@ -2756,8 +2970,11 @@ function openTaskDetail(id) {
   if (!t) return;
   const fs = schema('task').fields.filter(f => !f.virtual);
   const wide = k => ['title', 'deliverable'].includes(k);
+  // 只读字段（如自动生成的任务编号）不给编辑控件，显示成静态文本即可
   const cell = f => `<label for="td-${f.key}">${esc(f.label)}</label>
-    <div class="${wide(f.key) ? 'full' : ''}">${fieldControl(f, t[f.key], 'td-')}</div>`;
+    <div class="${wide(f.key) ? 'full' : ''}">${f.readonly
+      ? `<span class="detail-ro">${esc(t[f.key] || '—')}</span>`
+      : fieldControl(f, t[f.key], 'td-')}</div>`;
   const w = byId('work', t.work);
 
   openModal('任务详情',
@@ -2772,6 +2989,7 @@ function openTaskDetail(id) {
     '保存', async () => {
       snapshot();
       fs.forEach(f => {
+        if (f.readonly) return;
         const v = readControl(f, 'td-');
         if (v !== undefined) t[f.key] = v;
       });
@@ -2895,6 +3113,7 @@ function openOrphanAssign() {
           const t = byId('task', id);
           if (!t) return;
           t.work = work;
+          t.code = nextTaskCode(work);
           if (!t.owner) { const w = byId('work', work); if (w) t.owner = w.owner; }
           stampMeta(t);
         });
@@ -3277,6 +3496,7 @@ $('#file-input').addEventListener('change', evt => {
           }
           rec.id = id || uid(entity[0]);
         } else if (!rec[sc.pk]) continue;
+        if (entity === 'task' && !rec.code && rec.work) rec.code = nextTaskCode(rec.work);   // 导入未带编号则按所属工作自动生成
         ['created_at', 'updated_at', 'updated_by', 'deleted_at'].forEach(k => { const v = get(cols, k); if (v) rec[k] = v; });
         rec.rev = Number(get(cols, 'rev')) || 1;
         normalize(entity, rec);
@@ -3336,21 +3556,21 @@ $('#year-select').addEventListener('change', async e => {
    26. 种子数据（图1 职责 / 图2 工作 / 测试任务）
    ============================================================= */
 const SEED_DUTIES = [
-  ['01', '二、集团治理', '企业级科技发展规划', '新增'],
-  ['02', '一、前瞻研判', '前沿新技术专题研究', '（3）'],
-  ['03', '一、前瞻研判', 'Gartner资讯服务', ''],
-  ['04', '三、价值共创', '全行数智化转型与数字金融，配合绿色金融大文章工作', '（1）'],
-  ['05', '二、集团治理', '集团科技治理', '新增'],
-  ['06', '三、价值共创', '专利和计算机软件著作权的申报与管理', '（7）'],
-  ['07', '三、价值共创', '重要科技成果的申报', '（7）'],
-  ['08', '二、集团治理', '科技资源数智化精细管理', '新增'],
-  ['09', '二、集团治理', '信创建设', '（5）'],
-  ['10', '四、其它工作', '总控PMO工作', ''],
-  ['11', '四、其它工作', '信息科技管理委员会办公室、全行数字化转型领导小组办公室、安全可靠能力建设推进领导小组办公室等日常工作', '（5）'],
-  ['12', '二、集团治理', '技术标准管理体系', '（4）'],
-  ['13', '二、集团治理', '软件正版化管理', '（8）'],
-  ['14', '一、前瞻研判', '外部生态协同', '（6）'],
-  ['15', '四、其它工作', '其它领导交办的工作', ''],
+  ['01', '二、集团治理', '企业级科技发展规划'],
+  ['02', '一、前瞻研判', '前沿新技术专题研究'],
+  ['03', '一、前瞻研判', 'Gartner资讯服务'],
+  ['04', '三、价值共创', '全行数智化转型与数字金融，配合绿色金融大文章工作'],
+  ['05', '二、集团治理', '集团科技治理'],
+  ['06', '三、价值共创', '专利和计算机软件著作权的申报与管理'],
+  ['07', '三、价值共创', '重要科技成果的申报'],
+  ['08', '二、集团治理', '科技资源数智化精细管理'],
+  ['09', '二、集团治理', '信创建设'],
+  ['10', '四、其它工作', '总控PMO工作'],
+  ['11', '四、其它工作', '信息科技管理委员会办公室、全行数字化转型领导小组办公室、安全可靠能力建设推进领导小组办公室等日常工作'],
+  ['12', '二、集团治理', '技术标准管理体系'],
+  ['13', '二、集团治理', '软件正版化管理'],
+  ['14', '一、前瞻研判', '外部生态协同'],
+  ['15', '四、其它工作', '其它领导交办的工作'],
 ];
 
 const PLAN_CYCLE = '建成"规划-执行-督办-评估-优化"全周期闭环管理机制，实现科技规划执行全程可追溯、成效可量化、问题可预警、改进可持续。';
@@ -3396,7 +3616,7 @@ const TASK_TPL = [
 
 function seedAll() {
   const year = DB.settings.year || new Date().getFullYear();
-  DB.duties = SEED_DUTIES.map(([code, category, name, ref]) => stampMeta(blank('duty', { code, category, name, ref })));
+  DB.duties = SEED_DUTIES.map(([code, category, name]) => stampMeta(blank('duty', { code, category, name })));
   DB.works = SEED_WORKS.map(([code, duty, name, content, owner, collaborators]) =>
     stampMeta(blank('work', { code, duty, name, content, owner, collaborators, year, status: 'doing' })));
   DB.milestones = [];
@@ -3449,6 +3669,7 @@ function seedAll() {
       DB.tasks.push(stampMeta(blank('task', {
         created_at: createdAt,
         work: w.id,
+        code: nextTaskCode(w.id),
         title: tpl[0].replace('{n}', short),
         owner: rng() > 0.25 ? w.owner : pick(people),
         assignees: uniq(assignees),
@@ -3473,7 +3694,8 @@ async function boot() {
     DB = Object.assign(DB, saved);
     DB.settings = Object.assign({ me: '', role: 'manager', year: new Date().getFullYear() }, saved.settings || {});
     ['duty', 'work', 'milestone', 'task'].forEach(e => coll(e).forEach(r => normalize(e, r)));
-    if (migrateWorkIds()) await Repo.persist(DB);
+    const migrated = migrateWorkIds();
+    if (migrateTaskCodes() || migrated) await Repo.persist(DB);
     rebuildIndex();
     restoreUI();
   } else {

@@ -41,7 +41,7 @@ const sandbox = {
     querySelector: q,
     querySelectorAll: () => [],
     createElement: () => mkEl('created'),
-    addEventListener() {},
+    addEventListener() {}, removeEventListener() {},
     documentElement: { scrollWidth: 1280 },
     activeElement: { tagName: 'BODY', blur() {} },
     body: mkEl('body'),
@@ -85,6 +85,10 @@ const exportTail = `
   openYearCopy, openOrphanAssign, healthCheck, fixHealth, backupState, lastChangeAt,
   importBackup, shiftYear, migrateWorkIds, nextWorkCode, exportJSON, parseQuickInput,
   renderData, optionsOf, stampMeta, softDelete,
+  openEditor, openSelectPopup, closeSelectPopup, openWorkPicker, wpCommit, closeWorkSub,
+  get sp(){return _sp}, renderCellValue, fieldControl, readControl,
+  nextTaskCode, migrateTaskCodes, pieChart, pieLegend, dueSummary,
+  TASK_VIEWS, TASK_VIEW_MAP, openOrphanAssign,
 };`;
 
 vm.createContext(sandbox);
