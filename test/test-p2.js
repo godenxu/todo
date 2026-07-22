@@ -86,7 +86,7 @@ async function main() {
   ok('done 都有实际完成日', ch.every(t => !!t.actual_date));
   ok('原无完成日的补今天', ids.every(i => priorActual[i] || S.byId('task', i).actual_date === S.todayStr()));
   ok('原有完成日的保留不被改写', ids.every(i => !priorActual[i] || S.byId('task', i).actual_date === priorActual[i]));
-  ok('done 自动置进度 100', ch.every(t => t.progress === 100));
+  ok('done 自动置进度 100（无检查点的任务不受影响）', ch.every(t => S.hasCheckpoints(t) || t.progress === 100));
   ok('rev 递增（冲突检测前提）', ch.every(t => t.rev >= 2));
 
   ids.forEach(i => S.UI.tasks.sel.add(i));
@@ -103,14 +103,18 @@ async function main() {
     JSON.stringify(S.byId('task', i).assignees) === JSON.stringify(['李兰', '诸慧玲', '郭妙吉'])),
     S.byId('task', ids[0]).assignees);
 
-  const withMs = S.taskRows.find(t => t.milestone);
-  if (withMs) {
-    const otherWork = S.DB.works.find(w => w.code !== withMs.work).code;
-    S.UI.tasks.sel.clear(); S.UI.tasks.sel.add(withMs.id);
+  const withCp = S.taskRows.find(t => S.hasCheckpoints(t));
+  if (withCp) {
+    const cpBefore = S.DB.milestones.filter(m => m.task === withCp.id && !m.deleted_at).length;
+    const otherWork = S.DB.works.find(w => w.id !== withCp.work);
+    S.UI.tasks.sel.clear(); S.UI.tasks.sel.add(withCp.id);
     S.openBatchEdit('work');
-    q('#be-work').value = otherWork;
+    q('#be-work').value = otherWork.id;
     await S.modalCallback(); await tick();
-    ok('批量改工作后清理跨工作里程碑', S.byId('task', withMs.id).milestone === '');
+    const afterT = S.byId('task', withCp.id);
+    const cpAfter = S.DB.milestones.filter(m => m.task === withCp.id && !m.deleted_at).length;
+    ok('批量改工作后里程碑不受影响（里程碑挂在任务下）', cpAfter === cpBefore, [cpBefore, cpAfter]);
+    ok('批量改工作后编号按新工作重新生成', afterT.code.startsWith(otherWork.code), afterT.code);
   }
 
   section('撤销');
@@ -127,7 +131,7 @@ async function main() {
 
   section('列配置');
   const orig = [...S.UI.tasks.cols];
-  const fields = S.schema('task').fields.filter(f => !f.virtual);
+  const fields = S.schema('task').fields.filter(f => !f.internal);
   S.openColConfig();
   fields.forEach(f => { q('#cc-' + f.key).checked = false; });
   q('#cc-title').checked = true; q('#cc-status').checked = true;
@@ -143,11 +147,13 @@ async function main() {
 
   section('任务详情');
   S.renderTasks();
-  const t0 = S.taskRows[0];
+  // 挑一个没有检查点的任务：有检查点时进度是自动算的只读值，会干扰这里对通用字段保存的测试
+  const t0 = S.taskRows.find(t => !S.hasCheckpoints(t));
   S.openTaskDetail(t0.id);
-  fields.forEach(f => { const el = q('#td-' + f.key); el.value = el.value || ''; });
+  const detailHTML = q('#modal-body').innerHTML;
+  ok('检查点入口按钮存在', detailHTML.includes('data-act="cp-editor"'));
+  fields.forEach(f => { if (f.type === 'checkpoints' || f.readonly) return; const el = q('#td-' + f.key); el.value = el.value || ''; });
   q('#td-title').value = '  改写后的任务标题  ';
-  q('#td-deliverable').value = '新交付物';
   q('#td-plan_date').value = 'today';
   q('#td-progress').value = '160';
   q('#td-assignees').value = '张三,李四';
@@ -161,9 +167,35 @@ async function main() {
   ok('日期关键字 today 解析', n.plan_date === S.todayStr(), n.plan_date);
   ok('进度超限截断为 100', n.progress === 100, n.progress);
   ok('参与人逗号分词', JSON.stringify(n.assignees) === JSON.stringify(['张三', '李四']), n.assignees);
-  ok('交付物保存', n.deliverable === '新交付物');
   ok('状态/优先级保存', n.status === 'doing' && n.priority === '3');
   ok('负责人保存', n.owner === '邱洋');
+
+  section('检查点编辑器');
+  const cpTask = S.DB.tasks.find(t => !S.hasCheckpoints(t) && !t.deleted_at);
+  S.openCheckpointEditor(cpTask.id);
+  const cpHTML0 = q('#modal-body').innerHTML;
+  ok('空白任务默认给一行可填', (cpHTML0.match(/data-cp-row/g) || []).length === 1);
+  // harness 的 querySelectorAll 是纯桩，真实取值走不通，改用 p5 测试同款的手动伪造行
+  const fakeRow = (date, deliv, done) => ({
+    querySelector: sel => {
+      if (sel === '.cp-date') return { value: date };
+      if (sel === '.cp-deliv') return { value: deliv };
+      if (sel === '.cp-chk') return { checked: done };
+      return null;
+    },
+  });
+  raw.document.querySelectorAll = sel => sel === '#cp-list [data-cp-row]'
+    ? [fakeRow('2026-08-01', '交付物A', false), fakeRow('2026-08-15', '交付物B', true)] : [];
+  await S.modalCallback(); await tick();
+  raw.document.querySelectorAll = () => [];
+  const cps = S.DB.milestones.filter(m => m.task === cpTask.id && !m.deleted_at);
+  ok('保存后生成了两条检查点', cps.length === 2, cps.length);
+  ok('未勾选的检查点未完成', cps.some(m => m.done === '0' && m.deliverable === '交付物A'));
+  ok('勾选的检查点标记完成且填了完成日期', cps.some(m => m.done === '1' && m.deliverable === '交付物B' && !!m.actual_date));
+  const afterCpTask = S.byId('task', cpTask.id);
+  ok('任务进度按完成比例自动算（1/2=50%）', afterCpTask.progress === 50, afterCpTask.progress);
+  const cell = S.renderCellValue('task', afterCpTask, S.fieldDef('task', 'progress'), true);
+  ok('有检查点后进度单元格不再可双击编辑', !cell.includes('data-dblact="edit"'));
 
   section('偏好持久化');
   S.UI.tasks.widths.title = 321;
@@ -177,7 +209,8 @@ async function main() {
   section('回归：P1 功能未被破坏');
   ok('虚拟滚动列数已含选择列', true);
   const csvH = S.csvHeaders('task');
-  ok('CSV 表头完整', csvH.includes('milestone') && csvH.includes('rev') && csvH[0] === 'id');
+  ok('CSV 表头完整', csvH.includes('code') && csvH.includes('rev') && csvH[0] === 'id');
+  ok('检查点是虚拟字段，不进任务 CSV（走里程碑 CSV 单独导入导出）', !csvH.includes('checkpoints'));
   ok('编号补零', S.padCode('101') === '0101' && S.padCode('0101') === '0101');
   ok('多值转义往返', JSON.stringify(S.splitMulti(S.joinMulti(['张,三', 'A\\B']))) === JSON.stringify(['张,三', 'A\\B']));
   ok('逾期不含挂起', S.DB.tasks.filter(S.isOverdue).every(t => t.status !== 'hold'));

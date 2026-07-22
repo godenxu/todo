@@ -62,8 +62,8 @@ async function main() {
 
   section('按分类视图');
   h = render('category');
-  ok('含四大类别面板', h.includes('四大职责类别'));
-  ok('含 15 项职责面板', h.includes('15 项职责'));
+  ok('含职责类别面板', h.includes('职责类别'));
+  ok('含职责项面板', h.includes('职责项'));
   ok('职责可下钻', h.includes('data-act="duty-drill"'));
   S.CATEGORIES.forEach(c => {
     const has = cat.some(x => x.key === c.v);
@@ -115,7 +115,7 @@ async function main() {
     ok('有跨度条', h.includes('gantt-span'));
     ok('有里程碑圆点', h.includes('gantt-pt'));
     ok('有今天基准线', h.includes('--today:'));
-    ok('可点击编辑里程碑', h.includes('data-act="ms-panel"'));
+    ok('点击工作名可查看其任务', h.includes('data-act="work-drill"'));
     const lefts = nums(h, /class="gantt-pt [a-z]+" style="left:([\d.]+)%/g);
     ok('圆点均在轴范围内', lefts.length > 0 && lefts.every(v => v >= 0 && v <= 100), [Math.min(...lefts), Math.max(...lefts)]);
     const spans = [...h.matchAll(/class="gantt-span" style="left:([\d.]+)%;width:([\d.]+)%/g)].map(m => [+m[1], +m[2]]);
@@ -146,7 +146,7 @@ async function main() {
   S.ACTIONS['sel-all']();
   ok('批量选择仍工作', S.UI.tasks.sel.size === S.taskRows.length);
   S.ACTIONS['sel-clear']();
-  ok('CSV 表头仍完整', S.csvHeaders('task').includes('milestone'));
+  ok('CSV 表头仍完整', S.csvHeaders('task').includes('code'));
 
   console.log('\n' + '='.repeat(46));
   console.log(`通过 ${pass} 项，失败 ${fail} 项`);

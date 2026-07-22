@@ -124,7 +124,7 @@ async function main() {
   S.ACTIONS['sel-all']();
   ok('批量选择仍工作', S.UI.tasks.sel.size === S.taskRows.length);
   S.ACTIONS['sel-clear']();
-  ok('CSV 表头仍完整', S.csvHeaders('task').includes('milestone'));
+  ok('CSV 表头仍完整', S.csvHeaders('task').includes('code'));
 
   console.log('\n' + '='.repeat(46));
   console.log(`通过 ${pass} 项，失败 ${fail} 项`);

@@ -18,22 +18,21 @@ async function main() {
   ok('每项工作都有随机 id', S.DB.works.every(w => /^w_/.test(w.id)));
   ok('职责主键仍是 code（无年度维度，保持稳定）', S.schema('duty').pk === 'code');
   ok('任务通过 id 引用工作', S.DB.tasks.filter(t => t.work).every(t => !!S.byId('work', t.work)));
-  ok('里程碑通过 id 引用工作', S.DB.milestones.every(m => !!S.byId('work', m.work)));
+  ok('里程碑挂在任务下，通过 id 引用任务', S.DB.milestones.every(m => !!S.byId('task', m.task)));
   ok('编号仍保留为业务字段', S.DB.works.every(w => /^\d{4}$/.test(w.code)));
   ok('ref 显示仍带编号前缀', S.optionsOf('task', S.fieldDef('task', 'work'), null)[0].label.startsWith('01'));
 
   section('老数据迁移（code 引用 → id 引用）');
   const bak = JSON.stringify({ w: S.DB.works, t: S.DB.tasks, m: S.DB.milestones });
-  // 造一份「旧格式」：工作无 id，任务/里程碑用 code 引用
+  // 造一份「旧格式」：工作无 id，任务用 code 引用（里程碑挂在任务下，不涉及工作引用重写）
   S.DB.works = [{ code: '0101', duty: '01', name: '旧工作', content: [], owner: '甲', collaborators: [], year: 2025, status: 'doing' }];
   S.DB.tasks = [{ id: 't_old', work: '0101', title: '旧任务', assignees: [], status: 'todo', priority: '2', progress: 0 }];
-  S.DB.milestones = [{ id: 'm_old', work: '0101', name: '旧里程碑', plan_date: '2025-06-01', actual_date: '', status: 'todo' }];
+  S.DB.milestones = [];
   const changed = S.migrateWorkIds();
   ok('迁移返回已变更', changed === true);
   const nid = S.DB.works[0].id;
   ok('旧工作补上了 id', /^w_/.test(nid));
   ok('任务引用被重写为 id', S.DB.tasks[0].work === nid);
-  ok('里程碑引用被重写为 id', S.DB.milestones[0].work === nid);
   ok('迁移幂等（再跑一次无变化）', S.migrateWorkIds() === false || S.DB.tasks[0].work === nid);
   const r = JSON.parse(bak);
   S.DB.works = r.w; S.DB.tasks = r.t; S.DB.milestones = r.m;
@@ -41,10 +40,43 @@ async function main() {
   S.Repo.bulk(() => {});
   await tick();
 
+  section('里程碑迁移：从挂靠工作改为挂靠任务');
+  const bak2 = JSON.stringify({ w: S.DB.works, t: S.DB.tasks, m: S.DB.milestones });
+  const someWork = S.DB.works[0];
+  const tA = { id: 't_a', work: someWork.id, title: '任务A', milestone: 'm_shared', deliverable: 'A的交付物', assignees: [], status: 'todo', priority: '2', progress: 0 };
+  const tB = { id: 't_b', work: someWork.id, title: '任务B', milestone: 'm_shared', deliverable: '', assignees: [], status: 'todo', priority: '2', progress: 0 };
+  const tC = { id: 't_c', work: someWork.id, title: '任务C', deliverable: '只有交付物没选里程碑', plan_date: '2026-07-01', assignees: [], status: 'todo', priority: '2', progress: 0 };
+  const tD = { id: 't_d', work: someWork.id, title: '任务D', assignees: [], status: 'todo', priority: '2', progress: 0 };
+  S.DB.tasks = [tA, tB, tC, tD];
+  S.DB.milestones = [
+    { id: 'm_shared', work: someWork.id, name: '共享老里程碑', plan_date: '2026-05-01', actual_date: '', status: 'doing' },
+    { id: 'm_orphan', work: someWork.id, name: '没人引用的老里程碑', plan_date: '2026-06-01', actual_date: '', status: 'todo' },
+  ];
+  const msChanged = S.migrateMilestonesToTasks();
+  ok('迁移返回已变更', msChanged === true);
+  const cpA = S.DB.milestones.filter(m => m.task === 't_a' && !m.deleted_at);
+  const cpB = S.DB.milestones.filter(m => m.task === 't_b' && !m.deleted_at);
+  const cpC = S.DB.milestones.filter(m => m.task === 't_c' && !m.deleted_at);
+  const cpD = S.DB.milestones.filter(m => m.task === 't_d' && !m.deleted_at);
+  ok('共享老里程碑的两个任务各自拆出一条检查点', cpA.length === 1 && cpB.length === 1, [cpA.length, cpB.length]);
+  ok('任务自己的交付物优先于老里程碑名称', cpA[0].deliverable === 'A的交付物');
+  ok('没有自己交付物的任务，退回老里程碑名称', cpB[0].deliverable === '共享老里程碑');
+  ok('两条检查点都沿用老里程碑的日期', cpA[0].plan_date === '2026-05-01' && cpB[0].plan_date === '2026-05-01');
+  ok('只有交付物没选里程碑的任务，用任务计划日期生成一条', cpC.length === 1 && cpC[0].plan_date === '2026-07-01' && cpC[0].deliverable === '只有交付物没选里程碑');
+  ok('既没里程碑也没交付物的任务不生成检查点', cpD.length === 0);
+  ok('没有任何任务引用的老里程碑被丢弃', !S.DB.milestones.some(m => m.id === 'm_orphan'));
+  ok('老字段被清理', !('milestone' in tA) && !('deliverable' in tA));
+  ok('迁移幂等（再跑一次无变化）', S.migrateMilestonesToTasks() === false);
+  const r2 = JSON.parse(bak2);
+  S.DB.works = r2.w; S.DB.tasks = r2.t; S.DB.milestones = r2.m;
+  S.Repo.bulk(() => {});
+  await tick();
+
   section('同编号跨年度共存');
   const src = byCode('0101');
   ok('源工作存在', !!src, src && src.code);
   const before = S.DB.works.length;
+  const msCountBefore = S.DB.milestones.length;
   S.openYearCopy();
   q('#yc-src').value = String(src.year);
   q('#yc-dst').value = String(src.year + 1);
@@ -61,17 +93,8 @@ async function main() {
   ok('目标年度正确', !!dst && dst.year === src.year + 1);
   ok('内容与牵头人被复制', dst.name === src.name && dst.owner === src.owner);
   ok('新工作状态为进行中', dst.status === 'doing');
-  const srcMs = S.DB.milestones.filter(m => m.work === src.id && !m.deleted_at);
-  const dstMs = S.DB.milestones.filter(m => m.work === dst.id && !m.deleted_at);
-  ok('里程碑一并复制', dstMs.length === srcMs.length, [srcMs.length, dstMs.length]);
-  if (srcMs.length && dstMs.length) {
-    ok('里程碑日期顺延一年', dstMs.every(m => {
-      const s = srcMs.find(x => x.name === m.name);
-      return !s || !s.plan_date || +m.plan_date.slice(0, 4) === +s.plan_date.slice(0, 4) + 1;
-    }));
-    ok('复制出的里程碑重置为未开始', dstMs.every(m => m.status === 'todo' && !m.actual_date));
-  }
   ok('任务不随年度复制带过来', S.DB.tasks.filter(t => t.work === dst.id).length === 0);
+  ok('里程碑挂在任务下，年度复制不涉及里程碑', S.DB.milestones.length === msCountBefore, [msCountBefore, S.DB.milestones.length]);
   ok('当前年度自动切到新年度', S.DB.settings.year === src.year + 1);
   await S.undoLast(); await tick();
   S.DB.settings.year = src.year;
@@ -105,20 +128,19 @@ async function main() {
   ok('修复可撤销', S.byId('task', victim.id).work === 'w_不存在');
   S.byId('task', victim.id).work = keepWork;
 
-  // 跨工作的脏里程碑
-  const t2 = S.DB.tasks.find(t => t.milestone);
-  if (t2) {
-    const other = S.DB.works.find(w => w.id !== t2.work);
-    const om = S.DB.milestones.find(m => m.work === other.id);
-    if (om) {
-      const orig = t2.milestone;
-      t2.milestone = om.id;
-      hc = S.healthCheck();
-      ok('检出不属于本工作的里程碑', hc.issues.some(i => i.k === 'badMs'));
-      await S.fixHealth('badMs'); await tick();
-      ok('修复后里程碑被清空', S.byId('task', t2.id).milestone === '');
-      S.byId('task', t2.id).milestone = orig;
-    }
+  // 里程碑指向不存在的任务（里程碑挂在任务下，这类断裂引用换成了 orphanMs 检查项）
+  const om2 = S.DB.milestones.find(m => !m.deleted_at);
+  if (om2) {
+    const msId = om2.id;
+    const origTask = om2.task;
+    om2.task = 't_不存在';
+    hc = S.healthCheck();
+    ok('检出指向不存在任务的里程碑', hc.issues.some(i => i.k === 'orphanMs'));
+    await S.fixHealth('orphanMs'); await tick();
+    ok('修复后该里程碑被软删除', !!S.byId('milestone', msId).deleted_at);
+    await S.undoLast(); await tick();
+    ok('修复可撤销', !S.byId('milestone', msId).deleted_at);
+    S.byId('milestone', msId).task = origTask;
   }
   // 同年度编号重复
   const dupW = S.blank('work', { code: byCode('0101').code, duty: '01', name: '重复编号', year: byCode('0101').year, status: 'doing' });
@@ -129,7 +151,7 @@ async function main() {
 
   section('未归属任务批量指派');
   const orphans = S.DB.tasks.filter(t => !t.deleted_at).slice(0, 3);
-  orphans.forEach(t => { t.work = ''; t.milestone = ''; });
+  orphans.forEach(t => { t.work = ''; });
   S.Repo.bulk(() => {}); await tick();
   ok('体检检出未归属任务', S.healthCheck().issues.some(i => i.k === 'noWork'));
   const target = byCode('0201');

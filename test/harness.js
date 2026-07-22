@@ -88,7 +88,9 @@ const exportTail = `
   openEditor, openSelectPopup, closeSelectPopup, openWorkPicker, wpCommit, closeWorkSub,
   get sp(){return _sp}, renderCellValue, fieldControl, readControl,
   nextTaskCode, migrateTaskCodes, pieChart, pieLegend, dueSummary,
-  TASK_VIEWS, TASK_VIEW_MAP, openOrphanAssign,
+  TASK_VIEWS, TASK_VIEW_MAP, openOrphanAssign, reorderCols, boot,
+  migrateMilestonesToTasks, openCheckpointEditor, cpRowHTML, recalcProgress, hasCheckpoints,
+  pushLog, diffTask, dpCommit, ganttDataTable, ganttTableRows, get ganttSort(){return ganttSort},
 };`;
 
 vm.createContext(sandbox);
