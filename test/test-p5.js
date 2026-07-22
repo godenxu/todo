@@ -211,6 +211,105 @@ async function main() {
   ok('甘特图正常', q('#page-charts').innerHTML.includes('gantt-row'));
   ok('CSV 工作表头含 id', S.csvHeaders('work')[0] === 'id' && S.csvHeaders('work').includes('code'));
 
+  section('输入规范化：多值分隔符 & 内容行去重编号');
+  ok('splitMulti 支持顿号分隔', JSON.stringify(S.splitMulti('张三、李四')) === JSON.stringify(['张三', '李四']));
+  ok('splitMulti 支持中文逗号', JSON.stringify(S.splitMulti('张三，李四，王五')) === JSON.stringify(['张三', '李四', '王五']));
+  ok('splitMulti 混合分隔符也能切开', JSON.stringify(S.splitMulti('张三、李四,王五')) === JSON.stringify(['张三', '李四', '王五']));
+  ok('parseLines 去掉行首已有编号', JSON.stringify(S.parseLines('1、写方案\n2.评审\n(3) 上线')) === JSON.stringify(['写方案', '评审', '上线']),
+     S.parseLines('1、写方案\n2.评审\n(3) 上线'));
+  ok('parseLines 不误伤没有编号的正常行', JSON.stringify(S.parseLines('普通一行\n第二行')) === JSON.stringify(['普通一行', '第二行']));
+
+  section('职责删除：文案改为删除，不再叫停用');
+  const anyDuty = S.DB.duties.find(d => !d.deleted_at);
+  S.ACTIONS['duty-del']({ code: anyDuty.code });
+  ok('弹窗标题为「删除职责」', q('#modal-title').textContent === '删除职责', q('#modal-title').textContent);
+  ok('确认按钮文案为「删除」', q('#modal-ok-btn').textContent === '删除', q('#modal-ok-btn').textContent);
+  ok('提示文案里不再出现"停用"二字', !q('#modal-body').innerHTML.includes('停用'));
+  // 不触发 modalCallback，本条职责实际不会被删除，不影响后续断言
+
+  section('CSV 导入：覆盖模式按编号覆盖、增量模式自动接续编号');
+  const csvVal = v => { const s = v == null ? '' : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  const buildCSV = (entity, rowsObj) => {
+    const heads = S.csvHeaders(entity);
+    const lines = [heads.join(',')];
+    rowsObj.forEach(o => lines.push(heads.map(h => csvVal(o[h])).join(',')));
+    return lines.join('\n');
+  };
+
+  const d0 = S.DB.duties.find(d => !d.deleted_at);
+  const dutyBefore = S.DB.duties.length;
+  await S.applyCSVImport('duty', 'merge', buildCSV('duty', [{ code: d0.code, category: d0.category, name: '改名后的核心职责' }]));
+  ok('职责覆盖模式：按编号原地覆盖，条数不变', S.DB.duties.length === dutyBefore, [S.DB.duties.length, dutyBefore]);
+  ok('职责覆盖模式：内容确实被覆盖', S.byId('duty', d0.code).name === '改名后的核心职责');
+
+  const dutyBefore2 = S.DB.duties.length;
+  await S.applyCSVImport('duty', 'append', buildCSV('duty', [{ code: d0.code, category: d0.category, name: '增量新增职责' }]));
+  ok('职责增量模式：新增一条而不是覆盖', S.DB.duties.length === dutyBefore2 + 1, [S.DB.duties.length, dutyBefore2]);
+  const newDuty = S.DB.duties.find(d => d.name === '增量新增职责');
+  ok('职责增量模式：自动分配了不同的编号', !!newDuty && newDuty.code !== d0.code, newDuty && newDuty.code);
+  ok('职责增量模式：原职责未被顶掉', S.byId('duty', d0.code).name === '改名后的核心职责');
+
+  const w0 = S.DB.works.find(w => !w.deleted_at);
+  const workBefore = S.DB.works.length;
+  await S.applyCSVImport('work', 'merge', buildCSV('work', [{ code: w0.code, duty: w0.duty, name: '改名工作', year: w0.year, status: w0.status }]));
+  ok('工作覆盖模式：按编号+年度认领同一条，条数不变', S.DB.works.length === workBefore, [S.DB.works.length, workBefore]);
+  ok('工作覆盖模式：复用了原来的 id', S.byId('work', w0.id).name === '改名工作');
+
+  const workBefore2 = S.DB.works.length;
+  await S.applyCSVImport('work', 'append', buildCSV('work', [{ code: w0.code, duty: w0.duty, name: '增量新增工作', year: w0.year, status: w0.status }]));
+  ok('工作增量模式：新增了一条', S.DB.works.length === workBefore2 + 1, [S.DB.works.length, workBefore2]);
+  const newWork = S.DB.works.find(w => w.name === '增量新增工作');
+  ok('工作增量模式：自动分配了不同的编号', !!newWork && newWork.code !== w0.code, newWork && newWork.code);
+
+  const t0 = S.DB.tasks.find(t => t.code && !t.deleted_at);
+  const taskBefore = S.DB.tasks.length;
+  await S.applyCSVImport('task', 'merge', buildCSV('task', [{ code: t0.code, work: t0.work, title: '改名任务', status: t0.status, priority: t0.priority }]));
+  ok('任务覆盖模式：按编号认领同一条，条数不变', S.DB.tasks.length === taskBefore, [S.DB.tasks.length, taskBefore]);
+  ok('任务覆盖模式：复用了原来的 id', S.byId('task', t0.id).title === '改名任务');
+
+  const taskBefore2 = S.DB.tasks.length;
+  await S.applyCSVImport('task', 'append', buildCSV('task', [{ code: t0.code, work: t0.work, title: '增量新增任务', status: t0.status, priority: t0.priority }]));
+  ok('任务增量模式：新增了一条', S.DB.tasks.length === taskBefore2 + 1, [S.DB.tasks.length, taskBefore2]);
+  const newTask = S.DB.tasks.find(t => t.title === '增量新增任务');
+  ok('任务增量模式：自动分配了不同的编号', !!newTask && newTask.code !== t0.code, newTask && newTask.code);
+
+  section('工作台"各职责推进"与图表页"职责项"用同一条标尺');
+  S.setPage('dashboard'); S.renderDashboard();
+  const dashH = q('#page-dashboard').innerHTML;
+  S.setPage('charts'); S.ACTIONS['chart-tab']({ k: 'category' });
+  const chartH = q('#page-charts').innerHTML;
+  const dutyStatsNow = S.statsByDuty(S.visibleTasks().filter(t => !t.deleted_at));
+  const maxD = Math.max(1, ...dutyStatsNow.map(x => x.total));
+  const notMax = dutyStatsNow.find(x => x.total < maxD && x.total > 0);
+  ok('存在总量小于最大值的职责（用于验证标尺不是各自撑满 100%）', !!notMax, dutyStatsNow.map(x => [x.code, x.total]));
+  const segWidthSum = (html, code) => {
+    const m = html.match(new RegExp(`data-code="${code}"[^]*?<span class="num">`));
+    if (!m) return null;
+    return [...m[0].matchAll(/width:([\d.]+)%/g)].reduce((a, w) => a + (+w[1]), 0);
+  };
+  if (notMax) {
+    // hBar 只画 done/doing/late 三段（未开始/挂起留白），标尺分母是共享的 maxD 而不是自己的 total
+    const filled = notMax.done + notMax.doing + notMax.late;
+    const expectPct = +(filled / maxD * 100).toFixed(2);
+    const oldBuggyPct = notMax.total ? +(filled / notMax.total * 100).toFixed(2) : 0;
+    const dashPct = segWidthSum(dashH, notMax.code);
+    const chartPct = segWidthSum(chartH, notMax.code);
+    ok('工作台条长按共享最大值换算（不是各自撑满 100%）', dashPct !== null && Math.abs(dashPct - expectPct) < 0.1, [dashPct, expectPct]);
+    ok('图表页条长同一算法', chartPct !== null && Math.abs(chartPct - expectPct) < 0.1, [chartPct, expectPct]);
+    ok('两处条长一致，可直接横向比较', Math.abs(dashPct - chartPct) < 0.1, [dashPct, chartPct]);
+    ok('确实不是按自己合计撑满的旧算法', filled === 0 || oldBuggyPct === expectPct || dashPct < oldBuggyPct - 0.05, [dashPct, oldBuggyPct]);
+  }
+
+  section('性能：页面切换时侧栏不再重复渲染');
+  let sidebarCalls = 0;
+  const origSidebar = raw.globalThis.renderSidebar;
+  raw.globalThis.renderSidebar = function (...a) { sidebarCalls++; return origSidebar.apply(this, a); };
+  S.setPage('works');
+  sidebarCalls = 0;
+  S.renderShell(); S.renderPage();
+  ok('renderShell()+renderPage() 只渲染一次侧栏', sidebarCalls === 1, sidebarCalls);
+  raw.globalThis.renderSidebar = origSidebar;
+
   console.log('\n' + '='.repeat(46));
   console.log(`通过 ${pass} 项，失败 ${fail} 项`);
   process.exit(fail ? 1 : 0);

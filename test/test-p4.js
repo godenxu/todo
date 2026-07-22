@@ -48,6 +48,11 @@ async function main() {
   ok('堆叠段宽合计 ≤ 100%', widths.every(b =>
     [...b[1].matchAll(/width:([\d.]+)%/g)].map(m => +m[1]).reduce((a, c) => a + c, 0) <= 100.05), widths.length);
   ok('有说明文字', h.includes('chart-note'));
+  ok('提示文案改为按拼音排序', h.includes('按姓名拼音排序'));
+  const named = st.filter(s => s.name !== '（未指派）');
+  ok('按姓名拼音排序而不是按数量', named.every((s, i) => i === 0 || s.name.localeCompare(named[i - 1].name, 'zh') >= 0), named.map(s => s.name));
+  const unassignedIdx = st.findIndex(s => s.name === '（未指派）');
+  if (unassignedIdx >= 0) ok('存在未指派时固定放最后一位', unassignedIdx === st.length - 1, unassignedIdx);
 
   section('图表 / 表格切换（无障碍要求）');
   ok('提供切换按钮', h.includes('data-act="chart-view"'));

@@ -326,6 +326,15 @@ td.col-check, th.col-check { text-align: center; padding: 0; }
 .btn-confirm:hover { opacity: .85; }
 .modal-textarea { width: 100%; min-height: 170px; padding: 7px 9px; border: 1px solid var(--border2); border-radius: 4px; font-family: var(--font); font-size: 12.5px; line-height: 1.7; color: var(--text); background: #fff; outline: none; resize: vertical; }
 .modal-textarea:focus { border-color: var(--accent); }
+
+/* 身份门禁：独立于普通弹窗，没有取消/点外面关闭的路径——身份没确认之前就是不能进 */
+#login-gate { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 4000; align-items: center; justify-content: center; }
+#login-gate.show { display: flex; }
+#login-box { background: var(--surface); border-radius: 6px; padding: 20px 22px; width: 320px; box-shadow: 0 8px 32px rgba(0,0,0,.25); }
+#login-box h3 { font-size: 14px; margin-bottom: 12px; }
+#login-box .form-row label { width: 56px; }
+#login-box .err { color: var(--p1); font-size: 12px; margin: 4px 0 8px; }
+#login-box .btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 .form-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .form-row label { width: 78px; flex-shrink: 0; color: var(--text2); font-size: 12px; text-align: right; }
 .form-row input, .form-row select { flex: 1; height: 27px; padding: 0 7px; border: 1px solid var(--border2); border-radius: 4px; font-family: var(--font); font-size: 12.5px; color: var(--text); background: #fff; outline: none; }
@@ -417,7 +426,7 @@ td.col-sel, th.col-sel { text-align: center; padding: 0; }
   <div id="nav"></div>
   <div id="topbar-right">
     <select id="year-select"></select>
-    <span class="me-tag" id="me-tag" data-act="set-me">未设置使用者</span>
+    <span class="me-tag" id="me-tag" data-act="switch-identity">未设置使用者</span>
   </div>
 </div>
 
@@ -466,6 +475,8 @@ td.col-sel, th.col-sel { text-align: center; padding: 0; }
     </div>
   </div>
 </div>
+
+<div id="login-gate"><div id="login-box"><div id="login-body"></div></div></div>
 
 <div id="select-popup"></div>
 <div id="date-picker-wrap">
@@ -536,9 +547,121 @@ const PRIORITIES = [
   { v: '3', label: '低', color: '#4a7fa5', cls: 'pri-3' },
 ];
 const ROLES = [
-  { v: 'member',  label: '处员' },
-  { v: 'manager', label: '管理者' },
+  { v: 'staff',     label: '员工' },
+  { v: 'comanager', label: '协管' },
+  { v: 'director',  label: '处长' },
+  { v: 'admin',     label: '管理员' },
 ];
+const ROLE_RANK = { staff: 0, comanager: 1, director: 2, admin: 3 };
+
+/* 权限判断：角色现在挂在账号（DB.users，随共享文件同步）上，不再是本机随便选的 settings.role，
+   否则员工把自己设成管理员，这道门槛就是摆设。 */
+function myUser() { return DB.users.find(u => u.name === DB.settings.me) || null; }
+function myRole() { const u = myUser(); return u ? u.role : 'staff'; }
+function roleAtLeast(minRole) { return (ROLE_RANK[myRole()] ?? 0) >= ROLE_RANK[minRole]; }
+function isRecordOwnerOrParticipant(entity, rec) {
+  const me = DB.settings.me;
+  if (!me || !rec) return false;
+  if (entity === 'task') return rec.owner === me || (rec.assignees || []).includes(me);
+  if (entity === 'work') return rec.owner === me || (rec.collaborators || []).includes(me);
+  return false;
+}
+// 员工只能改自己是负责人/参与人的任务、工作；协管以上不受此限
+function canEditRecord(entity, rec) {
+  return roleAtLeast('comanager') || isRecordOwnerOrParticipant(entity, rec);
+}
+function requireRole(minRole, msg) {
+  if (roleAtLeast(minRole)) return true;
+  showSnack(msg || `权限不足，需要「${(ROLES.find(r => r.v === minRole) || {}).label}」及以上`);
+  return false;
+}
+// 处长只能管"员工/协管"这两级账号（且只能在这两个角色之间调整）；"处长/管理员"这两级只有管理员能碰
+function canManageAccount(target) {
+  if (roleAtLeast('admin')) return true;
+  if (myRole() === 'director') return ['staff', 'comanager'].includes(target.role);
+  return false;
+}
+function assignableRoles() {
+  if (roleAtLeast('admin')) return ROLES;
+  if (myRole() === 'director') return ROLES.filter(r => ['staff', 'comanager'].includes(r.v));
+  return [];
+}
+
+/* PIN 校验：没有服务器，做不到真正的账号安全，这只是"防同事随手用别人名字"的门槛，
+   不是防蓄意破解——用浏览器自带 Web Crypto 的 PBKDF2 加盐哈希，比明文/裸 SHA256 强，仅此而已。 */
+const PIN_ITERATIONS = 100000;
+function bytesToHex(bytes) { return [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, '0')).join(''); }
+function hexToBytes(hex) {
+  const out = new Uint8Array(hex.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
+  return out;
+}
+async function hashPin(pin, saltHex) {
+  const salt = saltHex ? hexToBytes(saltHex) : crypto.getRandomValues(new Uint8Array(16));
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: PIN_ITERATIONS, hash: 'SHA-256' }, key, 256);
+  return { salt: bytesToHex(salt), hash: bytesToHex(bits), iterations: PIN_ITERATIONS };
+}
+async function verifyPin(pin, user) {
+  if (!user || !user.salt || !user.hash) return false;
+  const { hash } = await hashPin(pin, user.salt);
+  return hash === user.hash;
+}
+
+/* ---- 身份门禁：跟普通弹窗（#modal-overlay）分开一套，没身份之前没有取消/点外面关闭的路径 ---- */
+let _loginResolve = null;
+function showLoginGate() {
+  return new Promise(resolve => {
+    _loginResolve = resolve;
+    $('#login-gate').classList.add('show');
+    renderLoginPick();
+  });
+}
+function hideLoginGate() {
+  $('#login-gate').classList.remove('show');
+  if (_loginResolve) { const r = _loginResolve; _loginResolve = null; r(); }
+}
+function renderLoginPick(err) {
+  const users = [...DB.users].sort((a, b) => a.name.localeCompare(b.name, 'zh'));
+  $('#login-body').innerHTML = `<h3>请确认你的身份</h3>
+    <div class="form-row"><label>身份</label>
+      <select id="login-pick">${users.map(u =>
+        `<option value="${esc(u.name)}">${esc(u.name)}（${esc((ROLES.find(r => r.v === u.role) || {}).label || u.role)}）</option>`).join('')}
+        <option value="__new__">＋ 新建账号…</option>
+      </select>
+    </div>
+    ${err ? `<div class="err">${esc(err)}</div>` : ''}
+    <div class="btns"><button class="btn primary" data-act="login-next">下一步</button></div>`;
+  setTimeout(() => { const el = $('#login-pick'); if (el) el.focus(); }, 30);
+}
+function renderLoginVerify(name, err) {
+  $('#login-body').innerHTML = `<h3>输入 PIN 码</h3>
+    <div class="form-row"><label>身份</label><span>${esc(name)}</span></div>
+    <div class="form-row"><label>PIN</label><input id="login-pin" type="password" placeholder="PIN 码"></div>
+    ${err ? `<div class="err">${esc(err)}</div>` : ''}
+    <div class="btns"><button class="btn" data-act="login-back">‹ 返回</button>
+      <button class="btn primary" data-act="login-verify" data-name="${esc(name)}">确认</button></div>`;
+  setTimeout(() => { const el = $('#login-pin'); if (el) el.focus(); }, 30);
+}
+function renderLoginCreate(err) {
+  $('#login-body').innerHTML = `<h3>新建账号</h3>
+    <div class="form-row"><label>姓名</label><input id="login-new-name" placeholder="真实姓名"></div>
+    <div class="form-row"><label>PIN</label><input id="login-new-pin" type="password" placeholder="至少 4 位"></div>
+    <div class="form-row"><label>确认 PIN</label><input id="login-new-pin2" type="password" placeholder="再输一遍"></div>
+    ${err ? `<div class="err">${esc(err)}</div>` : ''}
+    <div class="btns"><button class="btn" data-act="login-back">‹ 返回</button>
+      <button class="btn primary" data-act="login-create">创建</button></div>`;
+  setTimeout(() => { const el = $('#login-new-name'); if (el) el.focus(); }, 30);
+}
+async function ensureIdentity() {
+  if (DB.settings.me && DB.users.some(u => u.name === DB.settings.me)) return;
+  await showLoginGate();
+}
+$('#login-gate').addEventListener('click', function (e) {
+  if (e.target !== this) return;
+  // 已经有身份时，点外面视为取消这次"切换身份"；首次强制登录时没有这条监听生效的余地（这时点了也不会关）
+  if (DB.settings.me && DB.users.some(u => u.name === DB.settings.me)) hideLoginGate();
+});
 
 /* =============================================================
    2. 实体元数据（单一事实来源）
@@ -568,8 +691,8 @@ const SCHEMAS = {
       { key: 'duty',          label: '所属职责',     type: 'ref',     width: 170, sortable: true, facet: true, ref: 'duty', required: true, noFilter: true },
       { key: 'name',          label: '工作名称',     type: 'text',    width: 210, sortable: true },
       { key: 'content',       label: '主要工作内容', type: 'lines',   width: 300 },
-      { key: 'owner',         label: '牵头人',       type: 'person',  width: 82,  sortable: true, facet: true },
-      { key: 'collaborators', label: '协同人员',     type: 'persons', width: 140, facet: true },
+      { key: 'owner',         label: '牵头人',       type: 'person',  width: 82,  sortable: true },
+      { key: 'collaborators', label: '参与人',       type: 'persons', width: 140 },
       { key: 'year',          label: '年度',         type: 'num',     width: 58,  sortable: true, align: 'center' },
       { key: 'status',        label: '状态',         type: 'enum',    width: 68,  sortable: true, facet: true, options: WORK_STATUS },
     ],
@@ -595,8 +718,8 @@ const SCHEMAS = {
       { key: 'code',        label: '任务编号', type: 'text',    width: 92,  sortable: true, readonly: true, align: 'center' },
       { key: 'work',        label: '所属工作', type: 'ref',     width: 175, sortable: true, facet: true, ref: 'work' },
       { key: 'title',       label: '任务',     type: 'text',    width: 230, sortable: true },
-      { key: 'owner',       label: '负责人',   type: 'person',  width: 78,  sortable: true, facet: true },
-      { key: 'assignees',   label: '参与人',   type: 'persons', width: 120, facet: true },
+      { key: 'owner',       label: '牵头人',   type: 'person',  width: 78,  sortable: true },
+      { key: 'assignees',   label: '参与人',   type: 'persons', width: 120 },
       { key: 'status',      label: '状态',     type: 'enum',    width: 68,  sortable: true, facet: true, options: TASK_STATUS },
       { key: 'priority',    label: '优先级',   type: 'enum',    width: 56,  sortable: true, facet: true, options: PRIORITIES },
       { key: 'plan_date',   label: '计划完成', type: 'date',    width: 84,  sortable: true },
@@ -645,8 +768,8 @@ const PAGES = [
 const STORAGE_KEY = 'todo_v4';
 
 let DB = {
-  duties: [], works: [], milestones: [], tasks: [], changelog: [],
-  settings: { me: '', role: 'manager', year: new Date().getFullYear() },
+  duties: [], works: [], milestones: [], tasks: [], changelog: [], users: [],
+  settings: { me: '', year: new Date().getFullYear() },
 };
 
 // 主键索引，避免每次 find 线性扫描
@@ -661,6 +784,106 @@ function rebuildIndex() {
 }
 function byId(e, id) { return id ? (IDX[e].get(id) || null) : null; }
 
+/* ★ 共享文件同步：没有服务器、内网又不给用 HTTP，就退而求其次——
+   把职责/工作/里程碑/任务/变更日志同步到共享文件夹里的一个 JSON 文件，
+   靠"每次保存时跟文件当前内容比对合并"应付多人同时改，靠"定时整页刷新"应付看不到别人刚存的东西。
+   使用者/列宽这些是本机个人偏好，永远只留在本地，不进共享文件，否则会把"我是谁""我的列宽"也同步给别人。 */
+function newerRecord(a, b) {          // a 是否比 b「更新」：先比版本号，版本号一样再比时间
+  const ra = a.rev || 0, rb = b.rev || 0;
+  if (ra !== rb) return ra > rb;
+  return (a.updated_at || '') > (b.updated_at || '');
+}
+function mergeByPk(pk, localList, remoteList) {
+  const map = new Map((localList || []).map(r => [r[pk], r]));
+  (remoteList || []).forEach(rec => {
+    const cur = map.get(rec[pk]);
+    if (!cur || newerRecord(rec, cur)) map.set(rec[pk], rec);   // 对方新增的收进来；对方版本更新的换成对方的；否则保留本地
+  });
+  return [...map.values()];
+}
+function mergeEntityList(entity, localList, remoteList) { return mergeByPk(schema(entity).pk, localList, remoteList); }
+function mergeChangelog(local, remote) {
+  const map = new Map((local || []).map(e => [e.id, e]));
+  (remote || []).forEach(e => { if (!map.has(e.id)) map.set(e.id, e); });
+  return [...map.values()].sort((a, b) => (a.at || '').localeCompare(b.at || '')).slice(-CHANGELOG_LIMIT);
+}
+function syncPayload(db) {
+  return { duties: db.duties, works: db.works, milestones: db.milestones, tasks: db.tasks, changelog: db.changelog, users: db.users };
+}
+function mergeSyncPayload(local, remote) {
+  return {
+    duties: mergeEntityList('duty', local.duties, remote.duties),
+    works: mergeEntityList('work', local.works, remote.works),
+    milestones: mergeEntityList('milestone', local.milestones, remote.milestones),
+    tasks: mergeEntityList('task', local.tasks, remote.tasks),
+    changelog: mergeChangelog(local.changelog, remote.changelog),
+    users: mergeByPk('name', local.users, remote.users),
+  };
+}
+
+let _fileHandle = null, _lastSyncedMtime = 0;
+const IDB_NAME = 'todoapp_fsa', IDB_STORE = 'handles', IDB_KEY = 'sharedFile';
+function idbOpen() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => req.result.createObjectStore(IDB_STORE);
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbSetHandle(handle) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(handle, IDB_KEY);
+    tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbGetHandle() {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(IDB_KEY);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
+async function idbClearHandle() {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).delete(IDB_KEY);
+    tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
+  });
+}
+
+/* 把当前数据同步进共享文件。文件没被别人动过（mtime 没变）就直接写，省掉一次读+解析+合并；
+   一旦发现文件比我们上次看到的新，说明有人在这之间存过东西，就先读出来按 rev/updated_at 逐条合并，
+   合并结果既写回文件，也覆盖回当前内存，不然这个浏览器自己还在看合并前的旧数据。 */
+async function syncToFile(db) {
+  if (!_fileHandle) return;
+  const file = await _fileHandle.getFile();
+  let payload;
+  if (file.lastModified === _lastSyncedMtime) {
+    payload = syncPayload(db);
+  } else {
+    let remote = { duties: [], works: [], milestones: [], tasks: [], changelog: [], users: [] };
+    const text = await file.text();
+    if (text.trim()) {
+      try { remote = JSON.parse(text); }
+      catch (e) { showSnack('共享文件内容不是合法 JSON，本次按空数据合并，请确认文件没选错'); }
+    }
+    payload = mergeSyncPayload(syncPayload(db), remote);
+    Object.assign(db, payload);
+    rebuildIndex();
+  }
+  const w = await _fileHandle.createWritable();
+  await w.write(JSON.stringify(payload));
+  await w.close();
+  const after = await _fileHandle.getFile();
+  _lastSyncedMtime = after.lastModified;
+  db.settings.lastSyncAt = new Date().toISOString();
+}
+
 /* ★ 可迁移性设计 2：存储层抽象为异步接口。
    localStorage 只是其中一个实现；将来换成内网服务端，只需替换本对象，
    上层页面与交互代码一行不改。 */
@@ -671,8 +894,13 @@ const Repo = {
     catch (e) { return null; }
   },
   async persist(db) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); return true; }
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }
     catch (e) { showSnack('保存失败：本地存储可能已满，请到「数据」页导出备份'); return false; }
+    if (_fileHandle) {
+      try { await syncToFile(db); }
+      catch (e) { showSnack('共享文件同步失败：' + (e && e.message ? e.message : e) + '（本机数据已保存，不会丢）'); }
+    }
+    return true;
   },
   async upsert(entity, rec) {              // 单条写入；HTTP 实现时只发这一条
     stampMeta(rec);
@@ -768,7 +996,11 @@ function normalize(entity, r) {
     if (f.virtual) return;
     const v = r[f.key];
     switch (f.type) {
-      case 'lines': case 'multi': case 'persons':
+      case 'lines':
+        if (typeof v === 'string') r[f.key] = parseLines(v);
+        else if (!Array.isArray(v)) r[f.key] = [];
+        break;
+      case 'multi': case 'persons':
         if (typeof v === 'string') r[f.key] = v ? v.split('\n').map(s => s.trim()).filter(Boolean) : [];
         else if (!Array.isArray(v)) r[f.key] = [];
         break;
@@ -1015,9 +1247,23 @@ async function undoLast() {
 /* =============================================================
    8. 查询：过滤 / 排序 / 分面
    ============================================================= */
+// 负责人/牵头人 与 参与人/协同人员 合并成一个"人员"筛选：谁负责或参与这条，都算这个人的
+const PERSON_FIELDS = { task: ['owner', 'assignees'], work: ['owner', 'collaborators'] };
+function personUnion(entity, rec) {
+  const keys = PERSON_FIELDS[entity]; if (!keys) return [];
+  const out = [];
+  keys.forEach(k => { const v = rec[k]; if (Array.isArray(v)) out.push(...v.filter(Boolean)); else if (v) out.push(v); });
+  return uniq(out);
+}
 function matchFilters(entity, rec, filters) {
   for (const [k, sel] of Object.entries(filters || {})) {
     if (!sel) continue;
+    if (k === '_person') {
+      const people = personUnion(entity, rec);
+      if (sel === '__empty__') { if (people.length) return false; }
+      else if (!people.includes(sel)) return false;
+      continue;
+    }
     const f = fieldDef(entity, k);
     if (!f) continue;
     const vals = values(entity, rec, f);
@@ -1061,6 +1307,10 @@ function facet(entity, f, rows) {
   });
   let items;
   if (f.options) items = f.options.map(o => ({ value: o.v, label: o.label, color: o.color, count: cnt.get(o.v) || 0 }));
+  else if (f.type === 'ref' && f.ref === 'duty') // 所属职责按职责编号顺序排列，不按数量
+    items = [...cnt.entries()]
+      .sort((a, b) => String(a[0]).localeCompare(String(b[0])))
+      .map(([v, n]) => ({ value: v, label: label(entity, f, v), count: n }));
   else items = [...cnt.entries()]
     .sort((a, b) => b[1] - a[1] || String(a[0]).localeCompare(String(b[0]), 'zh'))
     .map(([v, n]) => ({ value: v, label: label(entity, f, v), count: n }));
@@ -1162,22 +1412,51 @@ function renderShell() {
     years.map(y => `<option value="${y}"${y === DB.settings.year ? ' selected' : ''}>${y} 年度</option>`).join('') +
     `<option value="0"${!DB.settings.year ? ' selected' : ''}>全部年度</option>`;
 
-  const me = DB.settings.me;
-  $('#me-tag').textContent = me ? `${me}（${(ROLES.find(r => r.v === DB.settings.role) || {}).label}）` : '未设置使用者';
+  const me = DB.settings.me, meUser = myUser();
+  $('#me-tag').textContent = (me && meUser) ? `${me}（${(ROLES.find(r => r.v === meUser.role) || {}).label}）` : '未设置使用者';
 
   $$('.page').forEach(el => el.classList.toggle('active', el.id === 'page-' + currentPage));
-  renderSidebar();
+  // 侧栏交给 renderPage() 统一渲染一次（它内部按当前页判断是否需要）——
+  // 这里以前重复调用了一次 renderSidebar()，任务树+分面统计在任务/工作较多时会白白算两遍，
+  // 是页面切换感觉变慢的一个实际原因。
   renderToolbar();
 }
 
+// 合并后的"人员"分面：按姓名拼音排序（不是按数量），未指派/空值固定放最后
+function personFacet(entity, rows) {
+  const cnt = new Map();
+  let empty = 0;
+  rows.forEach(r => {
+    const people = personUnion(entity, r);
+    if (!people.length) { empty++; return; }
+    people.forEach(p => cnt.set(p, (cnt.get(p) || 0) + 1));
+  });
+  const items = [...cnt.entries()]
+    .sort((a, b) => a[0].localeCompare(b[0], 'zh'))
+    .map(([v, n]) => ({ value: v, label: v, count: n }));
+  items.push({ value: '__empty__', label: '（空）', count: empty, isEmpty: true });
+  return items;
+}
+function personFacetBlock(entity, rows, filters, act) {
+  const items = personFacet(entity, rows).filter(i => i.count > 0 || filters._person === i.value);
+  if (!items.length) return '';
+  let h = `<div class="sb-section-title">◆ 人员</div>`;
+  h += `<div class="sb-item${!filters._person ? ' active' : ''}" data-act="${act}" data-field="_person" data-val=""><span class="sb-label">全部</span></div>`;
+  h += items.map(i =>
+    `<div class="sb-item indent${filters._person === i.value ? ' active' : ''}" data-act="${act}" data-field="_person" data-val="${esc(i.value)}">
+       <span class="sb-label${i.isEmpty ? ' is-empty-val' : ''}">${esc(i.label)}</span>
+       <span class="cnt">${i.count || ''}</span></div>`).join('');
+  return h + '<hr class="sb-divider">';
+}
 function facetBlock(entity, f, rows, filters, act) {
   const items = facet(entity, f, rows).filter(i => i.count > 0 || filters[f.key] === i.value);
   if (!items.length) return '';
   let h = `<div class="sb-section-title">◆ ${esc(f.label)}</div>`;
   h += `<div class="sb-item${!filters[f.key] ? ' active' : ''}" data-act="${act}" data-field="${f.key}" data-val=""><span class="sb-label">全部</span></div>`;
+  // 筛选框里统一用普通文字颜色，不借用该选项在徽章/图表里的专属颜色（保持所有筛选框外观一致）
   h += items.map(i =>
     `<div class="sb-item indent${filters[f.key] === i.value ? ' active' : ''}" data-act="${act}" data-field="${f.key}" data-val="${esc(i.value)}">
-       <span class="sb-label${i.isEmpty ? ' is-empty-val' : ''}"${i.color ? ` style="color:${i.color}"` : ''}>${esc(i.label)}</span>
+       <span class="sb-label${i.isEmpty ? ' is-empty-val' : ''}">${esc(i.label)}</span>
        <span class="cnt">${i.count || ''}</span></div>`).join('');
   return h + '<hr class="sb-divider">';
 }
@@ -1195,12 +1474,18 @@ function renderSidebar() {
     html += '<hr class="sb-divider">';
     const rows = all.filter(TASK_VIEW_MAP[st.view].match);
     html += renderTaskTree(rows);
-    // 职责与工作已由树承担，其余分面仍平铺
+    // 职责与工作已由树承担；负责人+参与人合并成一个"人员"分面，其余分面仍平铺
+    html += personFacetBlock('task', rows, st.filters, 'task-filter');
     schema('task').fields.filter(f => f.facet && f.key !== '_duty' && f.key !== 'work')
       .forEach(f => { html += facetBlock('task', f, rows, st.filters, 'task-filter'); });
   } else if (currentPage === 'works') {
     const st = UI.works, rows = visibleWorks();
-    schema('work').fields.filter(f => f.facet).forEach(f => { html += facetBlock('work', f, rows, st.filters, 'work-filter'); });
+    const wfacets = schema('work').fields.filter(f => f.facet);
+    const dutyField = wfacets.find(f => f.key === 'duty');
+    // 所属职责在上、人员在下，其余分面殿后
+    if (dutyField) html += facetBlock('work', dutyField, rows, st.filters, 'work-filter');
+    html += personFacetBlock('work', rows, st.filters, 'work-filter');
+    wfacets.filter(f => f.key !== 'duty').forEach(f => { html += facetBlock('work', f, rows, st.filters, 'work-filter'); });
   } else if (currentPage === 'duties') {
     const st = UI.duties, rows = DB.duties.filter(d => !d.deleted_at);
     html += facetBlock('duty', fieldDef('duty', 'category'), rows, st.filters, 'duty-filter');
@@ -1264,7 +1549,12 @@ function renderToolbar() {
   if (currentPage === 'tasks') {
     const st = UI.tasks;
     const chips = Object.entries(st.filters).filter(([, v]) => v).map(([k, v]) => {
+      if (k === '_person') {
+        const txt = v === '__empty__' ? '空' : v;
+        return `<span class="filter-chip" data-act="task-filter" data-field="_person" data-val="">人员:${esc(txt)} ×</span>`;
+      }
       const f = fieldDef('task', k);
+      if (!f) return '';
       const txt = v === '__empty__' ? '空' : label('task', f, v);
       return `<span class="filter-chip" data-act="task-filter" data-field="${k}" data-val="">${esc(f.label)}:${esc(txt)} ×</span>`;
     }).join('');
@@ -1332,7 +1622,7 @@ function renderPage() {
     case 'charts':    renderCharts();    break;
     case 'data':      renderData();      break;
   }
-  if (['tasks', 'works', 'duties'].includes(currentPage)) renderSidebar();
+  renderSidebar();   // 非任务/工作/职责页会在内部自行隐藏侧栏
 }
 
 /* =============================================================
@@ -1462,7 +1752,7 @@ function renderBatchBar() {
   bar.innerHTML =
     `<span class="n">已选 ${st.sel.size} 项</span>` +
     `<button class="btn" data-act="batch" data-field="status">改状态</button>` +
-    `<button class="btn" data-act="batch" data-field="owner">改负责人</button>` +
+    `<button class="btn" data-act="batch" data-field="owner">改牵头人</button>` +
     `<button class="btn" data-act="batch" data-field="assignees">改参与人</button>` +
     `<button class="btn" data-act="batch" data-field="work">改所属工作</button>` +
     `<button class="btn" data-act="batch" data-field="plan_date">改计划完成</button>` +
@@ -1562,7 +1852,7 @@ function renderDuties() {
     const done = ts.filter(t => t.status === 'done').length;
     const stat = `<td class="cell-center" data-act="duty-drill" data-code="${esc(d.code)}" style="cursor:pointer" title="查看该职责下的工作">
        <span style="color:var(--text2)">${ws.length} 项工作</span><span class="cell-sub"> · ${ts.length ? done + '/' + ts.length + ' 任务' : '无任务'}</span></td>`;
-    const act = `<td class="cell-center"><button class="action-btn del" data-act="duty-del" data-code="${esc(d.code)}" title="停用">×</button></td>`;
+    const act = `<td class="cell-center"><button class="action-btn del" data-act="duty-del" data-code="${esc(d.code)}" title="删除">×</button></td>`;
     return `<tr data-id="${esc(d.code)}">${cells}${stat}${act}</tr>`;
   }).join('');
 }
@@ -1671,29 +1961,12 @@ function renderDashboard() {
       </div></div>`;
   }
 
-  /* ---------- ③ 各职责推进 ---------- */
-  const dutyStat = DB.duties.filter(d => !d.deleted_at).map(d => {
-    const codes = new Set(works.filter(w => w.duty === d.code).map(w => w.id));
-    const ts = tasks.filter(t => codes.has(t.work));
-    return {
-      code: d.code, name: d.code + ' ' + d.name, total: ts.length,
-      done: ts.filter(t => t.status === 'done').length,
-      doing: ts.filter(t => t.status === 'doing' && !isOverdue(t)).length,
-      late: ts.filter(isOverdue).length,
-    };
-  }).filter(x => x.total > 0).sort((a, b) => b.late - a.late || b.total - a.total);
-
-  const bar = x => {
-    const p = n => (n / x.total * 100).toFixed(1) + '%';
-    return `<div class="bar-row clickable" data-act="duty-drill" data-code="${esc(x.code)}" title="${esc(x.name)}：共 ${x.total} 条，已完成 ${x.done}，进行中 ${x.doing}，逾期 ${x.late}">
-      <span class="nm">${esc(x.name)}</span>
-      <span class="track">
-        <span class="seg seg-done" style="width:${p(x.done)}"></span>
-        <span class="seg seg-doing" style="width:${p(x.doing)}"></span>
-        <span class="seg seg-late" style="width:${p(x.late)}"></span>
-      </span>
-      <span class="num">${x.done}/${x.total}${x.late ? ` · 逾${x.late}` : ''}</span></div>`;
-  };
+  /* ---------- ③ 各职责推进 ----------
+     与图表页「职责项」用同一份 statsByDuty 统计 + 同一条标尺（同一批任务里的最大值），
+     条长因此可以跨这两处面板直接横向比较任务量，而不是各自按自己的合计撑满 100%。 */
+  const dutyStat = statsByDuty(tasks).sort((a, b) => b.late - a.late || b.total - a.total);
+  const dutyMax = Math.max(1, ...dutyStat.map(x => x.total));
+  const bar = x => hBar(x.name, x, dutyMax, ` data-act="duty-drill" data-code="${esc(x.code)}"`);
 
   /* ---------- ④ 我的工作台 ---------- */
   const myPanel = me ? (() => {
@@ -1830,7 +2103,11 @@ function statsByPerson(tasks) {
   });
   const names = uniq([...own.keys(), ...join.keys()]);
   return names.map(nm => ({ name: nm, ...tally(own.get(nm) || []), join: (join.get(nm) || []).length }))
-    .sort((a, b) => (b.late + b.doing + b.todo) - (a.late + a.doing + a.todo) || b.total - a.total);
+    .sort((a, b) => {
+      if (a.name === '（未指派）') return 1;
+      if (b.name === '（未指派）') return -1;
+      return a.name.localeCompare(b.name, 'zh');
+    });
 }
 function tasksOfDuty(tasks, code) {
   const codes = new Set(visibleWorks().filter(w => w.duty === code).map(w => w.id));
@@ -2143,7 +2420,7 @@ function renderCharts() {
       { label: '未开始/挂起', n: overall.todo + overall.hold, color: 'var(--c-track)' },
     ];
     body = `<div class="panel">
-      ${panelHead('▥ 各人任务量与完成率', 'person', '按未完成量排序 · 点击下钻')}
+      ${panelHead('▥ 各人任务量与完成率', 'person', '按姓名拼音排序 · 点击下钻')}
       <div class="panel-b">${chartTableView.person
         ? dataTable(['姓名', '牵头合计', '已完成', '进行中', '逾期', '未开始', '完成率', '参与'],
             st.map(s => [s.name, s.total, s.done, s.doing, s.late, s.todo + s.hold, s.rate + '%', s.join]))
@@ -2251,6 +2528,22 @@ function bindTrendHover() {
 /* =============================================================
    18. 数据页
    ============================================================= */
+function accountsPanelHTML() {
+  const users = [...DB.users].sort((a, b) => a.name.localeCompare(b.name, 'zh'));
+  return `<div class="panel"><div class="panel-h">账号与角色管理</div><div class="panel-b">
+    <table class="dtable"><thead><tr><th style="text-align:left">姓名</th><th>角色</th></tr></thead><tbody>
+      ${users.map(u => {
+        const editable = canManageAccount(u);
+        const roleLabel = (ROLES.find(r => r.v === u.role) || {}).label || u.role;
+        return `<tr><td style="text-align:left">${esc(u.name)}</td><td>${editable
+          ? `<select data-act="account-role-change" data-name="${esc(u.name)}">${assignableRoles().map(r =>
+              `<option value="${r.v}"${u.role === r.v ? ' selected' : ''}>${esc(r.label)}</option>`).join('')}</select>`
+          : esc(roleLabel)}</td></tr>`;
+      }).join('')}
+    </tbody></table>
+    <div class="hint" style="margin-top:8px">处长可以调整"员工/协管"两级账号的角色；"处长/管理员"这两级只有管理员能改，且不能通过这里把别人改成处长或管理员。</div>
+  </div></div>`;
+}
 function renderData() {
   const counts = {
     职责: DB.duties.filter(d => !d.deleted_at).length,
@@ -2270,11 +2563,11 @@ function renderData() {
 
   $('#page-data').innerHTML = `<div class="pad">
     <div class="panel"><div class="panel-h">使用者</div><div class="panel-b">
-      <div class="form-row"><label>姓名</label><input id="set-me" value="${esc(DB.settings.me)}" placeholder="本机使用者姓名，如 徐捷"></div>
-      <div class="form-row"><label>角色</label><select id="set-role">${ROLES.map(r => `<option value="${r.v}"${DB.settings.role === r.v ? ' selected' : ''}>${r.label}</option>`).join('')}</select></div>
-      <div class="form-row"><label></label><button class="btn primary" data-act="save-settings">保存</button></div>
-      <div class="hint">设定后「我的任务」视图与图表中的"我"才成立。该值仅存本机。</div>
-    </div></div>
+      <div class="hint">当前身份：<b>${esc(DB.settings.me || '未设置')}</b>${myUser() ? `（${esc((ROLES.find(r => r.v === myUser().role) || {}).label)}）` : ''}</div>
+      <div style="margin-top:8px"><button class="btn" data-act="switch-identity">切换身份…</button></div>
+      <div class="hint" style="margin-top:8px">身份和角色现在跟账号绑定（存共享文件里，大家共用），不再是本机随便填、随便选角色。
+      设定后「我的任务」视图与图表中的"我"才成立。</div>
+    </div></div>${roleAtLeast('director') ? accountsPanelHTML() : ''}
 
     <div class="panel"><div class="panel-h">数据概况</div><div class="panel-b hint">
       ${Object.entries(counts).map(([k, v]) => `${k}：<b>${v}</b>`).join(' &nbsp;·&nbsp; ')}<br>
@@ -2329,10 +2622,24 @@ function renderData() {
         <button class="btn" data-act="import" data-entity="milestone">导入里程碑 CSV</button>
         <button class="btn" data-act="import" data-entity="task">导入任务 CSV</button>
       </div>
-      <div class="hint">CSV 按主键 upsert（存在则更新，不存在则新增）。<b>导出的文件即导入模板</b>——先导出一份，
+      <div class="hint">导入前会让你选择<b>覆盖模式</b>（按职责/工作/任务编号匹配已有记录并覆盖）还是<b>增量模式</b>
+      （全部当新增项，编号自动接续）。<b>导出的文件即导入模板</b>——先导出一份，
       按其列名整理 Excel 后再导入。工作编号请保持 <code>0101</code> 四位；Excel 会吃掉前导零，导入时会自动把
-      <code>101</code> 补成 <code>0101</code>。多值字段（协同人员/参与人）用英文逗号分隔，
-      值内若含逗号会自动转义。</div>
+      <code>101</code> 补成 <code>0101</code>。多值字段（参与人）用顿号、逗号或换行分隔，
+      值内若含英文逗号会自动转义。</div>
+    </div></div>
+
+    <div class="panel"><div class="panel-h">共享文件同步（多人协作）</div><div class="panel-b">
+      ${_fileHandle
+        ? `<div class="hint">已连接：<b>${esc(DB.settings.sharedFileName || '')}</b>　·
+            上次同步：${esc(DB.settings.lastSyncAt ? relTime(DB.settings.lastSyncAt) : '刚刚')}</div>
+           <div style="margin-top:8px"><button class="btn" data-act="disconnect-shared">断开连接</button></div>`
+        : `<div style="margin-top:2px"><button class="btn primary" data-act="connect-shared">连接共享数据文件…</button></div>`}
+      <div class="hint" style="margin-top:8px">连接后，职责/工作/里程碑/任务/变更日志会和共享文件夹里的那份 JSON 文件同步；
+      每次保存都会先跟文件当前内容按"版本号/更新时间"逐条合并，不会互相覆盖，但两人几乎同时改同一条记录仍可能有一边被冲掉。
+      使用者姓名、列宽这些个人设置不会同步，只留在本机。因为没有服务器推送，页面每 5 分钟会自动整页刷新一次来看别人存的新内容
+      （有弹窗或正在编辑单元格时会跳过那一次）。第一次用需要每台电脑各自点一次"连接"选中同一个文件；
+      需要 Chrome / 360 等 Chromium 内核浏览器，Firefox 等不支持。</div>
     </div></div>
 
     <div class="panel"><div class="panel-h">测试数据</div><div class="panel-b">
@@ -2374,7 +2681,7 @@ function parseQuickInput(raw) {
     parts.push(tok);
   }
   t.title = parts.join(' ') || '未命名任务';
-  if (!t.owner && t.work) { const w = byId('work', t.work); if (w) t.owner = w.owner; }   // 负责人默认取工作牵头人
+  if (!t.owner && t.work) { const w = byId('work', t.work); if (w) t.owner = w.owner; }   // 任务牵头人默认取工作牵头人
   if (t.work) t.code = nextTaskCode(t.work);
   return t;
 }
@@ -2433,10 +2740,16 @@ const ACTIONS = {
     const ids = [...UI.tasks.sel];
     confirmModal('批量删除', `将删除选中的 ${ids.length} 条任务，可在「已删除」视图中恢复。`, '删除', async () => {
       snapshot();
-      await Repo.bulk(() => { ids.forEach(id => softDelete('task', id)); });
+      let skipped = 0;
+      await Repo.bulk(() => {
+        ids.forEach(id => {
+          const t = byId('task', id);
+          if (t && canEditRecord('task', t)) softDelete('task', id); else skipped++;
+        });
+      });
       UI.tasks.sel.clear();
       renderShell(); renderPage();
-      showSnack(`已删除 ${ids.length} 条`);
+      showSnack(skipped ? `已删除 ${ids.length - skipped} 条，${skipped} 条因权限不足被跳过` : `已删除 ${ids.length} 条`);
     }, true);
   },
 
@@ -2480,6 +2793,7 @@ const ACTIONS = {
 
   'task-done': async (d, el) => {
     const t = byId('task', d.id); if (!t) return;
+    if (!canEditRecord('task', t)) { showSnack('权限不足：不是你负责/参与的任务'); renderTasks(); return; }
     snapshot();
     const before = clone(t);
     t.status = el.checked ? 'done' : 'todo';
@@ -2493,6 +2807,10 @@ const ACTIONS = {
   cycle: async d => {
     const f = fieldDef(d.entity, d.field), r = byId(d.entity, d.id);
     if (!f || !r) return;
+    if (d.entity === 'duty' && !roleAtLeast('comanager')) { showSnack('权限不足：编辑职责需要协管及以上'); return; }
+    if ((d.entity === 'task' || d.entity === 'work') && !canEditRecord(d.entity, r)) {
+      showSnack(`权限不足：只能改自己负责/参与的${d.entity === 'task' ? '任务' : '工作'}`); return;
+    }
     snapshot();
     const before = d.entity === 'task' ? clone(r) : null;
     const vals = f.options.map(o => o.v);
@@ -2507,6 +2825,7 @@ const ACTIONS = {
   },
   'task-dup': async d => {
     const t = byId('task', d.id); if (!t) return;
+    if (!canEditRecord('task', t)) { showSnack('权限不足：不是你负责/参与的任务'); return; }
     snapshot();
     const c = clone(t);
     c.id = uid('t'); c.status = 'todo'; c.actual_date = ''; c.progress = 0;
@@ -2517,17 +2836,20 @@ const ACTIONS = {
   },
   'task-del': d => {
     const t = byId('task', d.id); if (!t) return;
+    if (!canEditRecord('task', t)) { showSnack('权限不足：不是你负责/参与的任务'); return; }
     confirmModal('确认删除', `将删除任务「${t.title}」，可在「已删除」视图中恢复。`, '删除', async () => {
       snapshot(); softDelete('task', d.id); await Repo.upsert('task', t);
       renderTasks(); renderSidebar(); showSnack('已删除');
     }, true);
   },
   'task-restore': async d => {
+    if (!requireRole('comanager')) return;
     const t = undelete('task', d.id); if (!t) return;
     snapshot(); await Repo.upsert('task', t);
     renderTasks(); renderSidebar(); showSnack('已恢复');
   },
   'task-purge': d => {
+    if (!requireRole('comanager')) return;
     const t = byId('task', d.id); if (!t) return;
     confirmModal('彻底删除', `彻底删除「${t.title}」？（Ctrl+Z 仍可撤销）`, '彻底删除', async () => {
       snapshot(); await Repo.removeHard('task', d.id);
@@ -2535,8 +2857,9 @@ const ACTIONS = {
     }, true);
   },
 
-  'work-new': () => openWorkForm(),
+  'work-new': () => { if (requireRole('comanager')) openWorkForm(); },
   'work-del': d => {
+    if (!requireRole('comanager')) return;
     const w = byId('work', d.id); if (!w) return;
     const n = DB.tasks.filter(t => t.work === w.id && !t.deleted_at).length;
     confirmModal('停用工作', `停用「${w.code} ${w.name}」？${n ? `该工作下有 ${n} 条任务，不会被删除，但会变为"未归属"。` : ''}`, '停用', async () => {
@@ -2544,40 +2867,90 @@ const ACTIONS = {
       renderShell(); renderPage(); showSnack('已停用');
     }, true);
   },
-  'duty-new': () => openDutyForm(),
+  'duty-new': () => { if (requireRole('comanager')) openDutyForm(); },
   'duty-del': d => {
+    if (!requireRole('comanager')) return;
     const dt = byId('duty', d.code); if (!dt) return;
     const n = visibleWorks().filter(w => w.duty === dt.code).length;
-    confirmModal('停用职责', `停用「${dt.code} ${dt.name}」？${n ? `其下有 ${n} 项工作，不会被删除。` : ''}`, '停用', async () => {
+    confirmModal('删除职责', `删除「${dt.code} ${dt.name}」？${n ? `其下有 ${n} 项工作，不会被删除，但会变为"未归属职责"。` : ''}（Ctrl+Z 可撤销）`, '删除', async () => {
       snapshot(); softDelete('duty', d.code); await Repo.upsert('duty', dt);
-      renderPage(); showSnack('已停用');
+      renderPage(); showSnack('已删除');
     }, true);
   },
-  'cp-editor': d => openCheckpointEditor(d.id),
+  'cp-editor': d => {
+    const t = byId('task', d.id);
+    if (t && !canEditRecord('task', t)) { showSnack('权限不足：不是你负责/参与的任务'); return; }
+    openCheckpointEditor(d.id);
+  },
   'cp-add-row': () => $('#cp-list').insertAdjacentHTML('beforeend', cpRowHTML(null)),
   'cp-remove-row': (d, el) => { const row = el.closest('[data-cp-row]'); if (row) row.remove(); },
 
-  'set-me': () => goto('data'),
-  'save-settings': async () => {
-    DB.settings.me = $('#set-me').value.trim();
-    DB.settings.role = $('#set-role').value;
+  'switch-identity': () => { $('#login-gate').classList.add('show'); renderLoginPick(); },
+  'account-role-change': async d => {
+    const u = DB.users.find(x => x.name === d.name);
+    if (!u || !canManageAccount(u)) { showSnack('权限不足'); renderPage(); return; }
+    const val = $(`select[data-act="account-role-change"][data-name="${CSS.escape(d.name)}"]`).value;
+    if (!assignableRoles().some(r => r.v === val)) { showSnack('不能改成这个角色'); renderPage(); return; }
+    u.role = val;
+    stampMeta(u);
     await Repo.persist(DB);
-    renderShell(); renderPage(); showSnack('已保存');
+    renderShell(); renderPage();
+    showSnack(`已把 ${d.name} 的角色改为 ${(ROLES.find(r => r.v === val) || {}).label}`);
+  },
+  'login-next': () => {
+    const val = $('#login-pick').value;
+    if (val === '__new__') renderLoginCreate(); else renderLoginVerify(val);
+  },
+  'login-back': () => renderLoginPick(),
+  'login-verify': async d => {
+    const user = DB.users.find(u => u.name === d.name);
+    const pin = $('#login-pin').value;
+    if (!(await verifyPin(pin, user))) { renderLoginVerify(d.name, 'PIN 不对，请重试'); return; }
+    DB.settings.me = d.name;
+    await Repo.persist(DB);
+    hideLoginGate();
+    renderShell(); renderPage();
+    showSnack(`已切换为 ${d.name}`);
+  },
+  'login-create': async () => {
+    const name = $('#login-new-name').value.trim();
+    const pin = $('#login-new-pin').value;
+    const pin2 = $('#login-new-pin2').value;
+    if (!name) { renderLoginCreate('姓名不能为空'); return; }
+    if (DB.users.some(u => u.name === name)) { renderLoginCreate('这个名字已经有账号了，请从上一步选择'); return; }
+    if (pin.length < 4) { renderLoginCreate('PIN 至少 4 位'); return; }
+    if (pin !== pin2) { renderLoginCreate('两次 PIN 不一致'); return; }
+    const { salt, hash, iterations } = await hashPin(pin);
+    const isFirstAdmin = name === '徐捷' && !DB.users.some(u => u.role === 'admin');
+    const user = { name, role: isFirstAdmin ? 'admin' : 'staff', salt, hash, iterations };
+    DB.settings.me = name;   // 先设好，stampMeta 记 updated_by 才准
+    stampMeta(user);
+    DB.users.push(user);
+    await Repo.persist(DB);
+    hideLoginGate();
+    renderShell(); renderPage();
+    showSnack(`已创建账号：${name}${isFirstAdmin ? '（管理员）' : ''}`);
   },
   export: d => exportCSV(d.entity),
   'export-all': () => exportJSON(),
-  import: d => { _importEntity = d.entity; $('#file-input').accept = '.csv'; $('#file-input').click(); },
-  'import-backup': () => { _importEntity = '__backup__'; $('#file-input').accept = '.json'; $('#file-input').click(); },
-  'year-copy': () => openYearCopy(),
-  'orphan-assign': () => openOrphanAssign(),
+  import: d => { if (requireRole('comanager')) openImportModal(d.entity); },
+  'import-backup': () => {
+    if (!requireRole('comanager')) return;
+    _importEntity = '__backup__'; $('#file-input').accept = '.json'; $('#file-input').click();
+  },
+  'connect-shared': () => { if (requireRole('admin')) connectSharedFile(); },
+  'disconnect-shared': () => { if (requireRole('admin')) disconnectSharedFile(); },
+  'year-copy': () => { if (requireRole('comanager')) openYearCopy(); },
+  'orphan-assign': () => { if (requireRole('comanager')) openOrphanAssign(); },
   'health-nav-nodate': () => {
     UI.tasks.view = 'all';
     UI.tasks.filters = { plan_date: '__empty__' };
     UI.tasks.search = '';
     goto('tasks');
   },
-  'health-fix': d => fixHealth(d.k),
+  'health-fix': d => { if (requireRole('comanager')) fixHealth(d.k); },
   'clear-test': () => {
+    if (!requireRole('comanager')) return;
     const n = DB.tasks.filter(t => t.custom === '测试').length;
     if (!n) { showSnack('没有测试数据'); return; }
     confirmModal('清除测试数据', `将删除 ${n} 条标记为「测试」的任务（Ctrl+Z 可撤销）。`, '清除', async () => {
@@ -2587,6 +2960,7 @@ const ACTIONS = {
     }, true);
   },
   'reset-all': () => {
+    if (!requireRole('admin')) return;
     confirmModal('重置全部数据', '将清空职责、工作、里程碑、任务，恢复到初始种子数据（含测试任务）。可用 Ctrl+Z 撤销。', '重置', async () => {
       snapshot();
       await Repo.bulk(() => seedAll());
@@ -2637,6 +3011,8 @@ document.addEventListener('click', e => {
 document.addEventListener('change', e => {
   const el = e.target.closest('[data-act="task-done"]');
   if (el) ACTIONS['task-done'](el.dataset, el, e);
+  const rc = e.target.closest('[data-act="account-role-change"]');
+  if (rc) ACTIONS['account-role-change'](rc.dataset, rc, e);
 });
 document.addEventListener('dblclick', e => {
   const el = e.target.closest('[data-dblact]');
@@ -2754,6 +3130,12 @@ let _activeEdit = null;
 function openEditor(entity, id, fieldKey, td) {
   const f = fieldDef(entity, fieldKey);
   if (!f || f.readonly) return;
+  const rec = byId(entity, id);
+  if (entity === 'duty' && !roleAtLeast('comanager')) { showSnack('权限不足：编辑职责需要协管及以上'); return; }
+  if ((entity === 'task' || entity === 'work') && !canEditRecord(entity, rec)) {
+    showSnack(`权限不足：只能编辑自己负责或参与的${entity === 'task' ? '任务' : '工作'}`);
+    return;
+  }
   if (entity === 'task' && fieldKey === 'work') return openWorkPicker(entity, id, f, td);
   if (f.type === 'checkpoints') return openCheckpointEditor(id);
   if (['single', 'multi', 'person', 'persons', 'enum', 'ref'].includes(f.type)) return openSelectPopup(entity, id, f, td);
@@ -2917,8 +3299,18 @@ async function spCommitSingle(val) {
   afterEdit(entity, id, field);
 }
 
+// 多选弹层里手打了姓名但没按回车就直接点"确定"：先把输入框里还没提交的内容并进选中项，
+// 否则这段文字会被直接丢弃——之前正是"参与人/协同人员打了多个姓名却录不进去"的原因
+function spFlushManualInput() {
+  if (!_sp || !_sp.multi) return;
+  const inp = $('#sp-manual-input'); if (!inp) return;
+  const raw = (inp.value || '').trim(); if (!raw) return;
+  splitNames(raw).forEach(n => { if (!_sp.order.includes(n)) _sp.order.push(n); });
+  inp.value = '';
+}
 async function spCommitMulti() {
   if (!_sp) return;
+  spFlushManualInput();
   const { entity, id, field, order } = _sp;
   const popup = $('#select-popup');
   const checked = new Set([...popup.querySelectorAll('.sp-cb:checked')].map(cb => cb.value));
@@ -3121,7 +3513,7 @@ function openLinesEditor(entity, id, fieldKey) {
   openModal(`编辑${f.label}`, `<div class="hint" style="margin-bottom:6px">每行一条，保存后自动编号。</div>
     <textarea class="modal-textarea" id="lines-ta">${esc((r[fieldKey] || []).join('\n'))}</textarea>`, '保存', async () => {
     snapshot();
-    r[fieldKey] = $('#lines-ta').value.split('\n').map(s => s.trim()).filter(Boolean);
+    r[fieldKey] = parseLines($('#lines-ta').value);
     await Repo.upsert(entity, r);
     closeModal(); renderPage(); showSnack('已保存');
   });
@@ -3220,7 +3612,7 @@ function readControl(f, idPrefix) {
   const raw = el.value.trim();
   switch (f.type) {
     case 'persons': return splitNames(raw);
-    case 'lines':   return el.value.split('\n').map(s => s.trim()).filter(Boolean);
+    case 'lines':   return parseLines(el.value);
     case 'date':    return raw ? (parseDue(raw) || raw) : '';
     case 'num': {
       if (raw === '') return f.key === 'progress' ? 0 : '';
@@ -3249,10 +3641,12 @@ function openBatchEdit(fieldKey) {
       const val = readControl(f, 'be-');
       closeModal();
       snapshot();
+      let skipped = 0;
       await Repo.bulk(() => {
         ids.forEach(id => {
           const t = byId('task', id);
           if (!t) return;
+          if (!canEditRecord('task', t)) { skipped++; return; }   // 不是自己负责/参与的任务，协管以下跳过不改
           const before = clone(t);
           t[fieldKey] = val;
           if (fieldKey === 'status') {
@@ -3265,7 +3659,9 @@ function openBatchEdit(fieldKey) {
         });
       });
       renderShell(); renderPage();
-      showSnack(`已修改 ${ids.length} 条任务的${f.label}`);
+      showSnack(skipped
+        ? `已修改 ${ids.length - skipped} 条任务的${f.label}，${skipped} 条因权限不足被跳过`
+        : `已修改 ${ids.length} 条任务的${f.label}`);
     });
   setTimeout(() => { const el = $('#be-' + fieldKey); if (el) el.focus(); }, 60);
 }
@@ -3293,6 +3689,7 @@ function openColConfig() {
 function openTaskDetail(id) {
   const t = byId('task', id);
   if (!t) return;
+  const canEdit = canEditRecord('task', t);   // 查看谁都能看，只有负责人/参与人或协管以上能改
   const fs = schema('task').fields.filter(f => !f.internal);
   const wide = k => k === 'title';
   // 有检查点时进度由检查点完成比例自动算，这里就不给手改的控件了
@@ -3301,18 +3698,21 @@ function openTaskDetail(id) {
     if (f.type === 'checkpoints') {
       const cps = DB.milestones.filter(m => m.task === t.id && !m.deleted_at);
       const doneN = cps.filter(m => m.done === '1').length;
+      const txt = cps.length ? `${doneN}/${cps.length} 已交付` : '（无）';
       return `<label>${esc(f.label)}</label>
-        <div class="full"><button type="button" class="btn" data-act="cp-editor" data-id="${esc(t.id)}">
-          ${cps.length ? `管理（${doneN}/${cps.length} 已交付）` : '＋ 添加检查点'}</button></div>`;
+        <div class="full">${canEdit
+          ? `<button type="button" class="btn" data-act="cp-editor" data-id="${esc(t.id)}">${cps.length ? `管理（${txt}）` : '＋ 添加检查点'}</button>`
+          : `<span class="detail-ro">${esc(txt)}</span>`}</div>`;
     }
     if (f.key === 'work' && f.type === 'ref') {
+      if (!canEdit) return `<label>${esc(f.label)}</label><div><span class="detail-ro">${esc(w ? (w.code + ' ' + w.name) : '未归属')}</span></div>`;
       // 已归属工作的任务，详情页里不给「（无）」选项，避免手滑清空；未归属的任务保留，否则会被强行指到列表第一项
       const opts = optionsOf('task', f, null);
       return `<label for="td-work">${esc(f.label)}</label>
         <div><select id="td-work">${!t.work ? '<option value="">（无）</option>' : ''}${opts.map(o =>
           `<option value="${esc(o.v)}"${t.work === o.v ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select></div>`;
     }
-    const ro = f.readonly || lockProgress(f);
+    const ro = f.readonly || lockProgress(f) || !canEdit;
     return `<label for="td-${f.key}">${esc(f.label)}</label>
       <div class="${wide(f.key) ? 'full' : ''}">${ro
         ? `<span class="detail-ro">${esc(f.key === 'progress' ? t.progress + '%（由检查点自动计算）' : (t[f.key] || '—'))}</span>`
@@ -3328,8 +3728,10 @@ function openTaskDetail(id) {
        创建：${esc((t.created_at || '').slice(0, 10))}　·
        最后修改：${esc((t.updated_at || '').slice(0, 10))} by ${esc(t.updated_by || '—')}　·
        版本 rev ${t.rev}　·　id ${esc(t.id)}
+       ${canEdit ? '' : '　·　<span style="color:var(--text3)">只读：不是你负责/参与的任务</span>'}
      </div>`,
-    '保存', async () => {
+    canEdit ? '保存' : '关闭', async () => {
+      if (!canEdit) { closeModal(); return; }
       snapshot();
       const before = clone(t);
       fs.forEach(f => {
@@ -3376,7 +3778,7 @@ function openYearCopy() {
         <label for="yc-${w.id}">${esc(w.code)} ${esc(w.name)}${w.owner ? ` <span style="color:var(--text3)">· ${esc(w.owner)}</span>` : ''}</label></div>`).join('')}
     </div>
     <div class="hint" style="margin-top:8px">编号沿用不变（同一编号可在不同年度并存）。
-    工作内容、牵头人、协同人员会一并复制；<b>只带工作本身，任务和里程碑都不复制，新年度从头梳理</b>。</div>`,
+    工作内容、牵头人、参与人会一并复制；<b>只带工作本身，任务和里程碑都不复制，新年度从头梳理</b>。</div>`,
     '复制', async () => {
       const dst = Number($('#yc-dst').value);
       const srcY = Number($('#yc-src').value);
@@ -3573,7 +3975,7 @@ function openWorkForm() {
     <div class="form-row"><label>牵头人</label><input id="wf-owner" list="wf-people" placeholder="可留空"></div>
     <div class="form-row"><label>年度</label><input id="wf-year" type="number" value="${DB.settings.year || new Date().getFullYear()}"></div>
     <datalist id="wf-people">${people.map(p => `<option value="${esc(p)}">`).join('')}</datalist>
-    <div class="hint">工作编号按所属职责自动生成（2位职责号 + 2位序号）。创建后可在表格中双击补充工作内容、协同人员与里程碑。</div>`,
+    <div class="hint">工作编号按所属职责自动生成（2位职责号 + 2位序号）。创建后可在表格中双击补充工作内容与参与人；里程碑要到具体任务下添加。</div>`,
     '创建', async () => {
       const name = $('#wf-name').value.trim();
       if (!name) { showSnack('工作名称不能为空'); return; }
@@ -3646,13 +4048,22 @@ function hideSnack() { $('#snackbar').classList.remove('show'); }
    24. CSV / JSON 导入导出
    ============================================================= */
 // 多值字段用逗号拼接；值内含逗号或反斜杠时转义，保证往返无损
+// 去掉用户手打的行首编号（"1、" "2." "(3)" 等），避免和显示时自动加的编号重复
+function stripLineNumber(s) {
+  return String(s || '').replace(/^\s*(?:[\(（]\d{1,3}[\)）]|\d{1,3}[.、,，:：)）])\s*/, '');
+}
+function parseLines(raw) {
+  return String(raw || '').split('\n').map(s => stripLineNumber(s.trim())).filter(Boolean);
+}
 function joinMulti(arr) {
   return (arr || []).map(v => String(v).replace(/\\/g, '\\\\').replace(/,/g, '\\,')).join(',');
 }
 function splitMulti(raw) {
   if (!raw) return [];
+  // 兼容手工整理的 Excel：顿号、中文逗号也当分隔符，先归一成英文逗号再按转义规则切分
+  const norm = String(raw).replace(/[、，]/g, ',');
   const out = []; let cur = '', escd = false;
-  for (const c of String(raw)) {
+  for (const c of norm) {
     if (escd) { cur += c; escd = false; }
     else if (c === '\\') escd = true;
     else if (c === ',') { out.push(cur); cur = ''; }
@@ -3716,10 +4127,154 @@ async function exportJSON() {
   showSnack('已导出 JSON 全量备份');
 }
 
-let _importEntity = 'task';
+/* ---- 共享文件连接：把「哪个文件」记在 IndexedDB 里，下次开页面能悄悄接回去，不用每次都重新选 ---- */
+let _reloadTimer = null;
+const RELOAD_INTERVAL_MS = 5 * 60 * 1000;   // 没有推送机制，只能定时整页刷新来看别人存的新东西
+function startAutoReload() {
+  if (_reloadTimer) return;
+  _reloadTimer = setInterval(() => {
+    if ($('#modal-overlay').classList.contains('show')) return;   // 弹窗开着先不刷新，免得手上的操作被打断
+    if (_activeEdit) return;                                       // 单元格正编辑中也先不刷新
+    location.reload();
+  }, RELOAD_INTERVAL_MS);
+}
+async function connectSharedFile() {
+  if (!('showOpenFilePicker' in window)) { showSnack('这个浏览器不支持文件系统访问，换 Chrome / 360 等 Chromium 内核浏览器再试'); return; }
+  try {
+    const [handle] = await window.showOpenFilePicker({
+      types: [{ description: 'JSON 数据文件', accept: { 'application/json': ['.json'] } }],
+    });
+    const perm = await handle.requestPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') { showSnack('没有拿到读写权限，连接取消'); return; }
+    let remote = { duties: [], works: [], milestones: [], tasks: [], changelog: [], users: [] };
+    const text = await (await handle.getFile()).text();
+    if (text.trim()) {
+      try { remote = JSON.parse(text); }
+      catch (e) { showSnack('这个文件内容不是合法 JSON，按空数据处理，请确认选对了文件'); }
+    }
+    const merged = mergeSyncPayload(syncPayload(DB), remote);
+    Object.assign(DB, merged);
+    rebuildIndex();
+    await idbSetHandle(handle);
+    _fileHandle = handle;
+    _lastSyncedMtime = 0;   // 强制下一次保存重新核对文件是否被动过，而不是直接覆盖
+    DB.settings.sharedFileName = handle.name;
+    await Repo.persist(DB);
+    renderShell(); renderPage();
+    showSnack('已连接共享文件：' + handle.name);
+    startAutoReload();
+  } catch (e) {
+    if (e && e.name === 'AbortError') return;   // 用户自己关掉了选择框，不算错误
+    showSnack('连接失败：' + (e && e.message ? e.message : e));
+  }
+}
+async function disconnectSharedFile() {
+  _fileHandle = null;
+  if (_reloadTimer) { clearInterval(_reloadTimer); _reloadTimer = null; }
+  try { await idbClearHandle(); } catch (e) {}
+  DB.settings.sharedFileName = '';
+  await Repo.persist(DB);
+  renderShell(); renderPage();
+  showSnack('已断开，改回本机存储');
+}
+// 开机时悄悄尝试接回上次连接的文件；权限失效时不硬闯，留给用户在数据页手动点"重新连接"
+async function tryReconnectSharedFile() {
+  try {
+    const handle = await idbGetHandle();
+    if (!handle) return false;
+    const perm = await handle.queryPermission({ mode: 'readwrite' });
+    if (perm !== 'granted') return false;
+    _fileHandle = handle;
+    startAutoReload();
+    return true;
+  } catch (e) { return false; }
+}
+
+let _importEntity = 'task', _importMode = 'merge';
+// 导入前先问清楚：覆盖模式按编号认领已有记录，增量模式一律当新增、编号自动接续
+function openImportModal(entity) {
+  const label = schema(entity).label;
+  const byCode = ['duty', 'work', 'task'].includes(entity);
+  openModal(`导入${label} CSV`, `
+    <div class="form-row"><label>导入模式</label>
+      <select id="imp-mode">
+        <option value="merge">覆盖模式</option>
+        <option value="append">增量模式</option>
+      </select>
+    </div>
+    <div class="hint" style="margin-top:6px">${byCode
+      ? `覆盖模式：按${label}编号匹配已有记录，存在则覆盖，不存在则新增。<br>增量模式：不管 CSV 里写的编号是什么，一律当作新增项，编号自动接续现有的最大编号。`
+      : '里程碑没有独立编号：两种模式都按 id 匹配，有 id 且能找到对应记录时覆盖，否则新增；增量模式会忽略 id 一律新增。'}</div>`,
+    '选择文件', () => {
+      _importMode = $('#imp-mode').value;
+      _importEntity = entity;
+      closeModal();
+      $('#file-input').accept = '.csv';
+      $('#file-input').click();
+    });
+}
+// 解析并写入一份 CSV 文本；entity/mode 见 openImportModal 的说明。返回实际写入的行数。
+async function applyCSVImport(entity, mode, text) {
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const sc = schema(entity);
+  const rows = parseCSV(text);
+  if (rows.length < 2) { showSnack('CSV 内容为空'); return 0; }
+  const head = rows[0].map(s => s.trim());
+  const get = (cols, k) => { const i = head.indexOf(k); return i >= 0 ? (cols[i] || '') : ''; };
+  let n = 0;
+  snapshot();
+  await Repo.bulk(() => {
+    for (let i = 1; i < rows.length; i++) {
+      const cols = rows[i], rec = {};
+      sc.fields.filter(f => !f.virtual).forEach(f => {
+        const raw = get(cols, f.key);
+        if (f.type === 'lines') rec[f.key] = parseLines(raw);
+        else if (f.type === 'multi' || f.type === 'persons') rec[f.key] = splitMulti(raw);
+        else if (['code', 'work', 'duty'].includes(f.key)) rec[f.key] = padCode(raw);
+        else rec[f.key] = raw;
+      });
+      if (sc.pk === 'id') {
+        let id;
+        if (mode === 'append') {
+          // 增量模式：永远新增，编号无视 CSV 内容、按当前最大编号自动接续
+          id = '';
+          if (entity === 'work') rec.code = nextWorkCode(rec.duty, Number(rec.year) || DB.settings.year || new Date().getFullYear());
+          if (entity === 'task') rec.code = rec.work ? nextTaskCode(rec.work) : '';
+        } else {
+          // 覆盖模式：按「编号（+年度）」认领已有记录，找不到才新建
+          id = get(cols, 'id');
+          if (entity === 'work' && rec.code) {
+            const hit = DB.works.find(w => w.code === rec.code && String(w.year) === String(rec.year));
+            if (hit) id = hit.id;
+          } else if (entity === 'task' && rec.code) {
+            const hit = DB.tasks.find(t => t.code === rec.code && !t.deleted_at);
+            if (hit) id = hit.id;
+          }
+        }
+        rec.id = id || uid(entity[0]);
+      } else {
+        // 目前只有职责的主键就是编号本身
+        if (mode === 'append') {
+          const used = DB.duties.map(d => parseInt(d.code) || 0);
+          rec.code = String((used.length ? Math.max(...used) : 0) + 1).padStart(2, '0');
+        }
+        if (!rec[sc.pk]) continue;
+      }
+      if (entity === 'task' && !rec.code && rec.work) rec.code = nextTaskCode(rec.work);   // 兜底：仍没编号则按所属工作自动生成
+      ['created_at', 'updated_at', 'updated_by', 'deleted_at'].forEach(k => { const v = get(cols, k); if (v) rec[k] = v; });
+      rec.rev = Number(get(cols, 'rev')) || 1;
+      normalize(entity, rec);
+      const list = coll(entity);
+      const j = list.findIndex(x => x[sc.pk] === rec[sc.pk]);
+      if (j === -1) list.push(rec); else list[j] = rec;
+      n++;
+    }
+  });
+  return n;
+}
 $('#file-input').addEventListener('change', evt => {
   const file = evt.target.files[0]; if (!file) return;
-  const entity = _importEntity;
+  const entity = _importEntity, mode = _importMode;
   if (entity === '__backup__') {                 // JSON 全量恢复走另一条路径
     const r = new FileReader();
     r.onload = e => importBackup(e.target.result);
@@ -3727,49 +4282,11 @@ $('#file-input').addEventListener('change', evt => {
     evt.target.value = '';
     return;
   }
-  const sc = schema(entity);
   const reader = new FileReader();
   reader.onload = async e => {
-    let text = e.target.result;
-    if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
-    const rows = parseCSV(text);
-    if (rows.length < 2) { showSnack('CSV 内容为空'); return; }
-    const head = rows[0].map(s => s.trim());
-    const get = (cols, k) => { const i = head.indexOf(k); return i >= 0 ? (cols[i] || '') : ''; };
-    let n = 0;
-    snapshot();
-    await Repo.bulk(() => {
-      for (let i = 1; i < rows.length; i++) {
-        const cols = rows[i], rec = {};
-        sc.fields.filter(f => !f.virtual).forEach(f => {
-          const raw = get(cols, f.key);
-          if (f.type === 'lines') rec[f.key] = raw ? raw.split('\n').map(s => s.trim()).filter(Boolean) : [];
-          else if (f.type === 'multi' || f.type === 'persons') rec[f.key] = splitMulti(raw);
-          else if (['code', 'work', 'duty'].includes(f.key)) rec[f.key] = padCode(raw);
-          else rec[f.key] = raw;
-        });
-        if (sc.pk === 'id') {
-          // 工作没带 id 时按「编号 + 年度」认领已有记录，否则新建。
-          // 这样用户直接拿 Excel 按编号整理也能正确 upsert。
-          let id = get(cols, 'id');
-          if (!id && entity === 'work' && rec.code) {
-            const hit = DB.works.find(w => w.code === rec.code && String(w.year) === String(rec.year));
-            if (hit) id = hit.id;
-          }
-          rec.id = id || uid(entity[0]);
-        } else if (!rec[sc.pk]) continue;
-        if (entity === 'task' && !rec.code && rec.work) rec.code = nextTaskCode(rec.work);   // 导入未带编号则按所属工作自动生成
-        ['created_at', 'updated_at', 'updated_by', 'deleted_at'].forEach(k => { const v = get(cols, k); if (v) rec[k] = v; });
-        rec.rev = Number(get(cols, 'rev')) || 1;
-        normalize(entity, rec);
-        const list = coll(entity);
-        const j = list.findIndex(x => x[sc.pk] === rec[sc.pk]);
-        if (j === -1) list.push(rec); else list[j] = rec;
-        n++;
-      }
-    });
+    const n = await applyCSVImport(entity, mode, e.target.result);
     renderShell(); renderPage();
-    showSnack(`已导入 ${n} 条${sc.label}（Ctrl+Z 可撤销）`);
+    showSnack(`已导入 ${n} 条${schema(entity).label}（${mode === 'append' ? '增量' : '覆盖'}模式 · Ctrl+Z 可撤销）`);
   };
   reader.readAsText(file, 'UTF-8');
   evt.target.value = '';
@@ -3982,6 +4499,8 @@ async function boot() {
     seedAll();
     await Repo.persist(DB);
   }
+  if (await tryReconnectSharedFile()) await Repo.persist(DB);   // 接回上次连接的共享文件，顺带合并一次
+  await ensureIdentity();   // 没有有效身份就在这里挂住，等选完/建完账号再往下走
   const p = (location.hash || '').replace(/^#\//, '');
   currentPage = PAGES.some(x => x.key === p) ? p : 'dashboard';
   goto(currentPage);

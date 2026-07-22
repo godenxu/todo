@@ -49,6 +49,70 @@ async function main() {
   S.ACTIONS['tree-pick']({ duty: '', work: '' });
   ok('点"全部"清空筛选', !S.UI.tasks.filters._duty && !S.UI.tasks.filters.work);
 
+  section('人员筛选合并（负责人+参与人 → 人员，按拼音排序）');
+  S.UI.tasks.filters = {};
+  const pf = S.personFacet('task', rows);
+  const named = pf.filter(i => i.value !== '__empty__');
+  ok('姓名按拼音升序排列', named.every((it, i) => i === 0 || it.value.localeCompare(named[i - 1].value, 'zh') >= 0), named.map(i => i.value));
+  ok('（空）桶固定放最后', pf[pf.length - 1].value === '__empty__');
+  const guo = named.find(i => i.value === '郭妙吉');
+  const wantCount = rows.filter(t => t.owner === '郭妙吉' || (t.assignees || []).includes('郭妙吉')).length;
+  ok('人数取并集去重（负责或参与算一条）', !!guo && guo.count === wantCount, [guo && guo.count, wantCount]);
+
+  S.ACTIONS['task-filter']({ field: '_person', val: '郭妙吉' });
+  ok('点击人员分面不再让工具栏报错崩溃（renderToolbar 之前会因缺 fieldDef 抛异常）',
+     S.taskRows.length > 0 && S.taskRows.every(t => t.owner === '郭妙吉' || (t.assignees || []).includes('郭妙吉')), S.taskRows.length);
+  ok('筛选标签正确显示"人员:郭妙吉"', q('#toolbar').innerHTML.includes('人员:郭妙吉'));
+  S.ACTIONS['task-filter']({ field: '_person', val: '' });
+  ok('清空人员筛选恢复全部', S.UI.tasks.filters._person === '');
+
+  const workRows = S.visibleWorks();
+  const wf = S.personFacet('work', workRows);
+  const w0 = workRows.find(w => !w.deleted_at);
+  S.ACTIONS['work-filter']({ field: '_person', val: w0.owner });
+  const byPersonWork = S.query('work', { pool: workRows, filters: S.UI.works.filters });
+  ok('工作页人员筛选同样按并集匹配', byPersonWork.length > 0 &&
+     byPersonWork.every(w => w.owner === w0.owner || (w.collaborators || []).includes(w0.owner)), byPersonWork.length);
+  S.UI.works.filters = {};
+
+  section('筛选框配色：不再借用徽章/图表专属颜色');
+  S.setPage('duties'); S.renderShell(); S.renderPage();
+  const dutyHtml = q('#sidebar').innerHTML;
+  ok('职责分类筛选区确实渲染了内容（避免下面的断言因为空字符串而假通过）', dutyHtml.includes('职责分类'), dutyHtml.length);
+  ok('职责分类筛选项没有内联 color 样式', !/sb-label[^>]*style="color:/.test(dutyHtml), dutyHtml.match(/sb-label[^<]*style="[^"]*"/g));
+  S.setPage('tasks'); S.UI.tasks.filters = {}; S.renderShell(); S.renderPage();
+  const taskSidebarHtml = q('#sidebar').innerHTML;
+  ok('状态筛选区确实渲染了内容', taskSidebarHtml.includes('◆ 状态'), taskSidebarHtml.length);
+  ok('状态筛选项同样没有内联 color 样式', !/sb-label[^>]*style="color:/.test(taskSidebarHtml));
+
+  section('多选弹层：点"确定"会先并入手打但未回车的姓名');
+  {
+    const w1 = S.DB.works.find(w => !w.deleted_at);
+    const before = [...(w1.collaborators || [])];
+    S.openSelectPopup('work', w1.id, S.fieldDef('work', 'collaborators'), raw.document.createElement('td'));
+    q('#sp-manual-input').value = '赵六、钱七';
+    await S.spCommitMulti();
+    const after = S.byId('work', w1.id).collaborators;
+    ok('未按回车、直接确定，两个姓名都并入了', after.includes('赵六') && after.includes('钱七'), after);
+    S.byId('work', w1.id).collaborators = before;   // 还原，避免影响后面用例
+  }
+
+  section('字段改名：任务牵头人 / 工作参与人');
+  ok('任务的 owner 字段改叫"牵头人"', S.fieldDef('task', 'owner').label === '牵头人');
+  ok('工作的 collaborators 字段改叫"参与人"', S.fieldDef('work', 'collaborators').label === '参与人');
+
+  section('工作页侧栏：所属职责在人员上方，且按编号排序');
+  S.setPage('works'); S.UI.works.filters = {}; S.renderShell(); S.renderPage();
+  const worksSidebar = q('#sidebar').innerHTML;
+  const dutyIdx = worksSidebar.indexOf('所属职责');
+  const personIdx = worksSidebar.indexOf('◆ 人员');
+  const statusIdx = worksSidebar.lastIndexOf('◆ 状态');
+  ok('所属职责排在人员前面', dutyIdx >= 0 && personIdx > dutyIdx, [dutyIdx, personIdx]);
+  ok('人员排在状态前面', personIdx >= 0 && statusIdx > personIdx, [personIdx, statusIdx]);
+  const dutyCodes = [...S.facet('work', S.fieldDef('work', 'duty'), S.visibleWorks())]
+    .filter(i => i.value !== '__empty__').map(i => i.value);
+  ok('所属职责按编号顺序排列，不按数量', dutyCodes.every((c, i) => i === 0 || c > dutyCodes[i - 1]), dutyCodes);
+
   section('批量选择');
   S.renderTasks();
   const total = S.taskRows.length;

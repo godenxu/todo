@@ -3,6 +3,7 @@
    之所以不用浏览器：单文件应用没有构建步骤，用 Node 跑逻辑最快也最可复现。 */
 const fs = require('fs');
 const vm = require('vm');
+const { webcrypto } = require('crypto');
 const path = process.argv[2] || require('path').join(__dirname, '..', 'index.html');
 
 const html = fs.readFileSync(path, 'utf8');
@@ -60,6 +61,7 @@ const sandbox = {
   CSS: { escape: s => String(s).replace(/[^\w-]/g, c => '\\' + c) },
   Blob: function () {}, URL: { createObjectURL: () => '', revokeObjectURL() {} },
   FileReader: function () {},
+  crypto: webcrypto, TextEncoder, TextDecoder,
   Date, Math, JSON, Object, Array, String, Number, Boolean, Set, Map, RegExp, Error, Promise, isNaN, parseInt, parseFloat,
 };
 sandbox.globalThis = sandbox;
@@ -91,8 +93,31 @@ const exportTail = `
   TASK_VIEWS, TASK_VIEW_MAP, openOrphanAssign, reorderCols, boot,
   migrateMilestonesToTasks, openCheckpointEditor, cpRowHTML, recalcProgress, hasCheckpoints,
   pushLog, diffTask, dpCommit, ganttDataTable, ganttTableRows, get ganttSort(){return ganttSort},
+  parseLines, stripLineNumber, applyCSVImport, openImportModal,
+  get importEntity(){return _importEntity}, get importMode(){return _importMode},
+  spCommitMulti, spAddFromInput, spFlushManualInput, splitNames, matchFilters,
+  facetBlock, personFacet, personFacetBlock, personUnion, renderToolbar,
+  mergeEntityList, mergeChangelog, syncPayload, mergeSyncPayload, syncToFile, mergeByPk,
+  connectSharedFile, disconnectSharedFile, tryReconnectSharedFile, newerRecord,
+  get fileHandle(){return _fileHandle}, setFileHandle(h){ _fileHandle = h; },
+  get lastSyncedMtime(){return _lastSyncedMtime}, setLastSyncedMtime(v){ _lastSyncedMtime = v; },
+  ROLES, ROLE_RANK, myUser, myRole, roleAtLeast, isRecordOwnerOrParticipant, canEditRecord, requireRole,
+  hashPin, verifyPin, ensureIdentity, showLoginGate, hideLoginGate,
+  renderLoginPick, renderLoginVerify, renderLoginCreate,
+  get loginPending(){return !!_loginResolve},
+  canManageAccount, assignableRoles, accountsPanelHTML,
 };`;
 
 vm.createContext(sandbox);
 vm.runInContext(code + exportTail, sandbox, { filename: 'app.js' });
-module.exports = { sandbox: sandbox.__api, raw: sandbox, q, elCache, store };
+const api = sandbox.__api;
+// 测试沙盒默认已"登录"成管理员，省得每个既有用例都要先处理身份门禁；
+// 专门测身份/权限系统的用例可以在自己的 tick() 之后再改 DB.users / DB.settings.me。
+// 必须在 boot() 的异步续体跑到 ensureIdentity() 之前完成——vm.runInContext 同步执行到 boot() 的第一个
+// await 为止就把控制权交回这里，这段代码又是纯同步的，能保证抢在 ensureIdentity() 检查之前把身份灌好。
+api.DB.settings.me = '测试管理员';
+api.DB.users.push({
+  name: '测试管理员', role: 'admin', salt: '', hash: '', iterations: 0,
+  created_at: new Date().toISOString(), updated_at: new Date().toISOString(), updated_by: '测试管理员', rev: 1,
+});
+module.exports = { sandbox: api, raw: sandbox, q, elCache, store };

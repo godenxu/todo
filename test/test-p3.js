@@ -66,6 +66,8 @@ async function main() {
   ok('图例含四种状态', h.includes('未开始') && h.includes('已完成') && h.includes('进行中') && h.includes('逾期'));
 
   section('我的工作台');
+  S.DB.settings.me = '';   // 测试沙盒默认已登录成"测试管理员"，这里显式清空以验证未设置时的引导文案
+  h = dashHTML();
   ok('未设使用者时给出引导', h.includes('尚未设置本机使用者'));
   S.DB.settings.me = '蒋双樑';
   h = dashHTML();
