@@ -9,12 +9,13 @@ const ok = (name, cond, extra) => {
 const section = t => console.log('\n■ ' + t);
 const tick = (ms = 5) => new Promise(r => setTimeout(r, ms));
 const render = tab => { S.setPage('charts'); if (tab) S.ACTIONS['chart-tab']({ k: tab }); else S.renderCharts(); return q('#page-charts').innerHTML; };
+const rawHtml = require('fs').readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
 // 从 SVG 属性里抽数值
 const nums = (h, re) => [...h.matchAll(re)].map(m => +m[1]);
 
 async function main() {
   await tick(60);
-  const tasks = S.visibleTasks().filter(t => !t.deleted_at);
+  let tasks = S.visibleTasks().filter(t => !t.deleted_at);
 
   section('页签');
   let h = render();
@@ -25,14 +26,36 @@ async function main() {
   ok('切换页签生效', /class="t on" data-act="chart-tab" data-k="time"/.test(h) && S.chartTab === 'time');
 
   section('统计口径');
-  const st = S.statsByPerson(tasks);
+  let st = S.statsByPerson(tasks);
   ok('人员统计非空', st.length > 0, st.length);
   ok('各人分段之和等于合计', st.every(s => s.done + s.doing + s.late + s.todo + s.hold === s.total));
   ok('完成率计算正确', st.every(s => s.rate === (s.total ? Math.round(s.done / s.total * 100) : 0)));
-  const ownedTotal = st.reduce((a, s) => a + s.total, 0);
-  ok('牵头合计覆盖全部任务（含未指派）', ownedTotal === tasks.length, [ownedTotal, tasks.length]);
+  // 现在的"合计"是"牵头∪参与"去重后的相关任务数，不再是纯牵头数：
+  // 一条任务贡献给"相关合计"总和的次数 = 它的相关人数（personUnion），没有相关人的算未指派，记 1 次
+  const relatedTotal = st.reduce((a, s) => a + s.total, 0);
+  const expectedRelatedTotal = tasks.reduce((a, t) => a + Math.max(1, S.personUnion('task', t).length), 0);
+  ok('相关合计之和 = 每条任务的相关人数之和（无相关人的算未指派，记1次）',
+    relatedTotal === expectedRelatedTotal, [relatedTotal, expectedRelatedTotal]);
+  const leadSum = st.reduce((a, s) => a + s.lead, 0);
+  ok('牵头计数之和 = 任务总数（每条任务只有一个牵头人桶，含未指派）', leadSum === tasks.length, [leadSum, tasks.length]);
+  const joinSum = st.reduce((a, s) => a + s.join, 0);
+  const expectedJoinSum = tasks.reduce((a, t) => a + (t.assignees || []).length, 0);
+  ok('参与计数之和 = 全部任务的参与人数之和', joinSum === expectedJoinSum, [joinSum, expectedJoinSum]);
   ok('逾期段不含挂起任务', tasks.filter(S.isOverdue).every(t => t.status !== 'hold'));
   ok('一条任务只落一个段', tasks.every(t => ['done', 'doing', 'late', 'todo', 'hold'].includes(S.bucketOf(t))));
+
+  section('按人：统计口径改为"牵头∪参与"（相关任务），而不是只看牵头');
+  await S.Repo.upsert('task', {
+    id: 'p4_union_t1', code: 'P4U01', title: 'P4口径验证任务', status: 'doing',
+    owner: 'P4牵头甲', assignees: ['P4参与乙'], plan_date: S.offsetDate(5),
+  });
+  tasks = S.visibleTasks().filter(t => !t.deleted_at);
+  st = S.statsByPerson(tasks);
+  const leadRow = st.find(s => s.name === 'P4牵头甲');
+  const joinRow = st.find(s => s.name === 'P4参与乙');
+  ok('牵头人 P4牵头甲 的相关合计里包含这条任务', leadRow && leadRow.total >= 1 && leadRow.lead >= 1);
+  ok('参与人 P4参与乙 的相关合计里也包含这条任务（这就是本次要修的口径）', joinRow && joinRow.total >= 1 && joinRow.join >= 1);
+  ok('参与人 P4参与乙 没有牵头这条任务，lead 计数不含它', joinRow.lead === 0);
 
   const duty = S.statsByDuty(tasks), cat = S.statsByCategory(tasks);
   ok('职责统计只含有任务的项', duty.every(d => d.total > 0));
@@ -42,7 +65,7 @@ async function main() {
   section('按人视图');
   h = render('person');
   ok('渲染横条', h.includes('bar-row'));
-  ok('可点击筛选负责人', h.includes('data-act="filter-owner"'));
+  ok('可点击按相关人员筛选（不再是只筛牵头人）', h.includes('data-act="filter-person"'));
   ok('有图例', h.includes('已完成') && h.includes('逾期'));
   const widths = [...h.matchAll(/<span class="track">([\s\S]*?)<\/span>\s*<span class="num">/g)];
   ok('堆叠段宽合计 ≤ 100%', widths.every(b =>
@@ -54,12 +77,29 @@ async function main() {
   const unassignedIdx = st.findIndex(s => s.name === '（未指派）');
   if (unassignedIdx >= 0) ok('存在未指派时固定放最后一位', unassignedIdx === st.length - 1, unassignedIdx);
 
+  section('按人视图：右侧改成牵头/参与比例条（不再是饼图）');
+  ok('右侧不再有"全部任务状态占比"这个饼图了', !h.includes('全部任务状态占比'));
+  ok('渲染了牵头/参与两种颜色的比例条', h.includes('seg-lead') && h.includes('seg-join'));
+  ok('比例条图例写明了"牵头"和"参与"', h.includes('>牵头</span>') && h.includes('>参与</span>'));
+  const leadOnlyRow = st.find(s => s.name === 'P4牵头甲');
+  const joinOnlyRow = st.find(s => s.name === 'P4参与乙');
+  ok('牵头甲的比例条提示准确反映了他的牵头/参与数',
+    h.includes(`P4牵头甲：牵头 ${leadOnlyRow.lead} · 参与 ${leadOnlyRow.join}`));
+  ok('参与乙的比例条提示准确反映了他的牵头/参与数',
+    h.includes(`P4参与乙：牵头 ${joinOnlyRow.lead} · 参与 ${joinOnlyRow.join}`));
+  // 回归：比例条这一行没有 .nm（左边名字列），比左边 hBar 那一行天然矮一截（.nm 撑出的行高比 .track/.num 都高），
+  // 差个 1-2px 逐行累积下来，十几个人排下来右边的条就跟左边名字对不上了；.bar-row 要有 min-height 兜底
+  ok('.bar-row 有 min-height 兜底，没有 .nm 的行（比例条）也能跟有 .nm 的行同高，不会累积错位',
+    /\.bar-row\s*\{[^}]*min-height:\s*16px/.test(rawHtml));
+  ok('比例条的数字列比左边横条的数字列窄很多（44px vs 82px），不会因为文字短、右对齐而离色条一大截',
+    h.includes('class="num" style="width:44px"'));
+
   section('图表 / 表格切换（无障碍要求）');
   ok('提供切换按钮', h.includes('data-act="chart-view"'));
   S.ACTIONS['chart-view']({ id: 'person' });
   h = q('#page-charts').innerHTML;
   ok('切到表格视图', h.includes('class="dtable"') && !h.includes('bar-row'));
-  ok('表头完整', ['姓名', '牵头合计', '已完成', '完成率', '参与'].every(t => h.includes(t)));
+  ok('表头完整', ['姓名', '相关合计', '已完成', '完成率', '牵头', '参与'].every(t => h.includes(t)));
   const bodyRows = (h.match(/<tbody>([\s\S]*?)<\/tbody>/) || ['', ''])[1];
   ok('表格行数与统计一致', (bodyRows.match(/<tr>/g) || []).length === st.length);
   S.ACTIONS['chart-view']({ id: 'person' });

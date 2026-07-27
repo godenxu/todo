@@ -40,7 +40,7 @@ async function main() {
   S.setPage('dashboard'); S.renderDashboard();
   const dashH = q('#page-dashboard').innerHTML;
   ok('人员负荷这一行渲染了 seg-todo（未开始单独一段）',
-    new RegExp(`data-owner="${owner}"[\\s\\S]{0,400}class="seg seg-todo"`).test(dashH));
+    new RegExp(`data-person="${owner}"[\\s\\S]{0,400}class="seg seg-todo"`).test(dashH));
   ok('tooltip 里明确写了"未开始"这个词（不再是笼统的"在办"）',
     new RegExp(`title="${owner}：已完成 \\d+，进行中 \\d+，逾期 \\d+，未开始 \\d+"`).test(dashH));
   ok('人员负荷面板的图例也加了"未开始"这一项', dashH.includes('background:var(--c-todo)') && /<i style="background:var\(--c-todo\)"><\/i>未开始</.test(dashH));

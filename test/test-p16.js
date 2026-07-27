@@ -31,7 +31,7 @@ async function main() {
   S.setPage('charts');
   S.renderCharts();
   ok('默认就在"按人"页签（不用切换）', S.chartTab === 'person');
-  ok('图表页按人视图标题也带了这句说明', q('#page-charts').innerHTML.includes('各人任务量与完成率（仅指任务数，不代表工作量）'));
+  ok('图表页按人视图标题也带了这句说明', q('#page-charts').innerHTML.includes('各人相关任务量与完成率（仅指任务数，不代表工作量）'));
 
   section('工作台标题改名：各职责推进情况 → 各职责/工作推进情况');
   ok('工作台面板标题里是新名字', q('#page-dashboard').innerHTML.includes('各职责/工作推进情况'));

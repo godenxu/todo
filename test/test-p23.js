@@ -35,7 +35,7 @@ async function main() {
   await S.Repo.upsert('task', { id: 'p23_load_only_doing', work: wid, title: 'P23只有进行中', status: 'doing', plan_date: S.offsetDate(10), owner, assignees: [] });
   S.setPage('dashboard'); S.renderDashboard();
   const dashH = q('#page-dashboard').innerHTML;
-  const rowIdx = dashH.indexOf(`data-owner="${owner}"`);
+  const rowIdx = dashH.indexOf(`data-person="${owner}"`);
   ok('找到了这一行', rowIdx > -1);
   const rowSeg = dashH.slice(rowIdx, rowIdx + 500);
   ok('只有 doing 一个分段（done/late/todo 都是 0，不应该渲染）', (rowSeg.match(/class="seg /g) || []).length === 1);

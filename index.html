@@ -178,7 +178,9 @@ td.cell-center { text-align: center; }
 .panel-b { padding: 10px 12px; }
 .hint { font-size: 12px; color: var(--text3); line-height: 1.8; }
 .hint code { background: var(--bg); border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; font-size: 11px; }
-.bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 12px; }
+/* min-height 保证没有 .nm（比如按人视图右侧的牵头/参与比例条）的行，跟左边有 .nm 的行行高一致，
+   否则每行差 1-2px，累积到十几行之后就会跟左边名字对不上 */
+.bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 5px; font-size: 12px; min-height: 16px; }
 .bar-row .nm { width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text2); flex-shrink: 0; }
 /* 堆叠条：段间留 2px 表面色缝隙，避免相邻色块糊成一片 */
 .bar-row .track { flex: 1; height: 14px; background: var(--c-track); border-radius: 3px; overflow: hidden; display: flex; gap: 2px; }
@@ -187,6 +189,9 @@ td.cell-center { text-align: center; }
 .bar-row .seg-doing, .load-row .seg-doing { background: var(--c-doing); }
 .bar-row .seg-late, .load-row .seg-late   { background: var(--c-late); }
 .bar-row .seg-todo, .load-row .seg-todo  { background: var(--c-todo); }
+/* 牵头/参与比例条专用色，跟状态色（done/doing/late/todo）、优先级色都不重叠，避免同一张图里颜色语义混着看 */
+.bar-row .seg-lead { background: #6a4c93; }
+.bar-row .seg-join { background: #c9a227; }
 /* 展开的工作条：跟它归属的职责条区分开，颜色统一调浅一点，避免两层看起来一样重 */
 .bar-row-muted .seg-done  { background: #8fcda8; }
 .bar-row-muted .seg-doing { background: #7fb3d9; }
@@ -569,7 +574,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260727011309';
+const APP_VERSION = 'v20260727024552';
 
 /* =============================================================
    1. 枚举与常量
@@ -2190,16 +2195,19 @@ function renderDashboard() {
           <span class="t">${esc(t.title)}</span></div>`).join('')}</div>` : '<div class="empty-mini">暂无在办任务</div>'}`;
   })() : `<div class="empty-mini">尚未设置本机使用者。<a href="#/data" style="color:var(--accent)">去「数据」页设置</a>后，这里会显示你牵头的工作和在办任务。</div>`;
 
-  /* ---------- ⑤ 人员负荷 ---------- */
+  /* ---------- ⑤ 人员负荷（牵头 ∪ 参与，同一条任务在两边都算，跟图表页"按人"口径一致） ---------- */
   const loadMap = new Map();
   tasks.forEach(t => {
-    const who = t.owner || '（未指派）';
-    if (!loadMap.has(who)) loadMap.set(who, { doing: 0, todo: 0, late: 0, done: 0 });
-    const e = loadMap.get(who);
-    if (isOverdue(t)) e.late++;
-    else if (t.status === 'doing') e.doing++;
-    else if (t.status === 'todo') e.todo++;
-    else if (t.status === 'done') e.done++;
+    const people = personUnion('task', t);
+    const whos = people.length ? people : ['（未指派）'];
+    whos.forEach(who => {
+      if (!loadMap.has(who)) loadMap.set(who, { doing: 0, todo: 0, late: 0, done: 0 });
+      const e = loadMap.get(who);
+      if (isOverdue(t)) e.late++;
+      else if (t.status === 'doing') e.doing++;
+      else if (t.status === 'todo') e.todo++;
+      else if (t.status === 'done') e.done++;
+    });
   });
   // 显示全部人员（不再只挑负荷最重的前 9 个），按姓名拼音排序，未指派固定放最后
   const loads = [...loadMap.entries()].map(([nm, v]) => ({ nm, ...v, total: v.doing + v.todo + v.late + v.done }))
@@ -2210,7 +2218,7 @@ function renderDashboard() {
     });
   const maxLoad = Math.max(1, ...loads.map(l => l.total));
   const loadRows = loads.map(l => `
-    <div class="load-row" data-act="filter-owner" data-owner="${esc(l.nm === '（未指派）' ? '__empty__' : l.nm)}"
+    <div class="load-row" data-act="filter-person" data-person="${esc(l.nm === '（未指派）' ? '__empty__' : l.nm)}"
          title="${esc(l.nm)}：已完成 ${l.done}，进行中 ${l.doing}，逾期 ${l.late}，未开始 ${l.todo}">
       <span class="nm">${esc(l.nm)}</span>
       <span class="track">${[
@@ -2329,16 +2337,20 @@ function tally(list) {
   c.rate = c.total ? Math.round(c.done / c.total * 100) : 0;
   return c;
 }
+// 每个人的"相关任务"= 牵头 ∪ 参与（同一条任务只算一次），这样条长才能反映一个人到底跟多少任务相关，
+// 而不是只看他牵头了多少条；牵头数/参与数各自的原始计数额外保留，作为细分参考
 function statsByPerson(tasks) {
-  const own = new Map(), join = new Map();
+  const rel = new Map(), leadCount = new Map(), joinCount = new Map();
   tasks.forEach(t => {
+    const people = personUnion('task', t);
+    const names = people.length ? people : ['（未指派）'];
+    names.forEach(nm => { if (!rel.has(nm)) rel.set(nm, []); rel.get(nm).push(t); });
     const o = t.owner || '（未指派）';
-    if (!own.has(o)) own.set(o, []);
-    own.get(o).push(t);
-    (t.assignees || []).forEach(a => { if (!join.has(a)) join.set(a, []); join.get(a).push(t); });
+    leadCount.set(o, (leadCount.get(o) || 0) + 1);
+    (t.assignees || []).forEach(a => joinCount.set(a, (joinCount.get(a) || 0) + 1));
   });
-  const names = uniq([...own.keys(), ...join.keys()]);
-  return names.map(nm => ({ name: nm, ...tally(own.get(nm) || []), join: (join.get(nm) || []).length }))
+  const names = [...rel.keys()];
+  return names.map(nm => ({ name: nm, ...tally(rel.get(nm) || []), lead: leadCount.get(nm) || 0, join: joinCount.get(nm) || 0 }))
     .sort((a, b) => {
       if (a.name === '（未指派）') return 1;
       if (b.name === '（未指派）') return -1;
@@ -2932,25 +2944,31 @@ function renderCharts() {
   if (chartTab === 'person') {
     const st = statsByPerson(tasks);
     const max = Math.max(1, ...st.map(s => s.total));
-    const overall = tally(tasks);
-    const statusPie = [
-      { label: '已完成', n: overall.done, color: 'var(--c-done)' },
-      { label: '进行中', n: overall.doing, color: 'var(--c-doing)' },
-      { label: '逾期', n: overall.late, color: 'var(--c-late)' },
-      { label: '未开始/挂起', n: overall.todo + overall.hold, color: 'var(--c-todo)' },
-    ];
+    // 右侧不再用饼图（全体状态占比信息量太低），改成每人一行"牵头/参与"比例条，
+    // 跟左边同一个人的横条按行对齐，一眼看出这个人是以牵头为主还是以参与为主
+    const roleLegend = `<div class="legend">
+      <span><i style="background:#6a4c93"></i>牵头</span>
+      <span><i style="background:#c9a227"></i>参与</span></div>`;
+    const roleBar = s => {
+      const denom = Math.max(1, s.lead + s.join);
+      const leadPct = (s.lead / denom * 100).toFixed(2) + '%', joinPct = (s.join / denom * 100).toFixed(2) + '%';
+      return `<div class="bar-row" title="${esc(s.name)}：牵头 ${s.lead} · 参与 ${s.join}">
+        <span class="track">${s.lead > 0 ? `<span class="seg seg-lead" style="width:${leadPct}"></span>` : ''}${s.join > 0 ? `<span class="seg seg-join" style="width:${joinPct}"></span>` : ''}</span>
+        <span class="num" style="width:44px">${s.lead} / ${s.join}</span></div>`;
+    };
     body = `<div class="panel">
-      ${panelHead('▥ 各人任务量与完成率（仅指任务数，不代表工作量）', 'person', '按姓名拼音排序 · 点击下钻')}
+      ${panelHead('▥ 各人相关任务量与完成率（仅指任务数，不代表工作量）', 'person', '按姓名拼音排序 · 点击下钻')}
       <div class="panel-b">${chartTableView.person
-        ? dataTable(['姓名', '牵头合计', '已完成', '进行中', '逾期', '未开始', '完成率', '参与'],
-            st.map(s => [s.name, s.total, s.done, s.doing, s.late, s.todo + s.hold, s.rate + '%', s.join]))
+        ? dataTable(['姓名', '相关合计', '已完成', '进行中', '逾期', '未开始', '完成率', '牵头', '参与'],
+            st.map(s => [s.name, s.total, s.done, s.doing, s.late, s.todo + s.hold, s.rate + '%', s.lead, s.join]))
         : (st.length ? `<div class="chart-flex">
              <div class="chart-flex-bars">${st.map(s => hBar(s.name, s, max,
-               ` data-act="filter-owner" data-owner="${esc(s.name === '（未指派）' ? '__empty__' : s.name)}"`)).join('')}${statusLegend}</div>
-             <div class="chart-flex-pie">${pieChart(statusPie, 140, '全部任务状态占比')}${pieLegend(statusPie)}</div>
+               ` data-act="filter-person" data-person="${esc(s.name === '（未指派）' ? '__empty__' : s.name)}"`)).join('')}${statusLegend}</div>
+             <div class="chart-flex-pie">${st.map(roleBar).join('')}${roleLegend}</div>
            </div>` : '<div class="empty-mini">暂无数据</div>')}
-        <div class="chart-note">条长表示该人牵头的任务总量（同一标尺可横向比较）；右侧为「已完成/合计 · 完成率」。
-        「参与」列统计其作为参与人的任务数，不计入条长。右侧饼图是全体任务的状态构成，与逐人对比互补。</div></div></div>`;
+        <div class="chart-note">条长表示该人牵头或参与的任务总量（同一条任务只算一次，同一标尺可横向比较），
+        才能反映一个人到底跟多少任务相关，而不是只看他牵头了多少条；右侧为「已完成/合计 · 完成率」。
+        最右边每一行是该人牵头/参与任务数的比例条，跟左边同一个人对齐，看这个人以牵头为主还是以参与为主。</div></div></div>`;
 
   } else if (chartTab === 'category') {
     const cat = statsByCategory(tasks), duty = statsByDuty(tasks);
@@ -3806,9 +3824,10 @@ const ACTIONS = {
 
   /* --- 工作台 --- */
   'dash-focus': d => { dashFocus = d.k; renderDashboard(); },
-  'filter-owner': d => {
+  // 按"相关"（牵头 ∪ 参与）筛选，不是只筛牵头人——工作台人员负荷、图表页"按人"横条都用这个
+  'filter-person': d => {
     UI.tasks.view = 'all';
-    UI.tasks.filters = { owner: d.owner };
+    UI.tasks.filters = { _person: d.person };
     UI.tasks.search = '';
     goto('tasks');
   },

@@ -34,7 +34,7 @@ async function main() {
   await S.Repo.upsert('task', { id: 'p21_load_todo', work: wid, title: 'P21未开始', status: 'todo', plan_date: S.offsetDate(10), owner, assignees: [] });
   S.setPage('dashboard'); S.renderDashboard();
   const dashH = q('#page-dashboard').innerHTML;
-  const rowMatch = new RegExp(`data-owner="${owner}"[\\s\\S]{0,600}?</div>`).exec(dashH);
+  const rowMatch = new RegExp(`data-person="${owner}"[\\s\\S]{0,600}?</div>`).exec(dashH);
   ok('找到了这一行人员负荷', !!rowMatch);
   if (rowMatch) {
     const row = rowMatch[0];

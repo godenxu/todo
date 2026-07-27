@@ -37,14 +37,14 @@ async function main() {
   }
   S.setPage('dashboard'); S.renderDashboard();
   const dashH = q('#page-dashboard').innerHTML;
-  ok('12 个负责人全部出现在人员负荷里，一个都没被截掉', names.every(nm => dashH.includes(`data-owner="${nm}"`)));
-  const positions = names.map(nm => dashH.indexOf(`data-owner="${nm}"`));
+  ok('12 个负责人全部出现在人员负荷里，一个都没被截掉', names.every(nm => dashH.includes(`data-person="${nm}"`)));
+  const positions = names.map(nm => dashH.indexOf(`data-person="${nm}"`));
   const sortedNames = [...names].sort((a, b) => a.localeCompare(b, 'zh'));
-  const sortedPositions = sortedNames.map(nm => dashH.indexOf(`data-owner="${nm}"`));
+  const sortedPositions = sortedNames.map(nm => dashH.indexOf(`data-person="${nm}"`));
   ok('确实是按拼音排序出现的（跟手动按拼音排一遍的顺序位置一致）', JSON.stringify(positions.slice().sort((a, b) => a - b)) === JSON.stringify(sortedPositions.slice().sort((a,b)=>a-b)) &&
-    names.map((nm,i)=>dashH.indexOf(`data-owner="${nm}"`)).every((pos, i, arr) => i === 0 || true));
+    names.map((nm,i)=>dashH.indexOf(`data-person="${nm}"`)).every((pos, i, arr) => i === 0 || true));
   // 更直接的验证：把 dashH 里出现的顺序抽出来，应该等于按拼音排序后的顺序
-  const appearOrder = [...dashH.matchAll(/data-owner="([^"]+)"/g)].map(m => m[1]).filter(nm => names.includes(nm));
+  const appearOrder = [...dashH.matchAll(/data-person="([^"]+)"/g)].map(m => m[1]).filter(nm => names.includes(nm));
   ok('负荷行出现的先后顺序就是姓名拼音顺序', JSON.stringify(appearOrder) === JSON.stringify(sortedNames), appearOrder);
 
   section('任务详情里程碑区：去掉了底部"添加一条"按钮');

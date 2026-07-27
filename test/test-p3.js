@@ -32,7 +32,7 @@ async function main() {
 
   section('需要关注（分段）');
   ok('四个分段', ['逾期', '今日到期', '本周到期', '未指派'].every(t => h.includes(`data-act="dash-focus"`) && h.includes(t)));
-  const tasks = S.visibleTasks().filter(t => !t.deleted_at);
+  let tasks = S.visibleTasks().filter(t => !t.deleted_at);
   const overdue = tasks.filter(S.isOverdue);
   ok('默认落在逾期分段', h.includes('class="s on" data-act="dash-focus" data-k="overdue"') || h.includes('data-k="overdue"'));
   S.ACTIONS['dash-focus']({ k: 'today' });
@@ -81,21 +81,31 @@ async function main() {
   ok('"我的在办"卡片可跳转 mine 视图', h.includes('data-view="mine"'));
   S.DB.settings.me = '';
 
-  section('人员负荷');
+  section('人员负荷（改成牵头∪参与口径，跟图表页"按人"一致）');
   h = dashHTML();
   ok('负荷行渲染', h.includes('load-row'));
-  ok('可点击筛选负责人', h.includes('data-act="filter-owner"'));
+  ok('可点击按相关人员筛选（不再是只筛牵头人）', h.includes('data-act="filter-person"'));
   const loadBars = [...h.matchAll(/<div class="load-row"[\s\S]*?<span class="track">([\s\S]*?)<\/span>\s*<span class="num">/g)];
   ok('负荷条宽度合计 ≤ 100%', loadBars.every(b => {
     const ws = [...b[1].matchAll(/width:([\d.]+)%/g)].map(m => +m[1]);
     return ws.reduce((a, c) => a + c, 0) <= 100.05;
   }), loadBars.length);
-  // 点击负荷行应筛到该负责人
-  const someOwner = S.DB.tasks.find(t => t.owner && !t.deleted_at).owner;
-  S.ACTIONS['filter-owner']({ owner: someOwner });
-  ok('筛选跳到任务页', S.currentPage === 'tasks' && S.UI.tasks.filters.owner === someOwner);
-  const filtered = S.query('task', { pool: S.visibleTasks().filter(t => !t.deleted_at), filters: S.UI.tasks.filters });
-  ok('筛选结果全是该负责人', filtered.length > 0 && filtered.every(t => t.owner === someOwner), filtered.length);
+  // 造一条"牵头甲+参与乙"的任务，两人的负荷里都应该算上这条
+  await S.Repo.upsert('task', {
+    id: 'p3_load_union', code: 'P3L01', title: 'P3人员负荷口径验证', status: 'doing',
+    owner: 'P3负荷牵头甲', assignees: ['P3负荷参与乙'], plan_date: S.offsetDate(3),
+  });
+  tasks = S.visibleTasks().filter(t => !t.deleted_at);
+  h = dashHTML();
+  ok('参与人（不是牵头人）也出现在人员负荷列表里', h.includes('P3负荷参与乙'));
+  // 点击负荷行应按"相关人员"筛出这条任务，牵头人和参与人各自筛都能筛到
+  S.ACTIONS['filter-person']({ person: 'P3负荷牵头甲' });
+  ok('筛选跳到任务页', S.currentPage === 'tasks' && S.UI.tasks.filters._person === 'P3负荷牵头甲');
+  let filtered = S.query('task', { pool: S.visibleTasks().filter(t => !t.deleted_at), filters: S.UI.tasks.filters });
+  ok('按牵头人筛能筛到这条任务', filtered.some(t => t.id === 'p3_load_union'));
+  S.ACTIONS['filter-person']({ person: 'P3负荷参与乙' });
+  filtered = S.query('task', { pool: S.visibleTasks().filter(t => !t.deleted_at), filters: S.UI.tasks.filters });
+  ok('按参与人筛也能筛到同一条任务', filtered.some(t => t.id === 'p3_load_union'));
   S.UI.tasks.filters = {};
 
   section('最近动态');
