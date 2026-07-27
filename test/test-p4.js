@@ -77,22 +77,25 @@ async function main() {
   const unassignedIdx = st.findIndex(s => s.name === '（未指派）');
   if (unassignedIdx >= 0) ok('存在未指派时固定放最后一位', unassignedIdx === st.length - 1, unassignedIdx);
 
-  section('按人视图：右侧改成牵头/参与比例条（不再是饼图）');
+  section('按人视图：状态条和牵头/参与条合并进同一行（不再分左右两栏、不再是饼图）');
   ok('右侧不再有"全部任务状态占比"这个饼图了', !h.includes('全部任务状态占比'));
   ok('渲染了牵头/参与两种颜色的比例条', h.includes('seg-lead') && h.includes('seg-join'));
   ok('比例条图例写明了"牵头"和"参与"', h.includes('>牵头</span>') && h.includes('>参与</span>'));
+  ok('状态条和比例条现在是同一个 bar-row-person（不再是 chart-flex-bars/chart-flex-pie 两栏）',
+    h.includes('class="bar-row bar-row-person clickable"') && !h.includes('chart-flex-pie') && !h.includes('chart-flex-bars'));
+  const expectTip = s => `${s.name}：共 ${s.total} 条 · 已完成 ${s.done} · 进行中 ${s.doing} · 逾期 ${s.late} · 未开始 ${s.todo}` +
+    `${s.hold ? ' · 挂起 ' + s.hold : ''} · 牵头 ${s.lead} · 参与 ${s.join}`;
   const leadOnlyRow = st.find(s => s.name === 'P4牵头甲');
   const joinOnlyRow = st.find(s => s.name === 'P4参与乙');
-  ok('牵头甲的比例条提示准确反映了他的牵头/参与数',
-    h.includes(`P4牵头甲：牵头 ${leadOnlyRow.lead} · 参与 ${leadOnlyRow.join}`));
-  ok('参与乙的比例条提示准确反映了他的牵头/参与数',
-    h.includes(`P4参与乙：牵头 ${joinOnlyRow.lead} · 参与 ${joinOnlyRow.join}`));
-  // 回归：比例条这一行没有 .nm（左边名字列），比左边 hBar 那一行天然矮一截（.nm 撑出的行高比 .track/.num 都高），
-  // 差个 1-2px 逐行累积下来，十几个人排下来右边的条就跟左边名字对不上了；.bar-row 要有 min-height 兜底
-  ok('.bar-row 有 min-height 兜底，没有 .nm 的行（比例条）也能跟有 .nm 的行同高，不会累积错位',
-    /\.bar-row\s*\{[^}]*min-height:\s*16px/.test(rawHtml));
-  ok('比例条的数字列比左边横条的数字列窄很多（44px vs 82px），不会因为文字短、右对齐而离色条一大截',
-    h.includes('class="num" style="width:44px"'));
+  ok('牵头甲整行的完整提示文字（状态+牵头参与）准确', h.includes(expectTip(leadOnlyRow)));
+  ok('参与乙整行的完整提示文字（状态+牵头参与）准确', h.includes(expectTip(joinOnlyRow)));
+  // 回归：既然状态条和比例条现在在同一行，鼠标悬浮时 .bar-row.clickable:hover 的高亮天然会盖住整行
+  // （包括最右边的比例条），不需要再单独处理"高亮延伸到右边"这件事
+  ok('整行都在同一个 clickable 元素里，悬浮高亮会盖住状态条和比例条', h.includes('bar-row-person clickable'));
+  ok('按人视图专用了更窄的人名列宽度（80px，不是给职责/工作这种长名字留的170px），名字后面不会空一大截',
+    /\.bar-row-person\s+\.nm\s*\{[^}]*width:\s*80px/.test(rawHtml));
+  ok('比例条的数字列有专门收窄的宽度（44px），不会因为文字短、右对齐而离色条一大截',
+    /\.bar-row-person\s+\.num-role\s*\{[^}]*width:\s*44px/.test(rawHtml));
 
   section('图表 / 表格切换（无障碍要求）');
   ok('提供切换按钮', h.includes('data-act="chart-view"'));

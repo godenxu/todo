@@ -173,6 +173,17 @@ td.cell-center { text-align: center; }
 .card .v { font-size: 22px; font-weight: 700; color: var(--text); }
 .card .v.warn { color: var(--overdue); }
 .card .v.ok { color: var(--done); }
+/* 工作台顶部：任务维度/里程碑维度两组卡片并排放在同一行，紧凑一些；各自套一层带底色的"分组框"，
+   一眼就能分清哪些卡片是任务口径、哪些是里程碑口径，不用再靠占一整行的大标题分隔 */
+.stat-groups { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
+.stat-group { flex: 1 1 380px; border-radius: 8px; padding: 8px 10px 10px; border: 1px solid var(--border2); }
+.stat-group-task { background: var(--accent-light); }
+.stat-group-ms { background: #f3eefa; border-color: #ddd0ee; }
+.stat-group-label { font-size: 11px; font-weight: 600; color: var(--text2); margin-bottom: 6px; letter-spacing: .02em; }
+.stat-group .cards { margin-bottom: 0; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 8px; }
+.stat-group .card { padding: 7px 9px; }
+.stat-group .card .k { font-size: 10.5px; margin-bottom: 2px; }
+.stat-group .card .v { font-size: 17px; }
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 12px; }
 .panel-h { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; font-weight: 700; color: var(--text2); display: flex; align-items: center; justify-content: space-between; }
 .panel-b { padding: 10px 12px; }
@@ -198,6 +209,12 @@ td.cell-center { text-align: center; }
 .bar-row-muted .seg-late  { background: #e2a49b; }
 .bar-row-muted .seg-todo  { background: #c9c0ae; }
 .bar-row .num { width: 82px; text-align: right; color: var(--text3); font-size: 11px; flex-shrink: 0; font-variant-numeric: tabular-nums; }
+/* 图表页"按人"：状态条和牵头/参与条合并进同一行（而不是分左右两栏），这样悬浮高亮天然会盖住整行，
+   也不用再费劲让两栏的行高对齐；人名列比其它地方（170px，要容纳职责/工作这种长名字）窄很多，
+   因为人名一般就 2-4 个字，不用留那么宽 */
+.bar-row-person .nm { width: 80px; }
+.bar-row-person .track-role { flex: 0 0 90px; }
+.bar-row-person .num-role { width: 44px; }
 .bar-row.clickable { cursor: pointer; border-radius: 3px; }
 .bar-row.clickable:hover { background: var(--bg); }
 .legend { margin-top: 9px; font-size: 11px; color: var(--text3); display: flex; gap: 12px; flex-wrap: wrap; }
@@ -574,7 +591,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260727024552';
+const APP_VERSION = 'v20260727035955';
 
 /* =============================================================
    1. 枚举与常量
@@ -2237,23 +2254,28 @@ function renderDashboard() {
   });
 
   $('#page-dashboard').innerHTML = `<div class="pad">
-    <div class="chart-flex-col-title">任务维度</div>
-    <div class="cards">
-      ${card('未完成任务', open.length, '', 'all')}
-      ${card('逾期任务', overdue.length, overdue.length ? 'warn' : '', 'overdue')}
-      ${card('今日到期任务', dueToday.length, '', 'today')}
-      ${card('本周到期任务', week.length, '', 'week')}
-      ${card('本月完成任务', monthDone.length, 'ok', 'done')}
-      ${card('我的在办任务', me ? mineOpen.length : '—', '', me ? 'mine' : '')}
-    </div>
-
-    <div class="chart-flex-col-title">里程碑维度</div>
-    <div class="cards">
-      ${card('未完成里程碑', msOpen.length, '')}
-      ${card('逾期里程碑', msOverdue.length, msOverdue.length ? 'warn' : '')}
-      ${card('今日到期里程碑', msDueToday.length, '')}
-      ${card('本周到期里程碑', msWeek.length, '')}
-      ${card('本月完成里程碑', msMonthDone.length, 'ok')}
+    <div class="stat-groups">
+      <div class="stat-group stat-group-task">
+        <div class="stat-group-label">任务维度</div>
+        <div class="cards">
+          ${card('未完成任务', open.length, '', 'all')}
+          ${card('逾期任务', overdue.length, overdue.length ? 'warn' : '', 'overdue')}
+          ${card('今日到期任务', dueToday.length, '', 'today')}
+          ${card('本周到期任务', week.length, '', 'week')}
+          ${card('本月完成任务', monthDone.length, 'ok', 'done')}
+          ${card('我的在办任务', me ? mineOpen.length : '—', '', me ? 'mine' : '')}
+        </div>
+      </div>
+      <div class="stat-group stat-group-ms">
+        <div class="stat-group-label">里程碑维度</div>
+        <div class="cards">
+          ${card('未完成里程碑', msOpen.length, '')}
+          ${card('逾期里程碑', msOverdue.length, msOverdue.length ? 'warn' : '')}
+          ${card('今日到期里程碑', msDueToday.length, '')}
+          ${card('本周到期里程碑', msWeek.length, '')}
+          ${card('本月完成里程碑', msMonthDone.length, 'ok')}
+        </div>
+      </div>
     </div>
 
     <div class="dash-grid">
@@ -2944,31 +2966,49 @@ function renderCharts() {
   if (chartTab === 'person') {
     const st = statsByPerson(tasks);
     const max = Math.max(1, ...st.map(s => s.total));
-    // 右侧不再用饼图（全体状态占比信息量太低），改成每人一行"牵头/参与"比例条，
-    // 跟左边同一个人的横条按行对齐，一眼看出这个人是以牵头为主还是以参与为主
-    const roleLegend = `<div class="legend">
-      <span><i style="background:#6a4c93"></i>牵头</span>
-      <span><i style="background:#c9a227"></i>参与</span></div>`;
-    const roleBar = s => {
+    // 状态条和牵头/参与条现在合并进同一个 .bar-row（而不是分左右两栏），这样鼠标悬浮的高亮
+    // 天然会盖住整行，也不需要再操心两栏行高是否对得上
+    const personRow = s => {
+      const p = n => (n / max * 100).toFixed(2) + '%';
+      const todoN = (s.todo || 0) + (s.hold || 0);
+      const statusSegs = [
+        s.done > 0 ? `<span class="seg seg-done" style="width:${p(s.done)}"></span>` : '',
+        s.doing > 0 ? `<span class="seg seg-doing" style="width:${p(s.doing)}"></span>` : '',
+        s.late > 0 ? `<span class="seg seg-late" style="width:${p(s.late)}"></span>` : '',
+        todoN > 0 ? `<span class="seg seg-todo" style="width:${p(todoN)}"></span>` : '',
+      ].join('');
       const denom = Math.max(1, s.lead + s.join);
-      const leadPct = (s.lead / denom * 100).toFixed(2) + '%', joinPct = (s.join / denom * 100).toFixed(2) + '%';
-      return `<div class="bar-row" title="${esc(s.name)}：牵头 ${s.lead} · 参与 ${s.join}">
-        <span class="track">${s.lead > 0 ? `<span class="seg seg-lead" style="width:${leadPct}"></span>` : ''}${s.join > 0 ? `<span class="seg seg-join" style="width:${joinPct}"></span>` : ''}</span>
-        <span class="num" style="width:44px">${s.lead} / ${s.join}</span></div>`;
+      const rp = n => (n / denom * 100).toFixed(2) + '%';
+      const roleSegs = [
+        s.lead > 0 ? `<span class="seg seg-lead" style="width:${rp(s.lead)}"></span>` : '',
+        s.join > 0 ? `<span class="seg seg-join" style="width:${rp(s.join)}"></span>` : '',
+      ].join('');
+      const tip = `${s.name}：共 ${s.total} 条 · 已完成 ${s.done} · 进行中 ${s.doing} · 逾期 ${s.late} · 未开始 ${s.todo}` +
+        `${s.hold ? ' · 挂起 ' + s.hold : ''} · 牵头 ${s.lead} · 参与 ${s.join}`;
+      const person = s.name === '（未指派）' ? '__empty__' : s.name;
+      return `<div class="bar-row bar-row-person clickable" data-act="filter-person" data-person="${esc(person)}" title="${esc(tip)}">
+        <span class="nm">${esc(s.name)}</span>
+        <span class="track">${statusSegs}</span>
+        <span class="num">${s.done}/${s.total} · ${s.rate}%</span>
+        <span class="track track-role">${roleSegs}</span>
+        <span class="num num-role">${s.lead} / ${s.join}</span></div>`;
     };
+    const personLegend = `<div class="legend">
+      <span><i style="background:var(--c-done)"></i>已完成</span>
+      <span><i style="background:var(--c-doing)"></i>进行中</span>
+      <span><i style="background:var(--c-late)"></i>逾期</span>
+      <span><i style="background:var(--c-todo)"></i>未开始/挂起</span>
+      <span style="margin-left:14px"><i style="background:#6a4c93"></i>牵头</span>
+      <span><i style="background:#c9a227"></i>参与</span></div>`;
     body = `<div class="panel">
       ${panelHead('▥ 各人相关任务量与完成率（仅指任务数，不代表工作量）', 'person', '按姓名拼音排序 · 点击下钻')}
       <div class="panel-b">${chartTableView.person
         ? dataTable(['姓名', '相关合计', '已完成', '进行中', '逾期', '未开始', '完成率', '牵头', '参与'],
             st.map(s => [s.name, s.total, s.done, s.doing, s.late, s.todo + s.hold, s.rate + '%', s.lead, s.join]))
-        : (st.length ? `<div class="chart-flex">
-             <div class="chart-flex-bars">${st.map(s => hBar(s.name, s, max,
-               ` data-act="filter-person" data-person="${esc(s.name === '（未指派）' ? '__empty__' : s.name)}"`)).join('')}${statusLegend}</div>
-             <div class="chart-flex-pie">${st.map(roleBar).join('')}${roleLegend}</div>
-           </div>` : '<div class="empty-mini">暂无数据</div>')}
+        : (st.length ? `${st.map(personRow).join('')}${personLegend}` : '<div class="empty-mini">暂无数据</div>')}
         <div class="chart-note">条长表示该人牵头或参与的任务总量（同一条任务只算一次，同一标尺可横向比较），
-        才能反映一个人到底跟多少任务相关，而不是只看他牵头了多少条；右侧为「已完成/合计 · 完成率」。
-        最右边每一行是该人牵头/参与任务数的比例条，跟左边同一个人对齐，看这个人以牵头为主还是以参与为主。</div></div></div>`;
+        才能反映一个人到底跟多少任务相关，而不是只看他牵头了多少条；中间为「已完成/合计 · 完成率」。
+        最右边是该人牵头/参与任务数的比例条，看这个人以牵头为主还是以参与为主。</div></div></div>`;
 
   } else if (chartTab === 'category') {
     const cat = statsByCategory(tasks), duty = statsByDuty(tasks);
