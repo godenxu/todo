@@ -18,8 +18,8 @@ async function main() {
 
   section('页签');
   let h = render();
-  ok('四个页签', (h.match(/data-act="chart-tab"/g) || []).length === 4);
-  ['按人', '按分类', '按时间', '里程碑甘特'].forEach(t => ok('含页签：' + t, h.includes(t)));
+  ok('六个页签', (h.match(/data-act="chart-tab"/g) || []).length === 6);
+  ['按人', '按职责', '按任务', '按工作', '按时间', '按里程碑'].forEach(t => ok('含页签：' + t, h.includes(t)));
   ok('默认选中「按人」', /class="t on" data-act="chart-tab" data-k="person"/.test(h));
   h = render('time');
   ok('切换页签生效', /class="t on" data-act="chart-tab" data-k="time"/.test(h) && S.chartTab === 'time');
@@ -75,29 +75,80 @@ async function main() {
     if (has) ok('类别显示：' + c.label, h.includes(c.label));
   });
 
-  section('按时间：折线图');
-  const series = S.monthlySeries(tasks, 12);
-  ok('12 个月数据点', series.length === 12, series.length);
-  ok('新增总数 ≤ 任务总数', series.reduce((a, s) => a + s.added, 0) <= tasks.length);
-  ok('完成总数 = 有完成日期的已完成任务数（近12月内）',
-     series.reduce((a, s) => a + s.done, 0) <= tasks.filter(t => t.status === 'done').length);
-  ok('测试数据跨多个月（趋势图有形状）', series.filter(s => s.added > 0).length >= 3,
-     series.filter(s => s.added > 0).length);
+  section('按时间：待办任务总量趋势（合并原来3张"新增与完成"图，改成存量口径+粒度切换）');
+  const monthBacklog = S.backlogSeries(tasks, 'month');
+  ok('12 个月数据点', monthBacklog.length === 12, monthBacklog.length);
+  ok('每个月的待办总量跟单独重算一遍一致（抽查最后一个月=今天这个快照）',
+    monthBacklog[11].backlog === S.backlogAsOf(tasks, S.todayStr()));
+  const weekBacklog = S.backlogSeries(tasks, 'week');
+  ok('12 个周数据点', weekBacklog.length === 12, weekBacklog.length);
+  const dayBacklog = S.backlogSeries(tasks, 'day');
+  ok('15 个日数据点', dayBacklog.length === 15, dayBacklog.length);
+  ok('日粒度最后一天是今天', dayBacklog[dayBacklog.length - 1].m === S.todayStr());
+  ok('日粒度最后一天的待办总量 = 未完成任务数', dayBacklog[dayBacklog.length - 1].backlog === tasks.filter(S.isOpen).length,
+    [dayBacklog[dayBacklog.length - 1].backlog, tasks.filter(S.isOpen).length]);
 
-  const svg = S.lineChart(series, 800);
+  const svg = S.lineChart(monthBacklog, 800, '待办任务总量趋势', { aKey: 'backlog', bKey: null, aLabel: '待办总量' });
   ok('生成 SVG', svg.startsWith('<svg') && svg.includes('</svg>'));
-  ok('两条折线', svg.includes('ln-new') && svg.includes('ln-done'));
-  ok('虚线做二次编码', /ln-done/.test(svg));
-  ok('圆点 + 方块两种标记', svg.includes('<circle') && svg.includes('mk-done'));
-  ok('有 aria-label', svg.includes('aria-label'));
-  ok('标记自带 title 提示', (svg.match(/<title>/g) || []).length >= series.length);
+  ok('单线模式只画一条折线（没有第二条 ln-done）', svg.includes('ln-new') && !svg.includes('ln-done'));
+  ok('单线模式只有圆点标记（没有方块 mk-done）', svg.includes('<circle') && !svg.includes('mk-done'));
+  ok('有自定义 aria-label', svg.includes('aria-label="待办任务总量趋势"'));
+  ok('标记自带 title 提示', (svg.match(/<title>/g) || []).length >= monthBacklog.length);
   ok('有十字准线元素', svg.includes('id="ch-line"'));
-  ok('有命中区（悬停用）', (svg.match(/data-tip=/g) || []).length === series.length);
+  ok('有命中区（悬停用）', (svg.match(/data-tip=/g) || []).length === monthBacklog.length);
   // 几何：所有点必须落在绘图区内
   const cys = nums(svg, /cy="([\d.]+)"/g);
   ok('折线点纵坐标在画布内', cys.length && cys.every(v => v >= 0 && v <= 210), [Math.min(...cys), Math.max(...cys)]);
   const cxs = nums(svg, /cx="([\d.]+)"/g);
   ok('折线点横坐标在画布内', cxs.every(v => v >= 0 && v <= 800), [Math.min(...cxs), Math.max(...cxs)]);
+
+  h = render('time');
+  ok('渲染了"待办任务总量趋势"面板', h.includes('待办任务总量趋势'));
+  ok('原来3张"新增与完成"图已经不在了', !h.includes('新增与完成'));
+  ok('有月/周/日粒度切换按钮', h.includes('data-act="trend-granularity" data-g="month"')
+    && h.includes('data-act="trend-granularity" data-g="week"') && h.includes('data-act="trend-granularity" data-g="day"'));
+  ok('默认选中"月"这个粒度', /class="toggle-view on" data-act="trend-granularity" data-g="month"/.test(h));
+  S.ACTIONS['trend-granularity']({ g: 'week' });
+  h = q('#page-charts').innerHTML;
+  ok('切到"周"粒度后 trendGranularity 变化', S.trendGranularity === 'week');
+  ok('切到"周"粒度后"周"按钮变成选中态', /class="toggle-view on" data-act="trend-granularity" data-g="week"/.test(h));
+  S.ACTIONS['chart-view']({ id: 'trendBacklog' });
+  h = q('#page-charts').innerHTML;
+  ok('看数据表能看到"待办总量"表头', h.includes('<table') && h.includes('待办总量'));
+  S.ACTIONS['chart-view']({ id: 'trendBacklog' });
+  S.ACTIONS['trend-granularity']({ g: 'month' });   // 切回默认粒度，避免影响后面的断言
+
+  section('按时间：从本月起，各月计划完成的任务数与里程碑数（分组柱状图，口径从当月起往后延伸）');
+  const msIds = new Set(tasks.map(t => t.id));
+  const msForPlan = S.DB.milestones.filter(m => !m.deleted_at && m.plan_date && msIds.has(m.task));
+  const planSeries = S.planDueSeries(tasks, msForPlan);
+  const thisMonth = S.todayStr().slice(0, 7);
+  ok('第一个月是当月（不是过去12个月那种固定窗口）', planSeries[0].m === thisMonth, planSeries[0].m);
+  ok('至少包含当月这一个月', planSeries.length >= 1, planSeries.length);
+  ok('月份序列连续递增、不重复', planSeries.every((s, i) => i === 0 || s.m > planSeries[i - 1].m));
+  ok('每月任务数与实际按 plan_date 分月吻合（抽查第一个非零月）', (() => {
+    const hit = planSeries.find(s => s.tasks > 0);
+    if (!hit) return true;
+    return tasks.filter(t => (t.plan_date || '').slice(0, 7) === hit.m).length === hit.tasks;
+  })());
+  const planChart = S.groupedBarChart(planSeries, 800, { aKey: 'tasks', bKey: 'milestones', aLabel: '计划完成任务数', bLabel: '计划完成里程碑数', ariaLabel: '按月计划完成的任务数与里程碑数' });
+  ok('生成分组柱状图 SVG', planChart.startsWith('<svg') && planChart.includes('</svg>'));
+  ok('自定义 aria-label 生效', planChart.includes('aria-label="按月计划完成的任务数与里程碑数"'));
+  ok('提示文字用的是自定义 label（计划完成任务数/计划完成里程碑数）', planChart.includes('计划完成任务数') && planChart.includes('计划完成里程碑数'));
+  ok('两种柱子颜色区分两个系列', planChart.includes('bar-norm') && planChart.includes('bar-done'));
+  const valLabels = (planChart.match(/class="ax-text val"/g) || []).length;
+  const nonZeroBars = planSeries.reduce((a, s) => a + (s.tasks ? 1 : 0) + (s.milestones ? 1 : 0), 0);
+  ok('每根非零柱子上方都有数字标签', valLabels === nonZeroBars, { valLabels, nonZeroBars });
+
+  h = render('time');
+  ok('渲染了"从本月起，各月计划完成的任务数与里程碑数"面板', h.includes('从本月起，各月计划完成的任务数与里程碑数'));
+  ok('这个面板排在"按时间"tab最后（在"未完成任务的到期分布"面板之后）',
+    h.indexOf('未完成任务的到期分布') < h.indexOf('从本月起，各月计划完成的任务数与里程碑数'));
+  ok('看数据表切换 id 是 trendPlan，且跟其它图独立', h.includes('data-act="chart-view" data-id="trendPlan"'));
+  S.ACTIONS['chart-view']({ id: 'trendPlan' });
+  h = q('#page-charts').innerHTML;
+  ok('切到数据表能看到"计划完成任务数"表头', h.includes('<table') && h.includes('计划完成任务数') && h.includes('计划完成里程碑数'));
+  S.ACTIONS['chart-view']({ id: 'trendPlan' });
 
   section('按时间：柱状图');
   const buckets = S.dueBuckets(tasks);
@@ -112,30 +163,41 @@ async function main() {
   const hs = nums(bsvg, /height="([\d.]+)"/g);
   ok('柱高非负且在画布内', hs.every(v => v >= 0 && v <= 190), [Math.min(...hs), Math.max(...hs)]);
 
-  section('里程碑甘特');
+  section('按里程碑（职责→工作→任务树状展开）');
   h = render('gantt');
   const ms = S.DB.milestones.filter(m => !m.deleted_at && m.plan_date);
   if (ms.length) {
-    ok('渲染甘特行', h.includes('gantt-row'));
-    ok('有跨度条', h.includes('gantt-span'));
-    ok('有里程碑圆点', h.includes('gantt-pt'));
-    ok('有今天基准线', h.includes('--today:'));
-    ok('点击工作名可查看其任务', h.includes('data-act="work-drill"'));
+    ok('渲染了树状行（职责/工作层级）', h.includes('gantt-row'));
+    ok('默认折叠：职责行自己聚合展示跨度条/圆点（不用展开就能看到大致分布）', h.includes('gantt-span') && h.includes('gantt-pt') && h.includes('--today:'));
+    ok('默认折叠：还看不到任务级别的行（要展开到工作层级才有）', !h.includes('gantt-row-task'));
+    ok('有全部展开/展开到工作层/全部折叠入口', h.includes('data-act="ms-expand-all"') && h.includes('data-act="ms-expand-to-work"') && h.includes('data-act="ms-collapse-all"'));
+    S.ACTIONS['ms-expand-all']();
+    h = q('#page-charts').innerHTML;
+    ok('全部展开后能看到任务级的跨度条', h.includes('gantt-span'));
+    ok('全部展开后能看到里程碑圆点', h.includes('gantt-pt'));
+    ok('全部展开后有今天基准线', h.includes('--today:'));
+    ok('点击工作行可下钻查看其任务', h.includes('data-act="work-drill"'));
+    ok('点击职责行可下钻查看其工作', h.includes('data-act="duty-drill"'));
+    ok('点击任务行可查看任务详情', h.includes('data-act="task-detail"'));
     const lefts = nums(h, /class="gantt-pt [a-z]+" style="left:([\d.]+)%/g);
     ok('圆点均在轴范围内', lefts.length > 0 && lefts.every(v => v >= 0 && v <= 100), [Math.min(...lefts), Math.max(...lefts)]);
     const spans = [...h.matchAll(/class="gantt-span" style="left:([\d.]+)%;width:([\d.]+)%/g)].map(m => [+m[1], +m[2]]);
     ok('跨度条不超出右边界', spans.every(([l, w]) => l + w <= 100.05), spans.slice(0, 3));
     ok('有月份刻度', h.includes('class="tk"'));
+    S.ACTIONS['ms-collapse-all']();
+    h = q('#page-charts').innerHTML;
+    ok('全部折叠后任务级明细行又不见了（只剩职责行自己聚合的跨度条）', !h.includes('gantt-row-task') && h.includes('gantt-span'));
+    ok('含"里程碑完成情况分布"面板', h.includes('里程碑完成情况分布'));
   } else ok('（无里程碑，跳过）', true);
 
   section('边界：空数据不炸');
   const bak = { d: S.DB.duties, w: S.DB.works, m: S.DB.milestones, t: S.DB.tasks };
   S.DB.duties = []; S.DB.works = []; S.DB.milestones = []; S.DB.tasks = [];
   let crashed = null;
-  for (const tab of ['person', 'category', 'time', 'gantt']) {
+  for (const tab of ['person', 'category', 'task', 'work', 'time', 'gantt']) {
     try { render(tab); } catch (e) { crashed = tab + ': ' + e.message; }
   }
-  ok('四个页签在空数据下都不报错', !crashed, crashed);
+  ok('六个页签在空数据下都不报错', !crashed, crashed);
   // 单点也不能除零
   S.DB.tasks = [bak.t[0]];
   try { render('time'); } catch (e) { crashed = 'single: ' + e.message; }

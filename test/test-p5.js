@@ -288,8 +288,8 @@ async function main() {
     return [...m[0].matchAll(/width:([\d.]+)%/g)].reduce((a, w) => a + (+w[1]), 0);
   };
   if (notMax) {
-    // hBar 只画 done/doing/late 三段（未开始/挂起留白），标尺分母是共享的 maxD 而不是自己的 total
-    const filled = notMax.done + notMax.doing + notMax.late;
+    // hBar 画 done/doing/late/todo(含挂起) 四段，条形总宽等于 total，但标尺分母是共享的 maxD 而不是自己的 total
+    const filled = notMax.done + notMax.doing + notMax.late + notMax.todo + notMax.hold;
     const expectPct = +(filled / maxD * 100).toFixed(2);
     const oldBuggyPct = notMax.total ? +(filled / notMax.total * 100).toFixed(2) : 0;
     const dashPct = segWidthSum(dashH, notMax.code);

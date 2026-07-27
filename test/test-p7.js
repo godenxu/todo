@@ -1,4 +1,4 @@
-/* P7 身份与权限系统（PIN 账号 + 员工/协管/处长/管理员）测试。用法：node test/test-p7.js */
+/* P7 身份与权限系统（PIN 账号 + 员工/组长/处室领导/管理员）测试。用法：node test/test-p7.js */
 const { sandbox: S, raw, q } = require('./harness.js');
 
 let pass = 0, fail = 0;
@@ -29,7 +29,7 @@ async function main() {
   ok('verifyPin 面对没有账号信息时不通过而不是抛异常', !(await S.verifyPin('1234', null)));
 
   section('角色等级判断');
-  ok('ROLE_RANK 顺序：员工 < 协管 < 处长 < 管理员',
+  ok('ROLE_RANK 顺序：员工 < 组长 < 处室领导 < 管理员',
      S.ROLE_RANK.staff < S.ROLE_RANK.comanager && S.ROLE_RANK.comanager < S.ROLE_RANK.director && S.ROLE_RANK.director < S.ROLE_RANK.admin);
   S.DB.settings.me = '测试管理员';
   ok('当前登录是管理员，roleAtLeast admin 为真', S.roleAtLeast('admin'));
@@ -50,10 +50,10 @@ async function main() {
   ok('员工能编辑自己是参与人的任务（不一定是负责人）', S.canEditRecord('task', asAssignee));
   S.DB.tasks = S.DB.tasks.filter(t => t.id !== 'test_mine_task' && t.id !== 'test_assignee_task');
 
-  section('canEditRecord：协管以上不受"是否本人负责"限制');
-  S.DB.users.push({ name: '测试协管', role: 'comanager', salt: '', hash: '', iterations: 0 });
-  S.DB.settings.me = '测试协管';
-  ok('协管能编辑任何人负责的任务', S.canEditRecord('task', t0));
+  section('canEditRecord：组长以上不受"是否本人负责"限制');
+  S.DB.users.push({ name: '测试组长', role: 'comanager', salt: '', hash: '', iterations: 0 });
+  S.DB.settings.me = '测试组长';
+  ok('组长能编辑任何人负责的任务', S.canEditRecord('task', t0));
 
   section('权限点位：员工尝试受限操作会被拦下');
   S.DB.settings.me = '测试员工';
@@ -63,18 +63,18 @@ async function main() {
   S.ACTIONS['duty-del']({ code: anyDuty.code });
   ok('员工点删除职责，职责数没有变化（直接被权限拦截，没走到确认弹窗那一步）',
      S.DB.duties.length === dutyCountBefore);
-  ok('提示里说明了权限不足', q('#snack-msg').textContent.includes('权限不足'));
+  ok('提示里说明了是为了防止误操作', q('#snack-msg').textContent.includes('为了防止误操作'));
   S.ACTIONS['work-new']();
-  ok('员工新建工作被拦下', q('#snack-msg').textContent.includes('权限不足'));
+  ok('员工新建工作被拦下', q('#snack-msg').textContent.includes('为了防止误操作'));
   S.ACTIONS['reset-all']();
-  ok('员工触发重置全部数据被拦下（这个连协管都不够，只有管理员）', q('#snack-msg').textContent.includes('权限不足'));
+  ok('员工触发重置全部数据被拦下（这个连组长都不够，只有管理员）', q('#snack-msg').textContent.includes('为了防止误操作'));
   S.ACTIONS['connect-shared']();
-  ok('员工连接共享文件被拦下', q('#snack-msg').textContent.includes('权限不足'));
+  ok('员工连接共享文件被拦下', q('#snack-msg').textContent.includes('为了防止误操作'));
 
-  section('权限点位：协管可以做员工做不了的事，但摸不到管理员专属操作');
-  S.DB.settings.me = '测试协管';
+  section('权限点位：组长可以做员工做不了的事，但摸不到管理员专属操作');
+  S.DB.settings.me = '测试组长';
   S.ACTIONS['reset-all']();
-  ok('协管一样碰不了重置全部数据（管理员专属）', q('#snack-msg').textContent.includes('权限不足'));
+  ok('组长一样碰不了重置全部数据（管理员专属）', q('#snack-msg').textContent.includes('为了防止误操作'));
 
   section('批量操作：跳过没权限编辑的记录，而不是整批失败或整批放行');
   S.DB.settings.me = '测试员工';
@@ -92,22 +92,22 @@ async function main() {
   S.DB.tasks = S.DB.tasks.filter(t => t.id !== 'test_batch_mine');
   S.UI.tasks.sel.clear();
 
-  section('账号管理面板：处长/管理员的可编辑范围不同');
+  section('账号管理面板：处室领导/管理员的可编辑范围不同');
   S.DB.settings.me = '测试管理员';
-  const director = { name: '测试处长', role: 'director', salt: '', hash: '', iterations: 0 };
+  const director = { name: '测试处室领导', role: 'director', salt: '', hash: '', iterations: 0 };
   const staff2 = { name: '测试员工2', role: 'staff', salt: '', hash: '', iterations: 0 };
   const admin2 = { name: '测试管理员2', role: 'admin', salt: '', hash: '', iterations: 0 };
   S.DB.users.push(director, staff2, admin2);
-  ok('管理员能管理任何角色的账号（包括处长、其他管理员）',
+  ok('管理员能管理任何角色的账号（包括处室领导、其他管理员）',
      S.canManageAccount(director) && S.canManageAccount(admin2) && S.canManageAccount(staff2));
-  S.DB.settings.me = '测试处长';
-  ok('处长能管理员工账号', S.canManageAccount(staff2));
-  ok('处长不能管理其他处长账号', !S.canManageAccount(director));
-  ok('处长不能管理管理员账号', !S.canManageAccount(admin2));
+  S.DB.settings.me = '测试处室领导';
+  ok('处室领导能管理员工账号', S.canManageAccount(staff2));
+  ok('处室领导不能管理其他处室领导账号', !S.canManageAccount(director));
+  ok('处室领导不能管理管理员账号', !S.canManageAccount(admin2));
   const assignable = S.assignableRoles().map(r => r.v).sort();
-  ok('处长能分配的角色只有员工/协管，不能把人升成处长或管理员', assignable.join(',') === ['comanager', 'staff'].sort().join(','));
+  ok('处室领导能分配的角色只有员工/组长，不能把人升成处室领导或管理员', assignable.join(',') === ['comanager', 'staff'].sort().join(','));
   const panelHtml = S.accountsPanelHTML();
-  ok('面板里处长自己名下能管的账号是可编辑下拉框', panelHtml.includes('data-act="account-role-change"'));
+  ok('面板里处室领导自己名下能管的账号是可编辑下拉框', panelHtml.includes('data-act="account-role-change"'));
   ok('面板文字提到了权限边界', panelHtml.includes('管理员'));
 
   section('login-create：新建账号流程 + 徐捷首位自动成为管理员');
@@ -161,7 +161,7 @@ async function main() {
   section('users 随共享文件合并（复用通用的按 rev/updated_at 合并逻辑）');
   const localUsers = [{ name: '甲', role: 'staff', rev: 1, updated_at: '2026-01-01T00:00:00.000Z' }];
   const remoteUsers = [
-    { name: '甲', role: 'comanager', rev: 2, updated_at: '2026-01-02T00:00:00.000Z' },   // 对方把甲提升为协管，版本更高
+    { name: '甲', role: 'comanager', rev: 2, updated_at: '2026-01-02T00:00:00.000Z' },   // 对方把甲提升为组长，版本更高
     { name: '乙', role: 'staff', rev: 1, updated_at: '2026-01-01T00:00:00.000Z' },        // 对方新增的账号
   ];
   const mergedUsers = S.mergeByPk('name', localUsers, remoteUsers);

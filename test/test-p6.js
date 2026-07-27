@@ -55,7 +55,7 @@ async function main() {
 
   section('纯合并函数：syncPayload 不包含 settings');
   const payload = S.syncPayload(S.DB);
-  ok('只有业务字段，没有 settings', Object.keys(payload).sort().join(',') === 'changelog,duties,milestones,tasks,users,works');
+  ok('只有业务字段，没有 settings', Object.keys(payload).sort().join(',') === 'changelog,duties,milestones,permissionMatrix,shareConfig,tasks,users,works');
   ok('settings（使用者/列宽等）确实被排除在外', !('settings' in payload));
 
   section('syncToFile：文件没被别人动过 → 直接写当前状态，不做合并');

@@ -18,13 +18,17 @@ async function main() {
   let h = dashHTML();
   ok('渲染出内容', h.length > 2000, h.length);
   // 注意用 card[ "] 收尾，否则容器 class="cards" 也会被数进来
-  ok('六张指标卡', (h.match(/class="card[ "]/g) || []).length === 6, (h.match(/class="card[ "]/g) || []).length);
+  // 任务维度6张 + 里程碑维度5张（并行统计，明确标注维度）
+  ok('十一张指标卡（任务维度6张+里程碑维度5张）', (h.match(/class="card[ "]/g) || []).length === 11, (h.match(/class="card[ "]/g) || []).length);
+  ok('分区标注了"任务维度"和"里程碑维度"', h.includes('任务维度') && h.includes('里程碑维度'));
   ok('卡片可点击跳转', h.includes('data-act="goto-view"'));
   ok('两栏布局', h.includes('dash-grid'));
   const panels = (h.match(/panel-h/g) || []).length;
-  ok('六个面板', panels === 6, panels);
-  ['需要关注', '里程碑时间线', '各职责推进情况', '我的工作台', '人员负荷', '最近动态']
+  ok('六个面板（"里程碑时间线"已下线，被"里程碑甘特图"取代）', panels === 6, panels);
+  ['需要关注', '各职责/工作推进情况', '里程碑甘特图', '我的工作台', '人员负荷', '最近动态']
     .forEach(t => ok('含面板：' + t, h.includes(t)));
+  ok('"里程碑时间线"面板已移除', !h.includes('里程碑时间线'));
+  ok('旧面板专用的 tl-row/tl-dot/tl-date 死代码已清理', !h.includes('tl-row') && !h.includes('tl-dot') && !h.includes('tl-date'));
 
   section('需要关注（分段）');
   ok('四个分段', ['逾期', '今日到期', '本周到期', '未指派'].every(t => h.includes(`data-act="dash-focus"`) && h.includes(t)));
@@ -38,19 +42,19 @@ async function main() {
   h = q('#page-dashboard').innerHTML;
   ok('逾期条目数正确（最多10条）', (h.match(/data-act="focus-task"/g) || []).length >= Math.min(overdue.length, 10));
 
-  section('里程碑时间线');
+  section('里程碑甘特图（工作台）：今天基准线要在展开/折叠状态下始终对齐成一条竖线');
+  // "我的里程碑"默认打开，这里只测通用的对齐逻辑，先切到"全部"看到完整数据
+  if (S.dashMsMineOnly) S.ACTIONS['dash-ms-toggle-mine']();
   h = dashHTML();
   const ms = S.DB.milestones.filter(m => !m.deleted_at && m.plan_date);
   if (ms.length) {
-    ok('渲染时间线行', h.includes('tl-row'));
+    ok('渲染了里程碑甘特图面板', h.includes('里程碑甘特图') && h.includes('gantt-row'));
     ok('有今天基准线变量', h.includes('--today:'));
-    ok('圆点定位用百分比', /class="tl-dot [a-z]+" style="left:[\d.]+%/.test(h));
-    ok('四种状态色图例齐全', ['--c-late', '--c-soon', '--c-doing', '--c-done'].every(c => h.includes(c)));
-    ok('有刻度轴', h.includes('tl-ticks') && h.includes('class="tk"'));
-    ok('每行有文字状态标签（对比度警告的解除条件）', /class="tl-date[^"]*">[^<]+</.test(h));
-    // 圆点百分比必须落在 0–100 之间
-    const lefts = [...h.matchAll(/class="tl-dot [a-z]+" style="left:([\d.]+)%/g)].map(m => +m[1]);
-    ok('所有圆点在轴范围内', lefts.length > 0 && lefts.every(v => v >= 0 && v <= 100), lefts.slice(0, 5));
+    // 无论职责/工作行是聚合展示还是只是撑开对齐的空 track，--today 都应该是同一个百分比，
+    // 竖线才能贯穿所有行连成一条直线，不会因为某一行用了默认值 0% 而断开/错位
+    const todays = [...h.matchAll(/class="gantt-track"[^>]*--today:([\d.]+)%/g)].map(m => +m[1]);
+    ok('所有 gantt-track 的 --today 取值一致（竖线贯穿不错位）',
+      todays.length > 0 && todays.every(v => Math.abs(v - todays[0]) < 0.01), todays.slice(0, 8));
   } else ok('（无里程碑数据，跳过）', true);
 
   section('各职责推进');
@@ -106,9 +110,18 @@ async function main() {
     .map(m => [m[1], m[2]]);
   const get = k => { const e = cardVals.find(x => x[0] === k); return e ? e[1] : null; };
   ok('未完成任务数与数据一致', +get('未完成任务') === tasks.filter(S.isOpen).length, [get('未完成任务'), tasks.filter(S.isOpen).length]);
-  ok('逾期数与数据一致', +get('逾期') === overdue.length, [get('逾期'), overdue.length]);
+  ok('逾期数与数据一致', +get('逾期任务') === overdue.length, [get('逾期任务'), overdue.length]);
   ok('逾期不含挂起任务', overdue.every(t => t.status !== 'hold'));
-  ok('今日到期数一致', +get('今日到期') === tasks.filter(t => S.isOpen(t) && t.plan_date === S.todayStr()).length);
+  ok('今日到期数一致', +get('今日到期任务') === tasks.filter(t => S.isOpen(t) && t.plan_date === S.todayStr()).length);
+
+  section('数值一致性（里程碑维度）');
+  const msIdsP3 = new Set(tasks.map(t => t.id));
+  const msVisibleP3 = S.DB.milestones.filter(m => !m.deleted_at && m.plan_date && msIdsP3.has(m.task));
+  const msOpenP3 = msVisibleP3.filter(m => m.done !== '1');
+  ok('未完成里程碑数一致', +get('未完成里程碑') === msOpenP3.length, [get('未完成里程碑'), msOpenP3.length]);
+  ok('逾期里程碑数一致', +get('逾期里程碑') === msOpenP3.filter(m => m.plan_date < S.todayStr()).length);
+  ok('本月完成里程碑数一致',
+    +get('本月完成里程碑') === msVisibleP3.filter(m => m.done === '1' && (m.actual_date || '').slice(0, 7) === S.todayStr().slice(0, 7)).length);
 
   section('边界：空数据不炸');
   const bak = { d: S.DB.duties, w: S.DB.works, m: S.DB.milestones, t: S.DB.tasks };

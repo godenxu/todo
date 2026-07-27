@@ -215,10 +215,10 @@ async function main() {
   const t0 = S.taskRows.find(t => !S.hasCheckpoints(t));
   S.openTaskDetail(t0.id);
   const detailHTML = q('#modal-body').innerHTML;
-  ok('检查点入口按钮存在', detailHTML.includes('data-act="cp-editor"'));
+  ok('里程碑行直接可编辑（不用点管理按钮）', detailHTML.includes('id="cp-list"') && detailHTML.includes('data-act="cp-insert-after"'));
   fields.forEach(f => { if (f.type === 'checkpoints' || f.readonly) return; const el = q('#td-' + f.key); el.value = el.value || ''; });
   q('#td-title').value = '  改写后的任务标题  ';
-  q('#td-plan_date').value = 'today';
+  q('#td-plan_date').value = S.todayStr();   // 计划完成时间现在是原生 date 控件（跟里程碑一致），不再认 today/+7 这种关键字
   q('#td-progress').value = '160';
   q('#td-assignees').value = '张三,李四';
   q('#td-status').value = 'doing';
@@ -228,34 +228,47 @@ async function main() {
   await S.modalCallback(); await tick();
   const n = S.byId('task', t0.id);
   ok('标题保存并去首尾空格', n.title === '改写后的任务标题', n.title);
-  ok('日期关键字 today 解析', n.plan_date === S.todayStr(), n.plan_date);
+  ok('计划完成时间保存（原生 date 控件）', n.plan_date === S.todayStr(), n.plan_date);
   ok('进度超限截断为 100', n.progress === 100, n.progress);
   ok('参与人逗号分词', JSON.stringify(n.assignees) === JSON.stringify(['张三', '李四']), n.assignees);
   ok('状态/优先级保存', n.status === 'doing' && n.priority === '3');
   ok('负责人保存', n.owner === '邱洋');
 
-  section('检查点编辑器');
+  section('检查点编辑器（现在直接在任务详情弹窗里编辑，不再是单独的弹窗）');
   const cpTask = S.DB.tasks.find(t => !S.hasCheckpoints(t) && !t.deleted_at);
-  S.openCheckpointEditor(cpTask.id);
+  S.openTaskDetail(cpTask.id);
+  ok('检查点行直接摆在详情弹窗里了，不需要额外的"管理"按钮', !q('#modal-body').innerHTML.includes('data-act="cp-editor"'));
+  // harness 的 mock DOM 不会真的重新解析 innerHTML，#td-* 这些元素是跨用例复用的缓存对象，
+  // 上一段"任务详情"测试已经改过它们的值——这里先按 cpTask 自己的真实数据复位，
+  // 避免等下保存时把上一个任务的脏值錯誤地套到 cpTask 身上
+  fields.forEach(f => {
+    if (f.type === 'checkpoints' || f.readonly) return;
+    const el = q('#td-' + f.key);
+    if (f.type === 'persons') el.value = (cpTask[f.key] || []).join(',');
+    else el.value = cpTask[f.key] != null ? String(cpTask[f.key]) : '';
+  });
   const cpHTML0 = q('#modal-body').innerHTML;
   ok('空白任务默认给一行可填', (cpHTML0.match(/data-cp-row/g) || []).length === 1);
   // harness 的 querySelectorAll 是纯桩，真实取值走不通，改用 p5 测试同款的手动伪造行
-  const fakeRow = (date, deliv, done) => ({
+  const fakeRow = (date, deliv, done, reportLevel) => ({
     querySelector: sel => {
       if (sel === '.cp-date') return { value: date };
       if (sel === '.cp-deliv') return { value: deliv };
       if (sel === '.cp-chk') return { checked: done };
+      if (sel === '.cp-report-level') return { value: reportLevel || '' };
       return null;
     },
   });
   raw.document.querySelectorAll = sel => sel === '#cp-list [data-cp-row]'
-    ? [fakeRow('2026-08-01', '交付物A', false), fakeRow('2026-08-15', '交付物B', true)] : [];
+    ? [fakeRow('2026-08-01', '交付物A', false, 'section'), fakeRow('2026-08-15', '交付物B', true, 'bank')] : [];
   await S.modalCallback(); await tick();
   raw.document.querySelectorAll = () => [];
   const cps = S.DB.milestones.filter(m => m.task === cpTask.id && !m.deleted_at);
   ok('保存后生成了两条检查点', cps.length === 2, cps.length);
   ok('未勾选的检查点未完成', cps.some(m => m.done === '0' && m.deliverable === '交付物A'));
   ok('勾选的检查点标记完成且填了完成日期', cps.some(m => m.done === '1' && m.deliverable === '交付物B' && !!m.actual_date));
+  ok('最高呈报层级随检查点一起保存', cps.some(m => m.deliverable === '交付物A' && m.report_level === 'section') &&
+     cps.some(m => m.deliverable === '交付物B' && m.report_level === 'bank'));
   const afterCpTask = S.byId('task', cpTask.id);
   ok('任务进度按完成比例自动算（1/2=50%）', afterCpTask.progress === 50, afterCpTask.progress);
   const cell = S.renderCellValue('task', afterCpTask, S.fieldDef('task', 'progress'), true);
