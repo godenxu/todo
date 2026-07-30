@@ -85,17 +85,21 @@ async function main() {
   ok('SPI 数值本身不含 % 符号', !new RegExp(`>${expectedSPI.toFixed(2)}%<`).test(h));
 
   section('computeSPI：纯函数正确性');
+  // created_at 存的是真实 ISO 时间戳（UTC），代码里会先用 localDay() 换算回本地日期再比。
+  // 所以假数据不能写成"本地日期 + Z 后缀"那种四不像——那在 UTC 负偏移的机器上会差一天。
+  // 这里老老实实构造 N 天前本地正午的那个真实时刻
+  const isoDaysAgo = n => new Date(new Date().setHours(12, 0, 0, 0) - n * 86400000).toISOString();
   ok('全部任务都刚好卡在计划进度上时 SPI 接近 1', (() => {
-    const t1 = { created_at: S.offsetDate(-10) + 'T00:00:00.000Z', plan_date: S.offsetDate(10), progress: 50 };
+    const t1 = { created_at: isoDaysAgo(10), plan_date: S.offsetDate(10), progress: 50 };
     // 创建到计划完成共 20 天，今天正好过了 10 天 => 计划进度 50%，跟实际进度一样 => SPI = 1
     return Math.abs(S.computeSPI([t1]) - 1) < 0.01;
   })());
   ok('实际进度超过计划进度时 SPI > 1（超前）', (() => {
-    const t1 = { created_at: S.offsetDate(-10) + 'T00:00:00.000Z', plan_date: S.offsetDate(10), progress: 90 };
+    const t1 = { created_at: isoDaysAgo(10), plan_date: S.offsetDate(10), progress: 90 };
     return S.computeSPI([t1]) > 1;
   })());
   ok('实际进度落后计划进度时 SPI < 1（落后）', (() => {
-    const t1 = { created_at: S.offsetDate(-10) + 'T00:00:00.000Z', plan_date: S.offsetDate(10), progress: 10 };
+    const t1 = { created_at: isoDaysAgo(10), plan_date: S.offsetDate(10), progress: 10 };
     return S.computeSPI([t1]) < 1;
   })());
   ok('没有计划完成时间的任务不参与计算（全部没有时返回 null）', S.computeSPI([{ created_at: S.todayStr(), plan_date: '', progress: 50 }]) === null);

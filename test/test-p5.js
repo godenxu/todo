@@ -192,7 +192,8 @@ async function main() {
   section('数据页渲染');
   S.setPage('data'); S.renderData();
   const h = q('#page-data').innerHTML;
-  ['备份状态', '年度管理', '数据体检', '导入 / 导出', '使用者', '测试数据'].forEach(t => ok('含板块：' + t, h.includes(t)));
+  // "备份状态"面板改名"备份"了（跟定期自动备份合并到一起，见 test-p29.js 的数据页整理测试）
+  ['备份', '年度管理', '数据体检', '导入 / 导出', '使用者', '测试数据'].forEach(t => ok('含板块：' + t, h.includes(t)));
   ok('有恢复入口', h.includes('data-act="import-backup"'));
   ok('有年度复制入口', h.includes('data-act="year-copy"'));
 
@@ -202,9 +203,11 @@ async function main() {
   S.ACTIONS['tree-toggle']({ duty: '02' }, null, { stopPropagation() {} });   // 子工作只在展开时渲染
   const tree = S.renderTaskTree(S.taskRows);
   ok('两级树按 id 输出', /data-work="w_/.test(tree), tree.match(/data-work="[^"]*"/g));
-  const qi = S.parseQuickInput('测试任务 $0201 @李兰 !1 ~today');
-  ok('快捷输入 $编号 解析为工作 id', qi.work === byCode('0201').id, qi.work);
-  ok('快捷输入其余字段正常', qi.priority === '1' && qi.assignees[0] === '李兰' && qi.plan_date === S.todayStr());
+  // 速记输入框已经换成"+ 新建任务"按钮 + 任务详情弹窗了，这里改测那条路上的两个纯函数
+  const w0201 = byCode('0201');
+  ok('worksOfDuty 能按职责列出它下面的工作', S.worksOfDuty(w0201.duty).some(w => w.id === w0201.id));
+  ok('workOptionsHTML 生成的选项里有这项工作', S.workOptionsHTML(w0201.duty, w0201.id).includes(`value="${w0201.id}"`));
+  ok('选中的那一项被标了 selected', new RegExp(`value="${w0201.id}" selected`).test(S.workOptionsHTML(w0201.duty, w0201.id)));
   S.setPage('dashboard'); S.renderDashboard();
   ok('工作台正常', q('#page-dashboard').innerHTML.includes('需要关注'));
   S.setPage('charts'); S.ACTIONS['chart-tab']({ k: 'gantt' });

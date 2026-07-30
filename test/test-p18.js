@@ -58,7 +58,9 @@ async function main() {
   ok('同一行里其它已经手动配置过的键不受影响（staff.edit_others_task 还在）', S.DB.permissionMatrix.staff.edit_others_task === false);
   ok('同一行里其它已经手动配置过的键不受影响（comanager.manage_duty_work 还在）', S.DB.permissionMatrix.comanager.manage_duty_work === true);
   ok('gm 本来就是 false，不受影响', S.DB.permissionMatrix.gm.view_data === false);
-  ok('迁移后 view_data 实际生效为 false', S.getPermissionMatrix().staff.view_data === false && S.getPermissionMatrix().comanager.view_data === false);
+  // view_data 现在已经彻底不是权限项了（数据页改成硬编码 adminOnly），
+  // 所以"清掉之后"的正确表现是这个键压根不存在，而不是回落成 false
+  ok('迁移后矩阵里查不到 view_data 这一项了', S.getPermissionMatrix().staff.view_data === undefined && S.getPermissionMatrix().comanager.view_data === undefined);
   ok('打上了一次性标记', S.DB.permissionMatrix._viewDataMigratedV1 === true);
   const changed2 = S.migrateViewDataDefault();
   ok('第二次跑（已经迁移过），直接跳过，不报告改动', changed2 === false);
@@ -76,8 +78,11 @@ async function main() {
   S.setFileHandle(null);
   S.DB.shareConfig = null;
   S.renderShell();
-  ok('管理员还没配置模板时，顶栏没有这个提示', !q('#share-connect-hint').innerHTML.includes('connect-my-shared-folder'));
-  S.DB.shareConfig = { pathTemplate: 'A{工号}B{工号}C', fileName: 'x.json' };
+  // 共享文件名现在有内置默认值（DEFAULT_SHARE_FILE_NAME），管理员不配置也能用，
+  // 所以"没配置文件名"不再是不显示提示的理由——只要没连上就该提示
+  ok('即使管理员没配过文件名，只要没连上就提示（文件名有内置默认值）',
+    q('#share-connect-hint').innerHTML.includes('connect-my-shared-folder'));
+  S.DB.shareConfig = { fileName: 'x.json' };
   S.renderShell();
   ok('配好模板、且本机未连接时，顶栏出现了连接提示', q('#share-connect-hint').innerHTML.includes('data-act="connect-my-shared-folder"'));
   S.setFileHandle({ name: 'fake.json' });
@@ -90,22 +95,19 @@ async function main() {
   S.DB.users.push({ name: 'P18测试员工', role: 'staff', salt: '', hash: '', iterations: 0 });
   S.DB.settings.me = 'P18测试员工';
   S.ACTIONS['connect-my-shared-folder']();
-  ok('普通员工点这个动作不会被"为了防止误操作"拦下（走到了浏览器能力检测那一步）',
+  ok('普通员工点这个动作不会被"为了防止误操作"拦下（走到了路径提示这一步）',
     !q('#snack-msg').textContent.includes('为了防止误操作'));
-  ok('沙盒环境没有 showDirectoryPicker，所以提示是"不支持"而不是权限不足', q('#snack-msg').textContent.includes('文件系统访问'));
+  // 文件名有内置默认值了，所以这里必然先弹一个"请选中这个文件夹"的提示框，而不是直接去调系统选择框
+  ok('先弹出的是"该选哪个文件夹"的提示框', q('#modal-body').innerHTML.includes('文件夹选择框'));
+  S.ACTIONS['modal-cancel']();
   S.DB.settings.me = '测试管理员';
 
-  section('maybeAutoConnectSharedFolder：只在"没连 + 有模板 + 浏览器支持"时才出手，其余情况安静跳过');
+  section('maybeAutoConnectSharedFolder：只在"没连 + 浏览器支持"时才出手，其余情况安静跳过');
   q('#snack-msg').textContent = '';
   S.setFileHandle({ name: 'already.json' });
   await S.maybeAutoConnectSharedFolder();
   ok('已经连接时，直接跳过，不会报"不支持"（说明真的没往下走）', !q('#snack-msg').textContent.includes('不支持'));
   S.setFileHandle(null);
-  S.DB.shareConfig = null;
-  q('#snack-msg').textContent = '';
-  await S.maybeAutoConnectSharedFolder();
-  ok('管理员还没配置模板时，也安静跳过', !q('#snack-msg').textContent.includes('不支持'));
-  S.DB.shareConfig = { pathTemplate: 'A{工号}B', fileName: 'x.json' };
   q('#snack-msg').textContent = '';
   await S.maybeAutoConnectSharedFolder();
   ok('浏览器（沙盒）本身不支持时，安静跳过，不会每次登录都弹一条"不支持"的提示烦用户',
@@ -117,16 +119,13 @@ async function main() {
     !q('#snack-msg').textContent.includes('失败'));
   delete raw.window.showDirectoryPicker;
 
-  section('回归：登录成功流程本身没被自动连接这一步带崩');
+  section('回归：登录成功流程本身没被自动连接这一步带崩（首次登录设置 PIN）');
   S.DB.settings.me = '';
-  q('#login-pin').value = '';
-  const staffAcct = S.DB.users.find(u => u.name === 'P18测试员工');
-  const { salt, hash, iterations } = await S.hashPin('123456');
-  staffAcct.salt = salt; staffAcct.hash = hash; staffAcct.iterations = iterations;
-  q('#login-pin').value = '123456';
-  await S.ACTIONS['login-verify']({ name: 'P18测试员工' });
-  ok('身份确实切换成功了（自动连接那一步没有把正常登录流程搞崩）', S.DB.settings.me === 'P18测试员工');
-  ok('提示里仍然是切换成功的文案', q('#snack-msg').textContent.includes('已切换为'));
+  q('#login-new-pin').value = '123456';
+  q('#login-new-pin2').value = '123456';
+  await S.ACTIONS['login-set-pin']({ name: 'P18测试员工' });
+  ok('身份确实切换成功了（自动连接那一步没有把正常登录流程搞崩）', S.DB.settings.me === 'P18测试员工', S.DB.settings.me);
+  ok('提示里是设置成功的文案', q('#snack-msg').textContent.includes('已登录为'), q('#snack-msg').textContent);
 
   restore();
   console.log('\n' + '='.repeat(46));

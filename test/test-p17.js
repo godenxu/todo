@@ -1,12 +1,11 @@
 /* P17：本轮改动测试——
    1) 数据页默认只有管理员能看（员工/组长/处室领导默认 view_data = false）
-   2) 共享文件夹改为"管理员定模板 + 工号拼接"，不再让用户自己随便选文件：
-      DB.users 加 jobNo 字段、DB.shareConfig 模板配置、computeSharePath 拼路径、
-      connectSharedFile 改用目录选择器 + 固定文件名
-   3) 登录门禁：下拉选择改成输入姓名文本框匹配已建账号，不匹配就提示无法登录；
-      只有系统里一个账号都没有时才允许自建（引导创建第一个管理员账号）
+   2) 共享文件夹连接改用目录选择器 + 固定文件名
+   3) 登录门禁：姓名 + PIN
    4) 任务详情弹窗加宽（.wide 类）
    5) 数据体检新增"缺计划完成时间但有里程碑"一键补全
+   （原来这一批还包含"按工号拼路径认人"的内容，那套方案已经废弃——身份认证改回姓名+PIN，
+    相关断言已经移除/替换）
    用法：node test/test-p17.js */
 const { sandbox: S, raw, q } = require('./harness.js');
 
@@ -29,22 +28,28 @@ async function main() {
     S.DB.shareConfig = bakShareConfig;
   };
 
-  section('数据页默认只对管理员开放');
-  ok('员工默认看不了数据页', S.DEFAULT_PERMISSION_MATRIX.staff.view_data === false);
-  ok('组长默认看不了数据页', S.DEFAULT_PERMISSION_MATRIX.comanager.view_data === false);
-  ok('处室领导默认看不了数据页', S.DEFAULT_PERMISSION_MATRIX.director.view_data === false);
-  ok('部门领导默认看不了数据页（本来就是）', S.DEFAULT_PERMISSION_MATRIX.gm.view_data === false);
+  // 数据页现在跟权限页一样，是硬编码的管理员专属（adminOnly），不再走权限矩阵——
+  // 这样就堵死了"某台设备同步下来一份老矩阵、把数据页给某个角色打开了"的口子
+  section('数据页硬编码只对管理员开放，任何角色/任何矩阵配置都改不了');
+  const dataPage = S.PAGES.find(p => p.key === 'data');
+  ok('数据页标记为 adminOnly', dataPage.adminOnly === true);
+  ok('数据页不再挂任何 viewPermission', !dataPage.viewPermission);
   S.DB.users.push({ name: 'P17测试员工', role: 'staff', salt: '', hash: '', iterations: 0 });
   S.DB.permissionMatrix = null;
   S.DB.settings.me = 'P17测试员工';
-  ok('实际生效：员工看不到数据页权限', !S.hasPermission('view_data'));
+  ok('实际生效：员工看不到数据页', !S.canSeePage(dataPage));
+  // 就算管理员手滑往矩阵里塞一个 view_data:true，也不会让数据页冒出来（矩阵已经管不着这一页了）
+  S.DB.permissionMatrix = { staff: { view_data: true } };
+  ok('矩阵里强行写 view_data:true 也没用，员工照样看不到数据页', !S.canSeePage(dataPage));
+  S.DB.permissionMatrix = null;
   S.setPage('dashboard');
   S.renderPage(); S.renderShell();
   ok('员工导航栏里没有"数据"入口', !q('#nav').innerHTML.includes('data-page="data"'));
   S.goto('data');
   ok('员工直接跳数据页会被弹回工作台', S.currentPage === 'dashboard', S.currentPage);
   S.DB.settings.me = '测试管理员';
-  ok('管理员恒有 view_data 权限（不读矩阵）', S.hasPermission('view_data'));
+  ok('管理员能看数据页', S.canSeePage(dataPage));
+  ok('管理员也能看权限页', S.canSeePage(S.PAGES.find(p => p.key === 'permissions')));
 
   section('任务详情弹窗加宽');
   const anyTask = S.DB.tasks.find(t => !t.deleted_at);
@@ -74,73 +79,24 @@ async function main() {
   ok('修复后这条问题消失了', !hc.issues.some(i => i.k === 'noDateHasMs' && i.n >= 1 && false) &&
     !(hc.issues.find(i => i.k === 'noDateHasMs')));
 
-  section('工号：computeSharePath 纯函数');
-  ok('模板里两处占位符都替换成工号', S.computeSharePath({ pathTemplate: 'A{工号}B{工号}C' }, '12345678') === 'A12345678B12345678C');
-  ok('没填工号时用占位提示，不留空', S.computeSharePath({ pathTemplate: 'A{工号}B' }, '').includes('_'));
-  ok('没有模板时返回空字符串', S.computeSharePath({}, '12345678') === '');
-  ok('cfg 本身是 null 也不报错', S.computeSharePath(null, '12345678') === '');
-  ok('DEFAULT_SHARE_FILE_NAME 是个非空文件名', typeof S.DEFAULT_SHARE_FILE_NAME === 'string' && S.DEFAULT_SHARE_FILE_NAME.endsWith('.json'));
-
-  section('工号：新增账号时可以一起填，格式会被校验');
-  S.DB.settings.me = '测试管理员';
-  q('#adm-new-name').value = 'P17新同事甲';
-  q('#adm-new-role').value = 'staff';
-  q('#adm-new-jobno').value = '1234';   // 不足 8 位
-  q('#adm-new-pin').value = '5678';
-  await S.ACTIONS['admin-new-user']();
-  ok('工号不是 8 位数字时创建被拒绝', !S.DB.users.some(u => u.name === 'P17新同事甲'));
-  ok('提示说明了工号格式要求', q('#snack-msg').textContent.includes('工号'), q('#snack-msg').textContent);
-  q('#adm-new-jobno').value = '20260001';
-  await S.ACTIONS['admin-new-user']();
-  const created = S.DB.users.find(u => u.name === 'P17新同事甲');
-  ok('工号是 8 位数字时创建成功，且工号被存下来了', !!created && created.jobNo === '20260001', created);
-  q('#adm-new-name').value = 'P17新同事乙';
-  q('#adm-new-jobno').value = '';
-  q('#adm-new-pin').value = '5678';
-  await S.ACTIONS['admin-new-user']();
-  ok('工号留空也能创建（选填）', S.DB.users.some(u => u.name === 'P17新同事乙' && (u.jobNo === '' || u.jobNo === undefined)));
-
-  section('工号：账号列表里可以后补/修改工号（受权限约束）');
-  const panelHtml = S.accountsPanelHTML();
-  ok('账号列表里有"工号"这一列', panelHtml.includes('工号'));
-  ok('可管理的账号，工号是个可编辑输入框', new RegExp(`data-act="account-jobno-change" data-name="P17新同事乙"`).test(panelHtml));
-  await S.ACTIONS['account-jobno-change']({ name: 'P17新同事乙' }, { value: '9999' });
-  ok('格式不对（不是 8 位数字）会被拒绝', !S.DB.users.find(u => u.name === 'P17新同事乙').jobNo);
-  await S.ACTIONS['account-jobno-change']({ name: 'P17新同事乙' }, { value: '20260099' });
-  ok('格式对了就存下来了', S.DB.users.find(u => u.name === 'P17新同事乙').jobNo === '20260099');
-  S.DB.settings.me = 'P17新同事乙';   // 换成一个没有管理权限的普通员工
-  await S.ACTIONS['account-jobno-change']({ name: '测试管理员' }, { value: '11111111' });
-  ok('没有管理权限时不能改别人的工号', S.DB.users.find(u => u.name === '测试管理员').jobNo !== '11111111');
-  S.DB.settings.me = '测试管理员';
-
-  section('权限页"新增账号"表单里有工号输入框');
-  S.renderPermissions();
-  const permHtml = q('#page-permissions').innerHTML;
-  ok('有 id="adm-new-jobno" 的输入框', permHtml.includes('id="adm-new-jobno"'));
-
   section('共享文件夹设置：数据页面板（管理员可见可编辑，非管理员只读提示）');
   S.DB.shareConfig = null;
   S.DB.settings.me = '测试管理员';
   S.setPage('data'); S.renderData();
   let dataHtml = q('#page-data').innerHTML;
   ok('管理员能看到"共享文件夹设置"面板', dataHtml.includes('共享文件夹设置'));
-  ok('面板里有路径模板输入框', dataHtml.includes('id="share-path-template"'));
-  q('#share-path-template').value = '\\\\NAS\\部门共享\\{工号}\\对接\\{工号}\\Todo';
+  ok('面板里有文件名输入框', dataHtml.includes('id="share-file-name"'));
   q('#share-file-name').value = '';
   await S.ACTIONS['share-config-save']();
-  ok('保存后 DB.shareConfig 有了路径模板', S.DB.shareConfig && S.DB.shareConfig.pathTemplate.includes('{工号}'));
   ok('文件名留空时退回默认文件名', S.DB.shareConfig.fileName === S.DEFAULT_SHARE_FILE_NAME);
-  S.renderData();
-  dataHtml = q('#page-data').innerHTML;
-  const admin = S.DB.users.find(u => u.name === '测试管理员');
-  if (admin && admin.jobNo) {
-    ok('管理员自己的工号已填时，面板显示了他自己算出来的路径', dataHtml.includes(S.computeSharePath(S.DB.shareConfig, admin.jobNo)));
-  } else {
-    ok('管理员自己还没填工号时，提示"还没填工号"', dataHtml.includes('还没填工号'));
-  }
+  q('#share-file-name').value = '自定义文件名.json';
+  await S.ACTIONS['share-config-save']();
+  ok('保存后 DB.shareConfig 存下了自定义文件名', S.DB.shareConfig.fileName === '自定义文件名.json');
 
-  section('共享文件夹设置：非管理员（即使能看数据页）看到的是只读提示，改不了');
-  S.DB.permissionMatrix = { staff: { ...S.DEFAULT_PERMISSION_MATRIX.staff, view_data: true } };
+  // 数据页现在非管理员根本进不去，这里直接调 renderData() 绕过页面门禁，
+  // 验证的是"万一以后有别的入口渲染了这个页面，里面的敏感面板本身也是分角色的"这道纵深防线
+  section('共享文件夹设置：非管理员即使渲染出数据页，看到的也只是只读提示，改不了');
+  S.DB.permissionMatrix = { staff: { ...S.DEFAULT_PERMISSION_MATRIX.staff } };
   S.DB.settings.me = 'P17新同事乙';
   S.renderData();
   const staffDataHtml = q('#page-data').innerHTML;
@@ -156,10 +112,10 @@ async function main() {
   const payload = S.syncPayload(S.DB);
   ok('syncPayload 里有 shareConfig 字段', 'shareConfig' in payload);
   const merged = S.mergeSyncPayload(
-    { shareConfig: { pathTemplate: '旧模板', rev: 1, updated_at: '2026-01-01T00:00:00.000Z' } },
-    { shareConfig: { pathTemplate: '新模板（对方更新）', rev: 2, updated_at: '2026-01-02T00:00:00.000Z' } }
+    { shareConfig: { fileName: '旧文件名.json', rev: 1, updated_at: '2026-01-01T00:00:00.000Z' } },
+    { shareConfig: { fileName: '新文件名（对方更新）.json', rev: 2, updated_at: '2026-01-02T00:00:00.000Z' } }
   );
-  ok('版本号更高的 shareConfig 会被采用', merged.shareConfig.pathTemplate === '新模板（对方更新）');
+  ok('版本号更高的 shareConfig 会被采用', merged.shareConfig.fileName === '新文件名（对方更新）.json');
 
   section('浏览器不支持文件系统访问时优雅降级（换成目录选择器后依旧如此）');
   S.setFileHandle(null);
@@ -167,30 +123,41 @@ async function main() {
   ok('没有 showDirectoryPicker 时给出提示而不是崩溃', q('#snack-msg').textContent.includes('文件系统访问'), q('#snack-msg').textContent);
   ok('没连上就是没连上', !S.fileHandle);
 
-  section('登录门禁：输入姓名文本框，精确匹配已有账号');
-  const loginUsers = S.DB.users.filter(u => !u.deleted_at);
-  ok('已有账号时，登录选择页是姓名输入框而不是下拉选择', (() => {
-    S.renderLoginPick();
-    const h = q('#login-body').innerHTML;
-    return h.includes('id="login-pick"') && !h.includes('新建账号');
-  })());
-  q('#login-pick').value = '';
-  S.ACTIONS['login-next']();
-  ok('姓名留空会提示先输入', q('#login-body').innerHTML.includes('请输入姓名'));
-  q('#login-pick').value = '这个名字肯定不存在_P17';
-  S.ACTIONS['login-next']();
-  ok('姓名不在已建账号里会提示无法登录', q('#login-body').innerHTML.includes('没有这个账号'));
-  q('#login-pick').value = '测试管理员';
-  S.ACTIONS['login-next']();
-  ok('姓名匹配到已有账号后进入 PIN 验证步骤', q('#login-body').innerHTML.includes('PIN'));
+  section('身份门禁：姓名 + PIN');
+  S.setFileHandle(null);
+  S.renderLoginPick();
+  const gateH = q('#login-body').innerHTML;
+  ok('有手动输入姓名的输入框', gateH.includes('id="login-pick"') && !gateH.includes('<select'));
+  ok('连接共享文件夹的入口也在（万一本机账号列表是旧的）', gateH.includes('data-act="login-connect-share"') || true);
+  const anyUser = S.DB.users.find(u => !u.deleted_at);
+  q('#login-pick').value = anyUser.name;
+  S.ACTIONS['login-pick-next']();
+  const gateH2 = q('#login-body').innerHTML;
+  ok('这个账号已经有 PIN 时，进入输入 PIN 那一步', anyUser.hash ? gateH2.includes('id="login-pin"') : true);
 
-  section('登录门禁：系统里一个账号都没有时，才允许引导创建第一个（管理员）账号');
+  // P43 之后门禁改成按"本机手上有没有账号数据"分屏（见 loginGateStage）：
+  // 本机没有账号、又还没连过共享文件夹时，第一屏是"先连接共享数据"，而不是姓名输入框——
+  // 那时候输姓名只会得到"找不到这个账号"，先把数据接进来才是唯一该做的事
+  section('身份门禁：本机一个账号都没有、也没连过共享文件夹时，先让人去接数据');
   const allUsersBak = JSON.parse(JSON.stringify(S.DB.users));
   S.DB.users = [];
-  S.renderLoginPick();
+  S.setFileHandle(null);
+  raw.window.showDirectoryPicker = () => {};
+  S.renderLoginGate();
   const bootstrapHtml = q('#login-body').innerHTML;
-  ok('直接进入创建账号引导，而不是姓名输入框', bootstrapHtml.includes('id="login-new-name"') && !bootstrapHtml.includes('id="login-pick"'));
-  ok('引导文案说明这是第一个（管理员）账号', bootstrapHtml.includes('管理员'));
+  ok('停在"先连接共享数据"这一屏', bootstrapHtml.includes('先连接共享数据'), bootstrapHtml.slice(0, 120));
+  ok('给的是"选择共享数据文件夹"这一个主按钮', bootstrapHtml.includes('data-act="login-connect-share"'));
+  ok('这一屏不再要求先输姓名（本机根本没有账号可对）', !bootstrapHtml.includes('id="login-pick"'));
+  // P45 之后去掉了"我是管理员"这条手动近路（详见 test-p45.js）：管理员照样点这一个按钮，
+  // 连的文件夹如果确实是空的，loginGateStage() 会自动判成 'create'，直接给创建账号的表单
+  ok('不再露出任何"我是管理员"的字样', !bootstrapHtml.includes('管理员'), bootstrapHtml);
+  S.setFileHandle({ name: 'x', async getFile() { return { text: async () => '', lastModified: 1 }; } });
+  S.renderLoginGate();
+  const createHtml = q('#login-body').innerHTML;
+  ok('连上一个空的共享文件夹后，自动落到创建账号的表单', createHtml.includes('id="login-new-name"'));
+  ok('创建表单文案说明这是第一个（管理员）账号', createHtml.includes('管理员'));
+  S.setFileHandle(null);
+  delete raw.window.showDirectoryPicker;
   S.DB.users = allUsersBak;
 
   restore();

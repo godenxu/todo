@@ -44,17 +44,13 @@ async function main() {
 
   section('连接共享文件夹提示框：不再有"浏览器安全限制...断开重连"这段文案');
   const bakShareConfig = S.DB.shareConfig;
-  S.DB.shareConfig = { pathTemplate: 'A{工号}B{工号}C', fileName: 'x.json' };
+  S.DB.shareConfig = { fileName: 'x.json' };
   S.DB.settings.me = '测试管理员';
-  const admin = S.DB.users.find(u => u.name === '测试管理员');
-  const bakJobNo = admin.jobNo;
-  admin.jobNo = '20260011';
   S.confirmConnectWithHint(() => {});
   const hintHTML = q('#modal-body').innerHTML;
-  ok('提示框里还是有路径', hintHTML.includes('A20260011B20260011C'));
+  ok('提示框里带了同步用的文件名', hintHTML.includes('x.json'));
   ok('不再包含"安全限制"这几个字', !hintHTML.includes('安全限制'));
   ok('不再包含"断开重连"这几个字', !hintHTML.includes('断开重连'));
-  admin.jobNo = bakJobNo;
   S.DB.shareConfig = bakShareConfig;
   S.ACTIONS['modal-cancel']();
 

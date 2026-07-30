@@ -222,7 +222,9 @@ async function main() {
     ok('点击工作行可下钻查看其任务', h.includes('data-act="work-drill"'));
     ok('点击职责行可下钻查看其工作', h.includes('data-act="duty-drill"'));
     ok('点击任务行可查看任务详情', h.includes('data-act="task-detail"'));
-    const lefts = nums(h, /class="gantt-pt [a-z]+" style="left:([\d.]+)%/g);
+    // 圆点现在自己带 data-act/data-id（点它跳去所属任务，不再借父行的 work-drill/duty-drill——
+    // 见"点击每个里程碑点应跳所属任务"那批改动），class 和 style 中间多了这两个属性，正则得跳过它们
+    const lefts = nums(h, /class="gantt-pt [a-z]+"[^>]*style="left:([\d.]+)%/g);
     ok('圆点均在轴范围内', lefts.length > 0 && lefts.every(v => v >= 0 && v <= 100), [Math.min(...lefts), Math.max(...lefts)]);
     const spans = [...h.matchAll(/class="gantt-span" style="left:([\d.]+)%;width:([\d.]+)%/g)].map(m => [+m[1], +m[2]]);
     ok('跨度条不超出右边界', spans.every(([l, w]) => l + w <= 100.05), spans.slice(0, 3));

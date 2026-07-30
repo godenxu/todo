@@ -29,19 +29,18 @@ async function main() {
   const w0101 = S.DB.works.find(w => w.code === '0101');
   S.DB.users.push({ name: '测试新建人-员工', role: 'staff', salt: '', hash: '', iterations: 0 });
   S.DB.settings.me = '测试新建人-员工';
-  const qi = S.parseQuickInput('一个新任务 $0101');
-  ok('员工建任务，没指定负责人时默认是自己', qi.owner === '测试新建人-员工', qi.owner);
-  const qiExplicit = S.parseQuickInput('一个新任务 $0101 @张三');
-  ok('@ 指定的是参与人，不影响默认牵头人逻辑', qiExplicit.owner === '测试新建人-员工' && qiExplicit.assignees.includes('张三'));
+  // 速记输入框换成"+ 新建任务"按钮之后，这套默认牵头人的规则挪进了 defaultTaskOwner()
+  ok('员工建任务，没指定负责人时默认是自己', S.defaultTaskOwner(w0101.id) === '测试新建人-员工', S.defaultTaskOwner(w0101.id));
+  ok('员工建任务时，就算还没选所属工作也默认是自己', S.defaultTaskOwner('') === '测试新建人-员工');
 
   S.DB.users.push({ name: '测试新建人-组长', role: 'comanager', salt: '', hash: '', iterations: 0 });
   S.DB.settings.me = '测试新建人-组长';
-  const qiComanager = S.parseQuickInput('一个新任务 $0101');
-  ok('组长建任务，不会默认牵头给自己，退回工作牵头人兜底', qiComanager.owner === w0101.owner, [qiComanager.owner, w0101.owner]);
+  ok('组长建任务，不会默认牵头给自己，退回工作牵头人兜底', S.defaultTaskOwner(w0101.id) === w0101.owner, [S.defaultTaskOwner(w0101.id), w0101.owner]);
+  ok('组长还没选工作时，牵头人先空着（不硬塞给自己）', S.defaultTaskOwner('') === '');
 
   S.DB.settings.me = '';
-  const qiNoMe = S.parseQuickInput('一个新任务 $0101');
-  ok('没有登录身份时（myRole 兜底也是 staff，但没有真实账号），一样退回工作牵头人兜底', qiNoMe.owner === w0101.owner, [qiNoMe.owner, w0101.owner]);
+  ok('没有登录身份时（myRole 兜底也是 staff，但没有真实账号），一样退回工作牵头人兜底',
+    S.defaultTaskOwner(w0101.id) === w0101.owner, [S.defaultTaskOwner(w0101.id), w0101.owner]);
 
   section('ownerChangeNeedsWarning：纯逻辑判断');
   const t0 = S.DB.tasks.find(t => !t.deleted_at && t.owner);
@@ -128,25 +127,23 @@ async function main() {
   ok('管理员可以正常进入权限页', S.currentPage === 'permissions');
   const permHtml = q('#page-permissions').innerHTML;
   ok('权限页里有新增账号表单', permHtml.includes('adm-new-name') && permHtml.includes('data-act="admin-new-user"'));
-  ok('权限页里的账号列表包含重置 PIN 按钮', permHtml.includes('data-act="admin-reset-pin"'));
+  // 账号是管理员建的，但管理员建号时不代设 PIN——PIN 是这个人自己第一次登录时设的，
+  // 账号列表里也自然没有"重置 PIN"这个按钮（管理员看不到、也改不了别人的 PIN）
+  ok('账号列表里没有重置 PIN 按钮', !permHtml.includes('data-act="admin-reset-pin"'));
+  ok('新增账号表单里没有 PIN 输入框（PIN 是本人首次登录自己设的）', !permHtml.includes('id="adm-new-pin"'));
 
-  section('权限页：管理员新增账号 + 重置 PIN');
+  section('权限页：管理员新增账号（姓名+角色即可，不用管 PIN）');
   q('#adm-new-name').value = '权限页新建的人';
   q('#adm-new-role').value = 'staff';
-  q('#adm-new-pin').value = '2468';
   await S.ACTIONS['admin-new-user']();
   const newAccount = S.DB.users.find(u => u.name === '权限页新建的人');
   ok('账号创建成功', !!newAccount && newAccount.role === 'staff');
+  ok('新账号还没有 PIN（等本人首次登录设置）', !newAccount.hash);
   ok('创建者（管理员）自己的登录身份没有被切换走', S.DB.settings.me === '测试管理员');
-  ok('可以用刚设的 PIN 验证通过', await S.verifyPin('2468', newAccount));
 
-  S.ACTIONS['admin-reset-pin']({ name: '权限页新建的人' });
-  q('#reset-pin1').value = '1357';
-  q('#reset-pin2').value = '1357';
-  await S.modalCallback();
-  const afterReset = S.DB.users.find(u => u.name === '权限页新建的人');
-  ok('重置后旧 PIN 不再有效', !(await S.verifyPin('2468', afterReset)));
-  ok('重置后新 PIN 生效', await S.verifyPin('1357', afterReset));
+  q('#adm-new-name').value = '权限页新建的人';   // 重名
+  await S.ACTIONS['admin-new-user']();
+  ok('重名建不了号', S.DB.users.filter(u => u.name === '权限页新建的人').length === 1);
 
   restore();
   console.log('\n' + '='.repeat(46));

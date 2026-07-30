@@ -65,32 +65,38 @@ async function main() {
   ok('COL.barMuted 数组也是 4 个', /barMuted: \['#8fcda8', '#7fb3d9', '#e2a49b', '#[0-9a-fA-F]{6}'\]/.test(html));
   ok('canvas 的 bar() 绘制循环把 todo+hold 也纳入了四段数组', /\[c\.done, c\.doing, c\.late, \(c\.todo \|\| 0\) \+ \(c\.hold \|\| 0\)\]/.test(html));
 
-  section('任务详情/批量编辑：计划完成时间、实际完成时间统一成原生 date 输入（跟里程碑一致）');
+  // P46 之后原生 <input type="date"> 又被换掉了：原生日期控件敲数字时按年/月/日哪个顺序分段，
+  // 是浏览器按系统/浏览器地区设置自己决定的，网页设了 lang="zh-CN" 也不保证生效，同一份 html
+  // 在不同人电脑上敲同样的数字可能分出不一样的日期。现在改成只认连续数字、自动按 4/2/2 分段的
+  // 文本框（date-mask 相关函数），详细断言见 test-p46.js，这里只更新这几条过时的断言
+  section('任务详情/批量编辑：计划完成时间、实际完成时间统一成数字文本框（跟里程碑一致）');
   const dateField = S.fieldDef('task', 'plan_date');
   const ctrlHTML = S.fieldControl(dateField, '2026-08-01', 'td-');
-  ok('fieldControl 对 date 类型渲染的是原生 <input type="date">', /<input id="td-plan_date" type="date" value="2026-08-01">/.test(ctrlHTML));
-  ok('不再是自由文本框那种 today/+7 的 placeholder 提示了', !ctrlHTML.includes('placeholder'));
+  ok('fieldControl 对 date 类型渲染的是 date-mask 数字文本框，不是原生 type="date"',
+    ctrlHTML.includes('id="td-plan_date"') && ctrlHTML.includes('date-mask') && !ctrlHTML.includes('type="date"'), ctrlHTML);
+  ok('带占位符提示格式，帮用户知道该怎么敲', ctrlHTML.includes('placeholder="YYYY-MM-DD"'));
   const actualField = S.fieldDef('task', 'actual_date');
   const ctrlHTML2 = S.fieldControl(actualField, '', 'be-');
-  ok('实际完成时间同理，批量编辑（be- 前缀）里也是原生 date 控件', /<input id="be-actual_date" type="date" value="">/.test(ctrlHTML2));
+  ok('实际完成时间同理，批量编辑（be- 前缀）里也是同一种数字文本框',
+    ctrlHTML2.includes('id="be-actual_date"') && ctrlHTML2.includes('date-mask'));
 
-  section('readControl：date 类型不再靠 parseDue 解析关键字，原生控件本身就是合法值或空串');
-  q('#td-plan_date').value = '2026-09-15';
-  ok('直接读回原生控件给的合法日期', S.readControl(dateField, 'td-') === '2026-09-15');
+  section('readControl：date 类型现在会做完整性+真实日期校验（原生控件不再兜底这件事）');
+  q('#td-plan_date').value = '20260915';
+  ok('连续数字敲的日期会被规整成标准格式', S.readControl(dateField, 'td-') === '2026-09-15');
   q('#td-plan_date').value = '';
   ok('清空后读回空串', S.readControl(dateField, 'td-') === '');
 
-  section('回归：任务详情整体保存流程，日期字段走的是新控件，milestone 的 cp-date 不受影响');
+  section('回归：任务详情整体保存流程，日期字段走的是新控件，milestone 的 cp-date 同步改造');
   const anyTask = S.DB.tasks.find(t => !t.deleted_at && !S.hasCheckpoints(t));
   S.openTaskDetail(anyTask.id);
   const detailHTML = q('#modal-body').innerHTML;
-  ok('任务详情里 plan_date 渲染的是 type="date"', new RegExp(`<input id="td-plan_date" type="date" value="${anyTask.plan_date || ''}">`).test(detailHTML));
-  ok('任务详情里 actual_date 也是 type="date"', /<input id="td-actual_date" type="date"/.test(detailHTML));
-  q('#td-plan_date').value = '2026-10-20';
+  ok('任务详情里 plan_date 渲染的是数字文本框', /<input id="td-plan_date"[^>]*class="date-mask"/.test(detailHTML), detailHTML.slice(0, 50));
+  ok('任务详情里 actual_date 也是同一种控件', /<input id="td-actual_date"[^>]*date-mask/.test(detailHTML));
+  q('#td-plan_date').value = '20261020';
   await S.modalCallback(); await tick();
-  ok('保存后任务的 plan_date 确实变成了原生控件给的值', S.byId('task', anyTask.id).plan_date === '2026-10-20');
+  ok('保存后任务的 plan_date 确实变成了敲的那个日期', S.byId('task', anyTask.id).plan_date === '2026-10-20');
   const cpHTML = S.cpRowHTML(null);
-  ok('里程碑的 cp-date 还是原来那套（type="date"，没有被这次改动动到）', /<input type="date" class="cp-date" value="">/.test(cpHTML));
+  ok('里程碑的 cp-date 也同步改成了数字文本框', cpHTML.includes('class="cp-date date-mask"') && !cpHTML.includes('type="date"'), cpHTML);
 
   console.log('\n' + '='.repeat(46));
   console.log(`通过 ${pass} 项，失败 ${fail} 项`);

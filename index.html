@@ -4,6 +4,14 @@
 <!-- © 科技规划处 徐捷 版权所有 -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<!-- 别缓存这个页面。整个程序就这一个文件，一旦被缓存住，同事打开的就是旧代码——
+     旧代码可能带着已经修好的、会写坏共享数据的问题（里程碑被存成好几套重复的那次就是这么来的）。
+     说明白：这几行只对"通过 HTTP 打开"的情况有效；直接双击本地文件（file://）时浏览器基本不理会，
+     操作系统对网络盘的文件缓存更管不着。所以它们只是第一道便宜的防线，
+     真正兜底的是程序自己的版本自检（见 checkAppVersion）——认出自己是旧版就停止写入。 -->
+<meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>科技规划处工作管理系统</title>
 <style>
 /* ===== RESET & VARS ===== */
@@ -54,6 +62,16 @@ body { font-family: var(--font); font-size: 13px; background: var(--bg); color: 
 .me-tag:hover { background: var(--border2); }
 .share-connect-btn { font-size: 12px; color: #fff; background: var(--overdue); border-radius: 10px; padding: 2px 9px; cursor: pointer; margin-right: 6px; }
 .share-connect-btn:hover { opacity: .85; }
+/* "有改动还没同步给大家"——这条比其它几种状态严重得多（别人根本看不到你的活儿），
+   用加粗 + 呼吸闪烁，确保不会被当成可以忽略的小提示 */
+.share-connect-btn.urgent { font-weight: 700; animation: unsynced-pulse 1.6s ease-in-out infinite; }
+@keyframes unsynced-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+/* "立即同步"是一切正常时的常驻按钮，不是警告——不能跟上面那些红底的挤在一个视觉层级，
+   否则天天红着，真出问题时反而没人当回事 */
+.share-connect-btn.calm { background: transparent; color: var(--text2); border: 1px solid var(--border2); }
+.share-connect-btn.calm:hover { border-color: var(--accent); color: var(--accent); opacity: 1; }
+.share-connect-btn .sync-age { opacity: .7; }
+.demo-data-badge { font-size: 12px; color: #fff; background: var(--p2); border-radius: 10px; padding: 2px 9px; }
 .btn { height: 26px; padding: 0 10px; border: 1px solid var(--border2); border-radius: 4px; background: var(--surface); font-family: var(--font); font-size: 12px; color: var(--text2); cursor: pointer; white-space: nowrap; transition: background .12s, border-color .12s; }
 .btn:hover { background: var(--bg); border-color: var(--accent); color: var(--accent); }
 .btn.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
@@ -89,9 +107,6 @@ body { font-family: var(--font); font-size: 13px; background: var(--bg); color: 
 #view-label { font-size: 12px; color: var(--text2); font-weight: 600; }
 .filter-chip { font-size: 11px; background: var(--accent-light); color: var(--accent); border-radius: 10px; padding: 1px 8px; cursor: pointer; }
 .filter-chip:hover { background: var(--border2); }
-#quick-input { flex: 1; max-width: 460px; height: 26px; padding: 0 9px; border: 1px solid var(--border2); border-radius: 4px; background: var(--bg); font-family: var(--font); font-size: 12.5px; color: var(--text); outline: none; }
-#quick-input:focus { border-color: var(--accent); background: #fff; }
-#quick-input::placeholder { color: var(--text3); }
 #search-input { margin-left: auto; width: 170px; height: 24px; padding: 0 8px; border: 1px solid var(--border2); border-radius: 3px; background: var(--bg); font-family: var(--font); font-size: 12px; color: var(--text); outline: none; }
 #search-input:focus { border-color: var(--accent); }
 
@@ -173,17 +188,17 @@ td.cell-center { text-align: center; }
 .card .v { font-size: 22px; font-weight: 700; color: var(--text); }
 .card .v.warn { color: var(--overdue); }
 .card .v.ok { color: var(--done); }
-/* 工作台顶部：任务维度/里程碑维度两组卡片并排放在同一行，紧凑一些；各自套一层带底色的"分组框"，
-   一眼就能分清哪些卡片是任务口径、哪些是里程碑口径，不用再靠占一整行的大标题分隔 */
-.stat-groups { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 14px; }
-.stat-group { flex: 1 1 380px; border-radius: 8px; padding: 8px 10px 10px; border: 1px solid var(--border2); }
-.stat-group-task { background: var(--accent-light); }
-.stat-group-ms { background: #f3eefa; border-color: #ddd0ee; }
-.stat-group-label { font-size: 11px; font-weight: 600; color: var(--text2); margin-bottom: 6px; letter-spacing: .02em; }
-.stat-group .cards { margin-bottom: 0; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 8px; }
-.stat-group .card { padding: 7px 9px; }
-.stat-group .card .k { font-size: 10.5px; margin-bottom: 2px; }
-.stat-group .card .v { font-size: 17px; }
+/* 工作台顶部：任务维度/里程碑维度两组卡片并排放在同一行。外观跟报告页"本期总览"那种面板保持一致——
+   白底 + 常规描边，不再各自刷一层彩色底；靠上面那行小标题区分口径就够了 */
+.stat-groups { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+.stat-group { flex: 1 1 360px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px 10px; }
+.stat-group-label { font-size: 12.5px; font-weight: 700; color: var(--text2); margin-bottom: 7px; }
+/* 卡片宽度要放得下"今日到期里程碑"这类 7 个字的标签：7 字 × 11px ≈ 77px，加上左右内边距取 96px 打底，
+   并且明确不许折行——折成两行会让同一组里的卡片高矮不齐，很难看 */
+.stat-group .cards { margin-bottom: 0; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 7px; }
+.stat-group .card { padding: 6px 8px; background: var(--bg); }
+.stat-group .card .k { font-size: 11px; margin-bottom: 2px; line-height: 1.3; white-space: nowrap; }
+.stat-group .card .v { font-size: 16px; }
 .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; margin-bottom: 12px; }
 .panel-h { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 12.5px; font-weight: 700; color: var(--text2); display: flex; align-items: center; justify-content: space-between; }
 .panel-b { padding: 10px 12px; }
@@ -378,9 +393,16 @@ td.cell-center { text-align: center; }
 /* 里程碑/交付物：任务下的检查点列表 */
 .cp-row { display: flex; align-items: center; gap: 6px; margin-bottom: 6px; }
 .cp-row .cp-date { width: 132px; flex-shrink: 0; height: 27px; padding: 0 7px; border: 1px solid var(--border2); border-radius: 4px; font-family: var(--font); font-size: 12.5px; color: var(--text); background: #fff; outline: none; }
+/* 日期数字文本框 + 旁边📅按钮的组合：文本框负责手动敲数字，按钮负责弹出日历点选，两种输入方式并存 */
+.date-mask-wrap { display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0; }
+.date-mask-wrap .date-pick-btn { flex-shrink: 0; width: 26px; height: 27px; padding: 0; border: 1px solid var(--border2); border-radius: 4px; background: #fff; cursor: pointer; font-size: 13px; line-height: 1; }
+.date-mask-wrap .date-pick-btn:hover { border-color: var(--accent); background: var(--bg); }
 .cp-row .cp-deliv { flex: 1; height: 27px; padding: 0 7px; border: 1px solid var(--border2); border-radius: 4px; font-family: var(--font); font-size: 12.5px; color: var(--text); background: #fff; outline: none; }
 .cp-row .cp-report-level { width: 100px; flex-shrink: 0; height: 27px; padding: 0 5px; border: 1px solid var(--border2); border-radius: 4px; font-family: var(--font); font-size: 12px; color: var(--text); background: #fff; outline: none; }
 .cp-row input:focus, .cp-row select:focus { border-color: var(--accent); }
+/* 逾期的里程碑不能只靠一处文字变红就完事——整行给个浅红底 + 左边一道红条，编辑状态下扫一眼就找得到 */
+.cp-row-overdue { background: color-mix(in srgb, var(--overdue) 8%, transparent); border-radius: 4px; padding: 3px 4px 3px 6px; margin-left: -6px; border-left: 3px solid var(--overdue); }
+.cp-overdue-badge { flex-shrink: 0; font-size: 11px; font-weight: 700; color: #fff; background: var(--overdue); border-radius: 8px; padding: 2px 7px; white-space: nowrap; }
 .cp-done-lbl { display: flex; align-items: center; gap: 3px; font-size: 11.5px; color: var(--text2); white-space: nowrap; flex-shrink: 0; }
 .cp-done-lbl input { accent-color: var(--accent); }
 .cp-drag-handle { flex-shrink: 0; cursor: grab; color: var(--text3); font-size: 14px; padding: 0 2px; user-select: none; }
@@ -465,6 +487,7 @@ td.col-sel, th.col-sel { text-align: center; padding: 0; }
 .ms-list { margin-bottom: 4px; }
 .ms-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; font-size: 12.5px; border-bottom: 1px dashed var(--border); }
 .ms-item:last-child { border-bottom: none; }
+.ms-item-overdue { background: color-mix(in srgb, var(--overdue) 8%, transparent); border-radius: 4px; padding-left: 6px; border-left: 3px solid var(--overdue); }
 .ms-item .ms-date { width: 80px; flex-shrink: 0; color: var(--text2); }
 .ms-item .ms-deliv { flex: 1; }
 .ms-item .ms-level { flex-shrink: 0; font-size: 11px; color: var(--text3); }
@@ -500,6 +523,7 @@ td.col-sel, th.col-sel { text-align: center; padding: 0; }
   <div id="topbar-right">
     <span id="share-connect-hint"></span>
     <select id="year-select"></select>
+    <span id="demo-data-badge"></span>
     <span class="me-tag" id="me-tag" data-act="switch-identity">未设置使用者</span>
   </div>
 </div>
@@ -591,7 +615,18 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260727035955';
+const APP_VERSION = 'v20260730020732';
+
+/* ★ 共享数据文件的格式版本号 ★
+   只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
+   才把这个数字 +1；纯界面调整、纯本机功能不用动它。
+
+   为什么需要它：大家手上的 html 是各自拷贝的，必然有人用着旧版本。旧版本不认识新版本写进去的字段，
+   它一保存就会把那些字段整个抹掉（合并是按整条记录替换的），等于悄悄把别人的数据改坏。
+   所以规则是：文件里记着的版本号比我手上这份 html 还新 → 我这份是旧版本，一律不许写，
+   并且直接挡住界面要求先换新版 html（见 checkDataVersion / showUpgradeGate）。
+   反过来（文件比我旧）没问题，我写回去时顺手把文件升到新版本。 */
+const DATA_SCHEMA_VERSION = 2;
 
 /* =============================================================
    1. 枚举与常量
@@ -648,33 +683,31 @@ const PERMISSIONS = [
   { key: 'view_duties', label: '查看职责页', group: '查看' },
   { key: 'view_charts', label: '查看图表页', group: '查看' },
   { key: 'view_report', label: '查看报告页', group: '查看' },
-  { key: 'view_data', label: '查看数据页', group: '查看' },
   { key: 'view_others_detail', label: '查看他人负责/参与的任务详情（关闭后仍能在列表里看到该任务，但打不开详情弹窗）', group: '查看' },
   { key: 'edit_others_task', label: '编辑他人负责/参与的任务、工作', group: '操作' },
   { key: 'manage_duty_work', label: '新建/编辑/删除职责与工作', group: '操作' },
   { key: 'bulk_ops', label: 'CSV 批量导入、年度复制、数据体检修复、批量指派未归属任务', group: '操作' },
   { key: 'manage_staff_accounts', label: '管理"员工/组长"账号与角色', group: '账号' },
   { key: 'manage_director_accounts', label: '管理"处室领导/部门领导/管理员"账号与角色', group: '账号' },
-  { key: 'system_admin', label: '连接/断开共享文件、重置全部数据', group: '系统' },
+  { key: 'system_admin', label: '连接/断开共享文件、清空全部数据', group: '系统' },
 ];
 const DEFAULT_PERMISSION_MATRIX = {
   staff: {
-    view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_data: false, view_others_detail: true,
+    view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_others_detail: true,
     edit_others_task: false, manage_duty_work: false, bulk_ops: false, manage_staff_accounts: false, manage_director_accounts: false, system_admin: false,
   },
   comanager: {
-    view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_data: false, view_others_detail: true,
+    view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_others_detail: true,
     edit_others_task: true, manage_duty_work: true, bulk_ops: true, manage_staff_accounts: false, manage_director_accounts: false, system_admin: false,
   },
   director: {
-    view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_data: false, view_others_detail: true,
+    view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_others_detail: true,
     edit_others_task: true, manage_duty_work: true, bulk_ops: true, manage_staff_accounts: true, manage_director_accounts: false, system_admin: false,
   },
-  // 数据页默认只对管理员开放（里面有共享文件连接、重置全部数据这些敏感操作），管理员可以在权限矩阵里按需给别的角色开回来；
-  // 部门领导：只看不改——除了数据页、权限页（这两页本来就不对应查看权限/仅管理员），
-  // 其余页面和他人任务详情都能看，但没有任何编辑/管理类权限
+  // 数据页和权限页不在这张矩阵里——它们写死只有管理员能看，见 PAGES 的 adminOnly。
+  // 部门领导：只看不改——其余页面和他人任务详情都能看，但没有任何编辑/管理类权限
   gm: {
-    view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_data: false, view_others_detail: true,
+    view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_others_detail: true,
     edit_others_task: false, manage_duty_work: false, bulk_ops: false, manage_staff_accounts: false, manage_director_accounts: false, system_admin: false,
   },
 };
@@ -682,6 +715,16 @@ const DEFAULT_PERMISSION_MATRIX = {
 /* 权限判断：角色现在挂在账号（DB.users，随共享文件同步）上，不再是本机随便选的 settings.role，
    否则员工把自己设成管理员，这道门槛就是摆设。 */
 function myUser() { return DB.users.find(u => u.name === DB.settings.me && !u.deleted_at) || null; }
+// 这个账号最近一次真的把改动推到共享文件的时间——不进 changelog、不带 rev（见调用处），
+// 纯粹是给权限页"最近连接"这一列用的展示信息
+function markUserSeen(name) {
+  const u = DB.users.find(x => x.name === name && !x.deleted_at);
+  if (!u) return;
+  u.lastSeenAt = new Date().toISOString();
+  // 顺手记下这个人当时用的是哪一版 html。排查"谁还在用旧版"全靠它——
+  // 陈旧的 html 是这套分发方式（每人一份文件拷贝）绕不开的风险，光靠嘴说"大家换新版"没法核实
+  u.lastAppVersion = APP_VERSION;
+}
 function myRole() { const u = myUser(); return u ? u.role : 'staff'; }
 function roleAtLeast(minRole) { return (ROLE_RANK[myRole()] ?? 0) >= ROLE_RANK[minRole]; }
 function isRecordOwnerOrParticipant(entity, rec) {
@@ -732,7 +775,10 @@ function assignableRoles() {
 }
 
 /* PIN 校验：没有服务器，做不到真正的账号安全，这只是"防同事随手用别人名字"的门槛，
-   不是防蓄意破解——用浏览器自带 Web Crypto 的 PBKDF2 加盐哈希，比明文/裸 SHA256 强，仅此而已。 */
+   不是防蓄意破解——用浏览器自带 Web Crypto 的 PBKDF2 加盐哈希，比明文/裸 SHA256 强，仅此而已。
+   （中间那一段改成按共享文件夹路径里的工号识别身份的方案已经废弃——浏览器出于隐私限制，
+   网页永远拿不到系统里的完整路径，只能反解文件夹名字，在不同操作系统/挂载方式下太不可靠，
+   这次改回姓名 + PIN。） */
 const PIN_ITERATIONS = 100000;
 function bytesToHex(bytes) { return [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, '0')).join(''); }
 function hexToBytes(hex) {
@@ -752,37 +798,187 @@ async function verifyPin(pin, user) {
   return hash === user.hash;
 }
 
+/* ---- 版本门禁：共享文件是更新版本的 html 写的，这份太旧，只能停在这里等换新版 ----
+   为什么必须挡死：合并是"整条记录换成更新的那一条"，旧版本不认识新版本加的字段，
+   它一保存就会把那些字段连同记录一起写回去，等于悄悄把别人的数据改坏。
+   所以这个门禁没有任何关闭/继续的路径，也不给"只读浏览"——只读看着没事，但用户一编辑就写了。 */
+function checkDataVersion(remote) {
+  if (payloadSchemaVersion(remote) <= DATA_SCHEMA_VERSION) return true;
+  if (!_versionBlocked) {
+    _versionBlocked = true;
+    stopAutoReload();
+    showUpgradeGate(remote);
+  }
+  return false;
+}
+
+/* ★ 陈旧 html 门禁 ★  ——  跟上面那道 checkDataVersion 是两回事，别搞混：
+   上面那道只在「共享数据的格式」发生不兼容变化时才拦（DATA_SCHEMA_VERSION 变了）。
+   但真正伤人的往往是另一种情况：数据格式一个字段都没改，只是旧版代码里有个会写坏数据的 bug。
+   里程碑被存成好几套重复的那次事故就是这样——数据格式没变，所以那道门禁完全没反应，
+   用着旧 html 的同事照样把重复数据一遍遍写进共享文件，谁也不知道。
+
+   而"手上这份 html 是旧的"在这套分发方式下几乎无法避免，原因还不止一种：
+     · 浏览器把 file:// 的页面缓存住了，双击打开还是老的；
+     · 页面在标签页里开了好几天没关过，代码是那天加载的那一份；
+     · 操作系统/网络盘对共享目录里的文件有自己的缓存，读到的还是旧内容；
+     · 干脆就是本机那份拷贝没更新。
+   这些没有一个是网页代码能从源头堵住的（没有服务器，就没有 Cache-Control 可发）。
+   所以换个思路：不去堵"为什么旧"，而是让程序自己认出"我旧了"，并且立刻停手别再写。
+
+   做法：把"这台设备见过的最高 html 版本"记在本机（settings.maxSeenAppVersion，只存本地、不进共享文件）。
+   每次读共享文件都拿 lastWriteApp 抬一次这个水位。只要本机版本低于水位，就判定这份 html 是旧的：
+   只读不写，并且弹门禁说清楚怎么办。
+   之所以要"记在本机且只升不降"：这样旧版客户端没有任何办法把这个判断抹掉——
+   哪怕它自己写文件时把 lastWriteApp 又写回成旧版本号，本机水位也已经抬上去了，它照样被拦住。 */
+let _staleAppBlocked = false;
+function noteRemoteAppVersion(remote) {
+  const seen = (remote && remote.lastWriteApp) || '';
+  // 版本号是 v+年月日时分秒，定长且纯数字，直接字符串比大小就是时间先后
+  if (seen && seen > (DB.settings.maxSeenAppVersion || '')) {
+    DB.settings.maxSeenAppVersion = seen;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); } catch (e) {}
+  }
+}
+// 本机这份 html 是不是已经落后于"见过的最高版本"
+function isStaleApp() {
+  const hi = DB.settings.maxSeenAppVersion || '';
+  return !!hi && hi > APP_VERSION;
+}
+function checkAppVersion(remote) {
+  noteRemoteAppVersion(remote);
+  if (!isStaleApp()) return true;
+  if (!_staleAppBlocked) {
+    _staleAppBlocked = true;
+    stopAutoReload();
+    showStaleAppGate();
+  }
+  return false;
+}
+function showStaleAppGate() {
+  $('#login-gate').classList.add('show');
+  $('#login-body').innerHTML = `<h3>你打开的是旧版本，已暂停写入</h3>
+    <p class="hint" style="margin-bottom:10px">共享文件里出现过比你这份更新的程序版本。旧版本可能带着已经修好的问题
+      （比如把里程碑存成好几份重复的），继续用会把大家的数据改坏，所以先停在这里——
+      <b>你仍然可以查看数据，只是不会再往共享文件里写。</b></p>
+    <table class="dtable" style="margin-bottom:10px"><tbody>
+      <tr><td>你打开的这份</td><td>${esc(APP_VERSION)}</td></tr>
+      <tr><td>已知最新版本</td><td>${esc(DB.settings.maxSeenAppVersion || '')}</td></tr>
+    </tbody></table>
+    <p class="hint" style="margin-bottom:6px">按顺序试这三步，通常第一步就够了：</p>
+    <ol class="hint" style="margin:0 0 10px 18px;line-height:1.9">
+      <li><b>按住 Ctrl 再点刷新</b>（或 Ctrl+F5）强制重新加载，绕开浏览器缓存</li>
+      <li>把这个程序的<b>所有标签页全部关掉</b>，重新从共享文件夹里双击打开——
+        开着不动的标签页跑的还是当初加载的那份代码，刷新别人的不管用</li>
+      <li>还是不行，就重新从共享文件夹<b>复制一份新的 html</b> 覆盖本机这份</li>
+    </ol>
+    <div id="stale-app-actions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <button class="btn primary" data-act="force-reload">强制刷新试试</button>
+      <button class="btn" data-act="ignore-stale-app">我确认要继续用这一份</button>
+    </div>
+    <p class="hint" style="margin-top:8px">最后那个按钮只在"管理员有意退回旧版本"时才用，平时请不要点。</p>`;
+}
+function showUpgradeGate(remote) {
+  $('#login-gate').classList.add('show');
+  $('#login-body').innerHTML = `<h3>请先升级到最新版再使用</h3>
+    <p class="hint" style="margin-bottom:10px">共享数据文件已经被更新版本的程序写入过。你手上这份 html 是旧版本，
+      认不全新版本存进去的内容，继续用会把大家的数据改坏，所以先停在这里。</p>
+    <table class="dtable" style="margin-bottom:10px"><tbody>
+      <tr><td>你手上这份</td><td>${esc(APP_VERSION)}（数据格式 v${DATA_SCHEMA_VERSION}）</td></tr>
+      <tr><td>共享文件</td><td>${esc(remote.lastWriteApp || '未知版本')}（数据格式 v${payloadSchemaVersion(remote)}）</td></tr>
+      <tr><td>最后写入</td><td>${esc(remote.lastWriteBy || '未署名')}${remote.lastWriteAt ? '，' + esc(fmtLocalDateTime(remote.lastWriteAt)) : ''}</td></tr>
+    </tbody></table>
+    <p class="hint">请向管理员要一份最新版 html 覆盖本机这一份，然后重新打开。本机数据不会丢。</p>`;
+}
+
 /* ---- 身份门禁：跟普通弹窗（#modal-overlay）分开一套，没身份之前没有取消/点外面关闭的路径 ---- */
 let _loginResolve = null;
 function showLoginGate() {
   return new Promise(resolve => {
     _loginResolve = resolve;
     $('#login-gate').classList.add('show');
-    renderLoginPick();
+    renderLoginGate();   // 由 loginGateStage() 决定先认身份还是先接数据
   });
 }
 function hideLoginGate() {
   $('#login-gate').classList.remove('show');
   if (_loginResolve) { const r = _loginResolve; _loginResolve = null; r(); }
 }
-// 账号现在只能由管理员事先建好（这样才能一起录入 8 位工号，用来拼共享文件夹路径），
-// 员工自己不再能"新建账号"——系统里一个账号都没有时除外，那种情况下走一次性引导创建（见 renderLoginCreate 的 bootstrap 分支）
-function renderLoginPick(err) {
-  const users = DB.users.filter(u => !u.deleted_at).sort((a, b) => a.name.localeCompare(b.name, 'zh'));
-  if (!users.length) { renderLoginCreate(null, true); return; }
-  $('#login-body').innerHTML = `<h3>请确认你的身份</h3>
-    <div class="form-row"><label>姓名</label>
-      <input id="login-pick" list="login-pick-list" placeholder="输入你的真实姓名" autocomplete="off">
-      <datalist id="login-pick-list">${users.map(u => `<option value="${esc(u.name)}"></option>`).join('')}</datalist>
-    </div>
+/* 这个 html 自己所在的文件夹（从 location 反推）。
+   程序是放在共享文件夹里分发的、数据文件就在同一个目录下，所以"该选哪个文件夹"其实是已知的——
+   直接显示出来让用户照着选，不用他自己找。
+
+   ★ 为什么只能显示、不能自动去读旁边那个数据文件 ★
+   浏览器不允许 file:// 页面读取自己旁边的任何文件：用 fetch / XMLHttpRequest 取 file:// 会被同源策略
+   直接挡掉（本地文件的来源是"不透明"的，永远不同源）；而文件系统访问接口按规范必须由真实用户手势触发、
+   且必须由用户亲自在系统选择框里选中目录才会授权。这是平台级的安全设计，网页代码没有任何绕过办法
+   （除非用命令行参数启动浏览器关掉这道保护，那样等于让所有网页都能翻本地文件，绝不能这么干）。
+   所以"打开就自动读取同目录的数据文件"做不到；能做到的是把它压缩成"点一次、选一下"，
+   并且明确告诉用户要选哪个文件夹——而且这一步每台电脑只需要做一次。 */
+function ownFolderPath() {
+  try {
+    if (!location.href.startsWith('file:')) return '';
+    let p = decodeURIComponent(location.pathname || '');
+    const i = p.lastIndexOf('/');
+    if (i < 0) return '';
+    p = p.slice(0, i);
+    // Windows 盘符形式是 /Z:/xxx，去掉最前面那个斜杠、换成反斜杠，贴近用户在资源管理器里看到的样子
+    if (/^\/[A-Za-z]:/.test(p)) return p.slice(1).replace(/\//g, '\\');
+    return p;   // Linux（统信OS）的挂载路径保持原样
+  } catch (e) { return ''; }
+}
+/* 身份门禁分三种情况，由"本机手上有没有账号数据"决定停在哪一屏：
+     · 有账号 → 直接认身份（绝大多数情况；刷新后授权失效也走这里，账号还在本机缓存里）
+     · 没账号、也还没连过共享文件夹 → 先把数据接进来（新同事拿到 html 第一次打开就是这一步）
+     · 没账号、但已经连上了 → 共享文件里确实一个账号都没有，这才是真·首次搭建系统
+   以前这三种情况全挤在同一屏：姓名输入框 + "连接共享文件夹"按钮 + "我是管理员"链接堆在一起。
+   新同事第一次打开时本机根本没有账号数据，输了姓名只会得到"找不到这个账号"，
+   而真正该做的第一件事（把共享数据接进来）反倒只是并排的一个按钮，旁边还杵着一个跟他完全无关的
+   "我是负责搭建系统的管理员"入口——三件事对应三种人，摆在一起只会让人不知道该点哪个。 */
+function loginGateStage() {
+  if (DB.users.some(u => !u.deleted_at)) return 'pick';
+  if (!('showDirectoryPicker' in window)) return 'create';   // 浏览器不支持共享文件，只能单机建号
+  if (_fileHandle) return 'create';                          // 已连上、里面确实是空的 = 真·首次搭建
+  return 'connect';                                          // 先接数据
+}
+function renderLoginGate(err) {
+  const stage = loginGateStage();
+  if (stage === 'pick') renderLoginPick(err);
+  else if (stage === 'connect') renderLoginConnectFirst(err);
+  else renderLoginCreate(err);
+}
+/* 第一步：本机还没有任何账号数据，先把共享文件夹接进来。这一屏只有一个主按钮，
+   不该再摆别的选择去分散注意力——这里以前还挂过一行"我是负责搭建系统的管理员"的链接，
+   点开是跳过连接、直接本机建号，是留给管理员第一次从零搭建时用的。
+   但它会出现在【每一个】第一次打开这份 html 的人面前，不管是不是管理员——
+   对普通同事来说这是一句毫不相干、只会让人犹豫"我要不要点这个"的提示。
+   而它其实是多余的：管理员照样点"选择共享数据文件夹"这一个按钮就行——
+   连的文件夹里如果确实一个账号都没有（真·从零搭建），loginGateStage() 会自动判定成
+   'create' 阶段，直接进创建管理员账号的表单（见下面 renderLoginGate），完全不需要这条近路。
+   所以直接去掉，不给普通同事任何需要多想一秒的选项。 */
+function renderLoginConnectFirst(err) {
+  const folder = ownFolderPath();
+  $('#login-body').innerHTML = `<h3>先连接共享数据</h3>
+    <p class="hint" style="margin-bottom:10px">这台电脑上还没有本系统的数据。点下面的按钮，在弹出的系统文件夹选择框里
+      选中<b>本程序所在的这个文件夹</b>（数据文件就和这个网页放在一起），之后就能用自己的姓名登录了。</p>
+    ${folder ? `<div class="form-row"><label>要选的文件夹</label><span><code>${esc(folder)}</code></span></div>
+      <p class="hint" style="margin-bottom:10px">这就是本程序当前所在的位置，照着选它即可。</p>` : ''}
     ${err ? `<div class="err">${esc(err)}</div>` : ''}
-    <div class="btns"><button class="btn primary" data-act="login-next">下一步</button></div>`;
-  setTimeout(() => {
-    const el = $('#login-pick');
-    if (!el) return;
-    el.focus();
-    el.addEventListener('keydown', e => { if (e.key === 'Enter') ACTIONS['login-next'](); });
-  }, 30);
+    <div class="btns"><button class="btn primary" data-act="login-connect-share">选择共享数据文件夹</button></div>
+    <p class="hint" style="margin-top:12px">浏览器的安全限制不允许网页自己去读旁边的文件，所以这一下必须由你亲自点、亲自选。
+      <b>每台电脑只需要做这一次</b>，以后再打开会自动接上。</p>`;
+}
+function renderLoginPick(err) {
+  // 姓名手动输入，不做成下拉框——下拉框等于把全处的账号名单摆出来给人挑，
+  // 谁都能翻着选别人的名字去试 PIN；手动输入至少不会主动暴露"都有谁"
+  const needShare = !_fileHandle && ('showDirectoryPicker' in window);
+  $('#login-body').innerHTML = `<h3>请确认你的身份</h3>
+    <div class="form-row"><label>姓名</label><input id="login-pick" placeholder="真实姓名"></div>
+    ${err ? `<div class="err">${esc(err)}</div>` : ''}
+    <div class="btns"><button class="btn primary" data-act="login-pick-next">下一步</button></div>
+    ${needShare ? `<p class="hint" style="margin-top:14px">名单来自本机上次缓存的数据。如果这里查不到你的姓名，
+      多半是名单还没更新——<a href="javascript:void(0)" data-act="login-connect-share">连接共享文件夹</a>取一份最新的。</p>` : ''}`;
+  setTimeout(() => { const el = $('#login-pick'); if (el) el.focus(); }, 30);
 }
 function renderLoginVerify(name, err) {
   $('#login-body').innerHTML = `<h3>输入 PIN 码</h3>
@@ -790,25 +986,53 @@ function renderLoginVerify(name, err) {
     <div class="form-row"><label>PIN</label><input id="login-pin" type="password" placeholder="PIN 码"></div>
     ${err ? `<div class="err">${esc(err)}</div>` : ''}
     <div class="btns"><button class="btn" data-act="login-back">‹ 返回</button>
-      <button class="btn primary" data-act="login-verify" data-name="${esc(name)}">确认</button></div>`;
+      <button class="btn primary" data-act="login-verify-pin" data-name="${esc(name)}">确认</button></div>`;
   setTimeout(() => { const el = $('#login-pin'); if (el) el.focus(); }, 30);
 }
-function renderLoginCreate(err, bootstrap) {
-  $('#login-body').innerHTML = `<h3>${bootstrap ? '系统还没有任何账号，先创建第一个（管理员）' : '新建账号'}</h3>
+// 账号是管理员事先建好的，但 PIN 从来不是管理员帮忙设的——第一次登录时自己设，管理员也看不到。
+function renderLoginSetPin(name, err) {
+  $('#login-body').innerHTML = `<h3>首次登录，设置你的 PIN</h3>
+    <div class="form-row"><label>身份</label><span>${esc(name)}</span></div>
+    <p class="hint" style="margin-bottom:8px">这是这个账号第一次登录，请设置一个 PIN 码，以后每次都要输这个。</p>
+    <div class="form-row"><label>PIN</label><input id="login-new-pin" type="password" placeholder="至少 4 位"></div>
+    <div class="form-row"><label>确认 PIN</label><input id="login-new-pin2" type="password" placeholder="再输一遍"></div>
+    ${err ? `<div class="err">${esc(err)}</div>` : ''}
+    <div class="btns"><button class="btn" data-act="login-back">‹ 返回</button>
+      <button class="btn primary" data-act="login-set-pin" data-name="${esc(name)}">确认</button></div>`;
+  setTimeout(() => { const el = $('#login-new-pin'); if (el) el.focus(); }, 30);
+}
+/* 走到这一屏只有两条路（见 loginGateStage）：
+     · 已经连上共享文件夹，但里面确实一个账号都没有 —— 真·首次搭建系统，这是唯一的入口；
+     · 浏览器压根不支持文件系统访问接口，没法共享，只能单机建号。
+   注意它不会出现在普通同事的登录路径上：普通同事本机没有账号时看到的是"先连接共享数据"，
+   点"选择共享数据文件夹"连上以后，账号名单就有了，直接进认身份，全程碰不到这个创建表单——
+   这也是"先连接共享数据"那一屏不再需要一条"我是管理员"的手动近路的原因：
+   管理员照样点那一个按钮，选中确实是空的共享文件夹，就会自动落到这一屏来。 */
+function renderLoginCreate(err) {
+  $('#login-body').innerHTML = `<h3>创建首个（管理员）账号</h3>
+    <p class="hint" style="margin-bottom:10px">只有系统里一个账号都没有时才能从这里创建，
+      而且姓名必须在管理员名单里，防止随便谁连上一个空的共享文件夹就把自己设成管理员。</p>
     <div class="form-row"><label>姓名</label><input id="login-new-name" placeholder="真实姓名"></div>
     <div class="form-row"><label>PIN</label><input id="login-new-pin" type="password" placeholder="至少 4 位"></div>
     <div class="form-row"><label>确认 PIN</label><input id="login-new-pin2" type="password" placeholder="再输一遍"></div>
     ${err ? `<div class="err">${esc(err)}</div>` : ''}
-    <div class="btns">${bootstrap ? '' : '<button class="btn" data-act="login-back">‹ 返回</button>'}
+    <div class="btns"><button class="btn" data-act="login-back">‹ 返回</button>
       <button class="btn primary" data-act="login-create">创建</button></div>`;
   setTimeout(() => { const el = $('#login-new-name'); if (el) el.focus(); }, 30);
 }
+/* 身份识别：姓名 + PIN。没有服务器，做不到真正防冒充，只是"防同事随手用别人名字"的门槛——
+   见前面 hashPin/verifyPin 的注释。识别不是自动的，必须显式走一遍门禁选姓名、输 PIN。 */
 async function ensureIdentity() {
   if (DB.settings.me && DB.users.some(u => u.name === DB.settings.me && !u.deleted_at)) return;
+  // 门禁已经开着了（比如正是在门禁里点"连接共享文件夹"，连完又回到这里）：
+  // 只把内容重画一次就行。再 showLoginGate 一次会把 _loginResolve 换成新的，
+  // 原来那个 await 就永远等不到了，开机流程会卡死在这儿
+  if (_loginResolve) { renderLoginGate(); return; }
   await showLoginGate();
 }
 $('#login-gate').addEventListener('click', function (e) {
   if (e.target !== this) return;
+  if (_versionBlocked) return;   // 版本门禁没有任何关闭路径，点外面也不行
   // 已经有身份时，点外面视为取消这次"切换身份"；首次强制登录时没有这条监听生效的余地（这时点了也不会关）
   if (DB.settings.me && DB.users.some(u => u.name === DB.settings.me && !u.deleted_at)) hideLoginGate();
 });
@@ -904,8 +1128,11 @@ const TASK_VIEWS = [
 ];
 const TASK_VIEW_MAP = Object.fromEntries(TASK_VIEWS.map(v => [v.key, v]));
 
-// 工作台永远可见，当作人人都能落脚的安全页；其余页面能不能看，交给权限矩阵里对应的查看权限决定；
-// "权限"页本身永远是硬编码的管理员专属，不接受配置（跟矩阵里管理员那一列锁死是同一个道理）
+// 工作台永远可见，当作人人都能落脚的安全页；其余页面能不能看，交给权限矩阵里对应的查看权限决定。
+// "数据"页和"权限"页是硬编码的管理员专属，不进权限矩阵、不接受任何配置：
+// 这两页装的是连接/断开共享文件、重置全部数据、导入备份、账号与角色这些能一把毁掉全处数据的操作，
+// 只要它们可配置，就存在"某台设备同步下来一份老矩阵、把它给某个角色打开了"的口子（曾经真出过这个问题），
+// 索性写死——认证过的管理员才看得见，其他人连入口都没有。
 const PAGES = [
   { key: 'dashboard', label: '工作台' },
   { key: 'tasks',     label: '任务', viewPermission: 'view_tasks' },
@@ -913,7 +1140,7 @@ const PAGES = [
   { key: 'duties',    label: '职责', viewPermission: 'view_duties' },
   { key: 'charts',    label: '图表', viewPermission: 'view_charts' },
   { key: 'report',    label: '报告', viewPermission: 'view_report' },
-  { key: 'data',      label: '数据', viewPermission: 'view_data' },
+  { key: 'data',      label: '数据', adminOnly: true },
   { key: 'permissions', label: '权限', adminOnly: true },
 ];
 function canSeePage(p) {
@@ -929,6 +1156,7 @@ const STORAGE_KEY = 'todo_v4';
 
 let DB = {
   duties: [], works: [], milestones: [], tasks: [], changelog: [], users: [], permissionMatrix: null, shareConfig: null,
+  purged: [],   // 彻底删除的墓碑，见 recordPurge()
   settings: { me: '', year: new Date().getFullYear() },
 };
 
@@ -962,6 +1190,37 @@ function mergeByPk(pk, localList, remoteList) {
   return [...map.values()];
 }
 function mergeEntityList(entity, localList, remoteList) { return mergeByPk(schema(entity).pk, localList, remoteList); }
+/* 彻底删除的墓碑（DB.purged）。
+   软删除靠 deleted_at + rev 就够了：删除动作本身是一次"更新"，rev 更高，合并时压得住对方手上的旧版本。
+   但彻底删除是把记录从数组里抠掉，合并规则里"我有你没有的记录就收进来"是双向的，
+   于是这条记录会从任何一台还没同步的设备上原样飘回来，等于删不掉。所以彻底删除必须单独留一条墓碑。 */
+const PURGED_LIMIT = 500;
+function mergePurged(local, remote) {
+  const map = new Map();
+  [...(local || []), ...(remote || [])].forEach(p => {
+    if (!p || !p.entity || !p.id) return;
+    const k = p.entity + ' ' + p.id;
+    const cur = map.get(k);
+    if (!cur || (p.at || '') > (cur.at || '')) map.set(k, p);
+  });
+  // 按时间排序后只留最近的若干条：墓碑是只增不减的，不封顶迟早把共享文件撑爆。
+  // 被挤掉的都是很久以前删的，那时候的记录早就在所有设备上消失了，不会再复活
+  return [...map.values()].sort((a, b) => (a.at || '').localeCompare(b.at || '')).slice(-PURGED_LIMIT);
+}
+// 按墓碑把记录从合并结果里剔掉。
+// 只有"墓碑时间晚于这条记录最后一次改动"才剔——否则说明这条是墓碑之后重新建的同编号记录
+// （职责/工作的主键是人填的编号，删掉之后完全可能再建一个一样的），不能连新的一起误杀
+function applyPurged(entity, pk, list, purged) {
+  if (!purged || !purged.length) return list;
+  const dead = new Map();
+  purged.forEach(p => { if (p.entity === entity) dead.set(p.id, p.at || ''); });
+  if (!dead.size) return list;
+  return list.filter(r => {
+    const at = dead.get(r[pk]);
+    if (at === undefined) return true;
+    return (r.updated_at || r.created_at || '') > at;
+  });
+}
 function mergeChangelog(local, remote) {
   const map = new Map((local || []).map(e => [e.id, e]));
   (remote || []).forEach(e => { if (!map.has(e.id)) map.set(e.id, e); });
@@ -971,7 +1230,25 @@ function syncPayload(db) {
   return {
     duties: db.duties, works: db.works, milestones: db.milestones, tasks: db.tasks,
     changelog: db.changelog, users: db.users, permissionMatrix: db.permissionMatrix, shareConfig: db.shareConfig,
+    purged: db.purged || [],
   };
+}
+// 文件里的格式版本号（没有这个字段的是版本门禁上线之前写的老文件，按第 1 版算）
+function payloadSchemaVersion(obj) {
+  const v = obj && obj.schemaVersion;
+  return typeof v === 'number' ? v : 1;
+}
+// 真正落到文件里的内容 = 业务数据 + 一层"文件自述"信息（谁、用哪个版本的 html、哪一次写的）。
+// 这几个字段刻意不进 syncPayload：它们不是业务数据，不该被合并、也不该被 Object.assign 灌回内存里的 DB。
+// writeId 是每次写入随机生成的一次性标记，用来在写完之后确认"文件里现在这份确实是我刚写的那一份"
+function filePayload(businessPayload, db, writeId) {
+  return Object.assign({}, businessPayload, {
+    schemaVersion: DATA_SCHEMA_VERSION,
+    writeId,
+    lastWriteBy: db.settings.me || '未署名',
+    lastWriteApp: APP_VERSION,
+    lastWriteAt: new Date().toISOString(),
+  });
 }
 // 权限矩阵是一整个对象，不是逐条记录的列表，没法按 pk 合并——谁的版本号/时间更新就整体采用谁的；
 // 共享文件夹配置（shareConfig）跟权限矩阵是同一种"整体对象"形状，合并规则复用这一个函数
@@ -980,21 +1257,62 @@ function mergePermissionMatrix(local, remote) {
   if (!local) return remote;
   return newerRecord(remote, local) ? remote : local;
 }
+/* 「最近连接」时间（users[].lastSeenAt）必须单独按"取较晚的那个"合并，不能跟着整条记录走。
+   它是 markUserSeen 直接写上去的心跳，刻意不走 stampMeta——否则每台设备每同步一次
+   就把所有账号的 rev 顶高一级，真正的账号修改（改角色、设 PIN）反而会被心跳压过去。
+   代价是 newerRecord 看不出这条记录变过：rev 和 updated_at 都没动，于是合并时
+   整条被判成"不比本地新"而保留本地版本。后果实测确认过：每个人都只看得到自己的最近连接时间，
+   同事的心跳一到本地就被丢掉，还会在自己写回文件时被一起抹掉——
+   而这一列恰恰是排查"同事到底连没连上"最直接的依据，坏在这里等于把排查手段也一起弄没了。 */
+function mergeUserPresence(list, local, remote) {
+  // lastSeenAt 和 lastAppVersion 是同一次心跳一起写上去的，合并时也要一起走：
+  // 取"心跳时间最晚的那一次"，把它带的版本号一并采纳，否则会出现
+  // "时间是新的、版本号却是上一次的"这种自相矛盾的组合
+  const latest = new Map();
+  [...(local || []), ...(remote || [])].forEach(u => {
+    if (!u || !u.name || !u.lastSeenAt) return;
+    const cur = latest.get(u.name);
+    if (!cur || u.lastSeenAt > cur.lastSeenAt) latest.set(u.name, { lastSeenAt: u.lastSeenAt, lastAppVersion: u.lastAppVersion || '' });
+  });
+  if (!latest.size) return list;
+  return list.map(u => {
+    const t = latest.get(u.name);
+    return (t && t.lastSeenAt > (u.lastSeenAt || ''))
+      ? Object.assign({}, u, { lastSeenAt: t.lastSeenAt, lastAppVersion: t.lastAppVersion })
+      : u;
+  });
+}
 function mergeSyncPayload(local, remote) {
+  // 先把两边的墓碑并起来，再拿并集去筛每一类记录——
+  // 只要有任何一台设备记得"这条被彻底删过"，它就不该在合并结果里重新出现
+  const purged = mergePurged(local.purged, remote.purged);
   return {
-    duties: mergeEntityList('duty', local.duties, remote.duties),
-    works: mergeEntityList('work', local.works, remote.works),
-    milestones: mergeEntityList('milestone', local.milestones, remote.milestones),
-    tasks: mergeEntityList('task', local.tasks, remote.tasks),
+    duties: applyPurged('duty', 'code', mergeEntityList('duty', local.duties, remote.duties), purged),
+    works: applyPurged('work', 'id', mergeEntityList('work', local.works, remote.works), purged),
+    milestones: applyPurged('milestone', 'id', mergeEntityList('milestone', local.milestones, remote.milestones), purged),
+    tasks: applyPurged('task', 'id', mergeEntityList('task', local.tasks, remote.tasks), purged),
     changelog: mergeChangelog(local.changelog, remote.changelog),
-    users: mergeByPk('name', local.users, remote.users),
+    users: mergeUserPresence(
+      applyPurged('user', 'name', mergeByPk('name', local.users, remote.users), purged),
+      local.users, remote.users),
     permissionMatrix: mergePermissionMatrix(local.permissionMatrix, remote.permissionMatrix),
     shareConfig: mergePermissionMatrix(local.shareConfig, remote.shareConfig),
+    purged,
   };
 }
 
 let _fileHandle = null, _dirHandle = null, _lastSyncedMtime = 0;
+let _offlineMode = false;   // 这台设备之前连过共享文件夹，但这次开机连不上——先用本机缓存顶着，不阻塞使用
+let _versionBlocked = false;   // 共享文件是更新版本的 html 写的，我这份太旧——只读不写，并且挡住界面要求升级
+let _needPermissionRestore = false;   // 连过、句柄也还在，只是刷新页面后读写授权失效了，点一下就能恢复（见 tryReconnectSharedFile）
+/* 这台设备历史上有没有成功连过共享文件夹。开机时查一次 IndexedDB 缓存到这里，
+   之后 connect/disconnect 顺手维护——因为 Repo.persist 每次保存都要用它做判断，
+   不能每存一次就去开一遍 IndexedDB。
+   它存在的意义：区分"本来就是单机用"和"应该同步但这会儿没连上"。后者必须报警，前者不该打扰。 */
+let _everConnected = false;
+let _lastUnsyncedWarnAt = 0;   // "改动没同步"的提示做节流，不然连着改十条就弹十次
 const IDB_NAME = 'todoapp_fsa', IDB_STORE = 'handles', IDB_KEY = 'sharedFile';
+const IDB_BACKUP_KEY = 'backupDir';   // 管理员定期备份的目标文件夹句柄，跟共享文件夹分开存
 function idbOpen() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(IDB_NAME, 1);
@@ -1011,6 +1329,23 @@ async function idbSetHandle(handle) {
     tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
   });
 }
+// 备份文件夹句柄单独一条记录。文件夹句柄没法序列化进 localStorage，只能放 IndexedDB
+async function idbSetBackupDir(handle) {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    tx.objectStore(IDB_STORE).put(handle, IDB_BACKUP_KEY);
+    tx.oncomplete = () => resolve(); tx.onerror = () => reject(tx.error);
+  });
+}
+async function idbGetBackupDir() {
+  const db = await idbOpen();
+  return new Promise((resolve, reject) => {
+    const req = db.transaction(IDB_STORE, 'readonly').objectStore(IDB_STORE).get(IDB_BACKUP_KEY);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error);
+  });
+}
 async function idbGetHandle() {
   const db = await idbOpen();
   return new Promise((resolve, reject) => {
@@ -1018,6 +1353,11 @@ async function idbGetHandle() {
     req.onsuccess = () => resolve(req.result || null);
     req.onerror = () => reject(req.error);
   });
+}
+// 这台设备是否连接过共享文件夹——不管现在的读写权限还有没有效，只要存过句柄就算连过；
+// 用来在开机时区分"全新设备，必须先连接"和"连过、这次连不上，先离线用着"这两种情况
+async function hasEverConnectedShare() {
+  try { return !!(await idbGetHandle()); } catch (e) { return false; }
 }
 async function idbClearHandle() {
   const db = await idbOpen();
@@ -1028,32 +1368,106 @@ async function idbClearHandle() {
   });
 }
 
-/* 把当前数据同步进共享文件。文件没被别人动过（mtime 没变）就直接写，省掉一次读+解析+合并；
-   一旦发现文件比我们上次看到的新，说明有人在这之间存过东西，就先读出来按 rev/updated_at 逐条合并，
-   合并结果既写回文件，也覆盖回当前内存，不然这个浏览器自己还在看合并前的旧数据。 */
+function emptyRemotePayload() {
+  return { duties: [], works: [], milestones: [], tasks: [], changelog: [], users: [], permissionMatrix: null, shareConfig: null, purged: [] };
+}
+/* 读共享文件当前内容。返回 null 表示"这个文件的内容没法用"（不是合法 JSON，或者不是本应用的数据格式），
+   调用方遇到 null 一律放弃本次写入——宁可这次不同步，也不能拿一份看不懂的文件当"空数据"覆盖掉。
+   完全空白的新文件是正常情况（刚建好还没人写过），按空数据处理。 */
+async function readSharedFile() {
+  /* ★ "同事改的东西死活同步不出来，关掉 html 重新打开就有了"——大概率就是这里 ★
+     关掉重开为什么管用：boot() 每次都会用 _dirHandle.getFileHandle() 向目录重新要一个全新的
+     文件句柄；而长时间开着的会话里，我们一直复用连接那一刻拿到的同一个句柄反复读。
+     共享文件夹通常是 SMB/网络盘挂载的（见前面 syncToFile 的注释），复用同一个句柄反复读，
+     不能保证每次都穿透到磁盘/网络盘的最新内容——某些浏览器实现或者操作系统底层的文件 API，
+     对"同一个已经打开的句柄"可能带一层只在句柄生命周期内生效的缓存，尤其是内容是被
+     另一台设备写入的情况下。每次读之前都重新问目录要一个新句柄，相当于每次都当成"刚打开这个文件"，
+     绕开这层可能存在的句柄级缓存——这也是用户要求的"强制刷新、不要读缓存"最直接的落地方式。
+     没有目录句柄（老式单文件句柄，或者拿不到）就用现有的 _fileHandle 兜底，行为跟以前一样。 */
+  if (_dirHandle) {
+    try {
+      const fileName = effectiveShareCfg().fileName;
+      _fileHandle = await _dirHandle.getFileHandle(fileName, { create: true });
+    } catch (e) { /* 拿不到新句柄就沿用现有的 _fileHandle，读不动的话下面自然会报错/返回 null */ }
+  }
+  const file = await _fileHandle.getFile();
+  const text = await file.text();
+  if (!text.trim()) return { remote: emptyRemotePayload(), mtime: file.lastModified };
+  let parsed = null;
+  try { parsed = JSON.parse(text); } catch (e) { return null; }
+  if (!isValidShareData(parsed)) return null;
+  return { remote: parsed, mtime: file.lastModified };
+}
+// 缓存"读到的这份文件是谁、什么时候、用哪个版本的 html 写的"——纯本机展示用（不进共享文件），
+// 帮着排查"某个同事的改动好像没同步上来"：如果这里显示的最后写入人/时间一直不是那位同事，
+// 大概率是他那边的连接/授权/html 版本有问题，不是这份代码本身没写进去
+function cacheRemoteWriteInfo(remote) {
+  if (!remote) return;
+  DB.settings.lastKnownWriteBy = remote.lastWriteBy || '';
+  DB.settings.lastKnownWriteAt = remote.lastWriteAt || '';
+  DB.settings.lastKnownWriteApp = remote.lastWriteApp || '';
+}
+/* 把当前数据同步进共享文件。
+
+   ★ 这里刻意"每次都先读出来合并再写"，不做任何"文件时间戳没变就直接覆盖"的优化 ★
+   曾经有过那条快路径，但它在这个部署场景下会真丢数据：共享盘是 SMB / 统信OS 挂载的网络目录，
+   文件时间戳的精度往往只到秒（不是毫秒），别人的保存只要跟我们上次同步落在同一个时间刻度里，
+   时间戳看上去就是没变的，于是我们会把对方刚存的内容整个抹掉。每次多读一次文件（十几万字符，几毫秒）
+   换掉这个隐患是非常划算的。
+
+   写完之后再读一遍确认文件里是不是我们刚写的那一份：如果正好有人在这几毫秒里也写了，我们的内容会被盖掉，
+   这时重新合并重写一次。只重试一次就够了——本机内存里的数据一条没少，就算这次还是没推上去，
+   下一次保存、或者 5 分钟一轮的定时同步都会自然把它再推上去。 */
 async function syncToFile(db) {
   if (!_fileHandle) return;
-  const file = await _fileHandle.getFile();
-  let payload;
-  if (file.lastModified === _lastSyncedMtime) {
-    payload = syncPayload(db);
-  } else {
-    let remote = { duties: [], works: [], milestones: [], tasks: [], changelog: [], users: [], permissionMatrix: null, shareConfig: null };
-    const text = await file.text();
-    if (text.trim()) {
-      try { remote = JSON.parse(text); }
-      catch (e) { showSnack('共享文件内容不是合法 JSON，本次按空数据合并，请确认文件没选错'); }
-    }
-    payload = mergeSyncPayload(syncPayload(db), remote);
-    Object.assign(db, payload);
+  if (_versionBlocked) return;   // 数据格式太旧，只准读不准写，免得把新版本的字段抹掉
+  if (_staleAppBlocked) return;  // 这份 html 是旧版（缓存/没关标签页/旧拷贝），只准读不准写，见 checkAppVersion
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const cur = await readSharedFile();
+    if (!cur) { showSnack('共享文件内容不是本应用的数据格式，本次没有写入，请确认共享文件夹没选错'); return; }
+    if (!checkDataVersion(cur.remote)) return;
+    if (!checkAppVersion(cur.remote)) return;   // 刚发现自己是旧版：这次写入就地取消
+    cacheRemoteWriteInfo(cur.remote);   // 记一下"我这次写之前，文件里是谁写的"，供排查同步问题用
+    const merged = mergeSyncPayload(syncPayload(db), cur.remote);
+    Object.assign(db, merged);
     rebuildIndex();
+    const writeId = uid('w');
+    const w = await _fileHandle.createWritable();
+    await w.write(JSON.stringify(filePayload(merged, db, writeId)));
+    await w.close();
+    const after = await _fileHandle.getFile();
+    _lastSyncedMtime = after.lastModified;
+    db.settings.lastSyncAt = new Date().toISOString();
+    const verify = await readSharedFile();
+    if (!verify || verify.remote.writeId === writeId) return;   // 文件里就是我们刚写的那份，收工
   }
-  const w = await _fileHandle.createWritable();
-  await w.write(JSON.stringify(payload));
-  await w.close();
-  const after = await _fileHandle.getFile();
-  _lastSyncedMtime = after.lastModified;
-  db.settings.lastSyncAt = new Date().toISOString();
+}
+
+/* 只把共享文件里的最新内容读进来合并，不写回去。
+   为什么要单独有这么一个函数：原来"看看别人改了什么"和"把我的改动推上去"是同一个动作
+   （syncToFile 每次都是读—合并—写），这带来三个真问题：
+   1) 我什么都没改的时候也要把整份数据重写一遍共享文件。网络盘上 N 台设备各自定时重写，
+      互相覆盖的时间窗白白变大，纯属自找麻烦；
+   2) 版本门禁挡住写入时（_versionBlocked）连读也一起被挡掉了，界面就永远停在旧数据上；
+   3) 写入要请求写权限、要重试校验，比读贵得多，导致我们不敢做得太频繁——
+      而"看别人改了啥"恰恰应该做得很频繁。
+   拉取是只读的，没有这些顾虑，可以放心多拉几次。 */
+async function pullFromFile() {
+  if (!_fileHandle) return false;
+  const cur = await readSharedFile();
+  if (!cur) return false;
+  cacheRemoteWriteInfo(cur.remote);
+  if (!checkDataVersion(cur.remote)) return false;
+  // 拉取本身是只读的，就算判定成旧版也照样把数据读进来给人看——被拦掉的只有写入
+  checkAppVersion(cur.remote);
+  const merged = mergeSyncPayload(syncPayload(DB), cur.remote);
+  Object.assign(DB, merged);
+  rebuildIndex();
+  // lastSyncAt 的含义是"最后一次跟共享文件对上账的时间"，只读拉取同样对上了账，
+  // 所以这里也要更新——否则顶栏那个新鲜度会一直显示成上一次写入的时间，比实际情况悲观
+  DB.settings.lastPullAt = DB.settings.lastSyncAt = new Date().toISOString();
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); } catch (e) {}
+  return true;
 }
 
 /* ★ 可迁移性设计 2：存储层抽象为异步接口。
@@ -1065,12 +1479,39 @@ const Repo = {
     try { const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : null; }
     catch (e) { return null; }
   },
+  /* ★ 这里曾经有个很隐蔽、后果很严重的坑，改的时候务必看完这段注释 ★
+     以前是：写完 localStorage，然后 `if (_fileHandle) syncToFile(db)`，没有句柄就直接 return true。
+     问题在于——浏览器的文件读写授权【不跨页面存活】，每次刷新/重开页面 _fileHandle 都是 null，
+     要等用户点一下"恢复共享连接"才接得回来。也就是说，从打开页面到点中那个按钮之间的每一次保存，
+     都只落在本机 localStorage 里，而且静默返回"成功"，界面上一个字都不提示。
+     实际后果：同事设完 PIN、改了一天的任务，自己看着都好好的，但共享文件里什么都没有，
+     管理员那边完全看不到。这不是同步慢，是压根没同步，而且没人知道。
+
+     所以现在：没能真正写进共享文件的保存，一律记一个持久化的"未同步"标记（settings.pendingSync，
+     它跟 me/列宽一样只存本机、不进共享文件），顶栏会一直红着提醒，恢复连接时再把积压的改动整批推上去。 */
   async persist(db) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); }
-    catch (e) { showSnack('保存失败：本地存储可能已满，请到「数据」页导出备份'); return false; }
+    // ★ 保存本身就是一次真实的用户手势，顺手用它把授权要回来 ★ 见 ensureFileHandleFresh 的注释：
+    // 这是"任何正式保存都要真正触发一次同步尝试"的关键一步，不能指望用户自己另外去点别的地方
+    if (!_fileHandle) await ensureFileHandleFresh();
+    const flush = () => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); return true; } catch (e) { return false; } };
+    if (!flush()) { showSnack('保存失败：本地存储可能已满，请到「数据」页导出备份', { priority: true }); return false; }
     if (_fileHandle) {
-      try { await syncToFile(db); }
-      catch (e) { showSnack('共享文件同步失败：' + (e && e.message ? e.message : e) + '（本机数据已保存，不会丢）'); }
+      try {
+        if (db.settings.me) markUserSeen(db.settings.me);   // 权限页"最近连接"就是靠这一下记的
+        await syncToFile(db);
+        if (db.settings.pendingSync) { db.settings.pendingSync = false; flush(); }   // 积压的改动这次一起推上去了
+      } catch (e) {
+        db.settings.pendingSync = true; flush();
+        showSnack('共享文件同步失败：' + (e && e.message ? e.message : e) + '（本机已存，恢复连接后会自动补推）', { priority: true });
+      }
+    } else if (_everConnected) {
+      // 连过共享文件夹、但这会儿没连上：这次改动只在本机，别人看不到——必须说出来，不能装作存好了
+      db.settings.pendingSync = true; flush();
+      const now = Date.now();
+      if (now - _lastUnsyncedWarnAt > 20000) {
+        _lastUnsyncedWarnAt = now;
+        showSnack('⚠ 改动只存在本机，还没同步给大家——请点顶栏那个红色提示恢复共享连接', { priority: true });
+      }
     }
     return true;
   },
@@ -1088,6 +1529,7 @@ const Repo = {
     const i = list.findIndex(r => r[pk] === id);
     if (i !== -1) list.splice(i, 1);
     IDX[entity].delete(id);
+    recordPurge(entity, id);   // 留墓碑，否则这条会从别人还没同步的设备上飘回来
     await this.persist(DB);
   },
   async bulk(fn) {                          // 批量操作只持久化一次
@@ -1143,12 +1585,21 @@ function undelete(entity, id) {
   if (r) delete r.deleted_at;
   return r;
 }
+// 记一条"这条被彻底删了"的墓碑。没有它的话，这条记录会从任何一台还没同步的设备上原样飘回来
+// （合并规则里"我有你没有的记录就收进来"是双向的），等于永远删不干净。见 mergePurged / applyPurged。
+function recordPurge(entity, id) {
+  if (!Array.isArray(DB.purged)) DB.purged = [];
+  DB.purged = DB.purged.filter(p => !(p.entity === entity && p.id === id));   // 同一条重复删就只留最后一次
+  DB.purged.push({ entity, id, at: new Date().toISOString(), by: DB.settings.me || '未署名' });
+  if (DB.purged.length > PURGED_LIMIT) DB.purged.splice(0, DB.purged.length - PURGED_LIMIT);
+}
 // 跟 softDelete/undelete 一样，是给 Repo.bulk(fn) 回调里用的同步版本——只改数组和索引，不落盘，
 // 落盘交给 bulk 自己最后统一做一次；跟 Repo.removeHard 那个"单条、自己持久化"的版本是两回事
 function removeHard(entity, id) {
   const list = coll(entity), pk = schema(entity).pk;
   const i = list.findIndex(r => r[pk] === id);
   if (i !== -1) list.splice(i, 1);
+  recordPurge(entity, id);
 }
 
 /* 人员池：所有 person / persons 字段的取值汇总 */
@@ -1315,6 +1766,26 @@ function fmtLocal(d) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 function todayStr() { return fmtLocal(new Date()); }
+/* 把存下来的时间戳（created_at/updated_at 这些，都是 new Date().toISOString() 存的 UTC 串）
+   换算成"本地日期"再跟 todayStr()/plan_date 这类本地日期比。
+   直接 .slice(0,10) 拿的是 UTC 那一天，跟本地日期能差一天：
+   在 UTC-7 的机器上，本地傍晚 18 点存的记录，ISO 串里已经是第二天了——这样比出来
+   "今天刚建的任务"会被判成"明天才建"，从当天的统计里整个漏掉。 */
+function localDay(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  return isNaN(d.getTime()) ? String(ts).slice(0, 10) : fmtLocal(d);
+}
+// 同上，但连时分也换算成本地时间——created_at/updated_at/lastSyncAt 这些存的都是
+// new Date().toISOString()（UTC），直接 .slice(0,16).replace('T',' ') 显示的是 UTC 时刻，
+// 不是用户电脑所在时区的时间。界面上给人看的时间，一律要走这个函数，不能直接切 ISO 字符串。
+function fmtLocalDateTime(ts) {
+  if (!ts) return '';
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return String(ts).slice(0, 16).replace('T', ' ');
+  const p2 = n => String(n).padStart(2, '0');
+  return `${fmtLocal(d)} ${p2(d.getHours())}:${p2(d.getMinutes())}`;
+}
 function offsetDate(n) { const d = new Date(); d.setDate(d.getDate() + n); return fmtLocal(d); }
 function weekdayDate(wd) {
   const t = new Date(); let diff = wd - t.getDay(); if (diff <= 0) diff += 7;
@@ -1368,6 +1839,59 @@ function parseCSVDate(raw) {
   }
   return '';
 }
+/* ★ 日期输入框：连续敲数字要能自动按 4/2/2 位分成年/月/日 ★
+   原来这些框都是原生 <input type="date">，敲数字之后怎么分段（先年后月、还是先月后日）
+   是浏览器按当前系统/浏览器的地区设置自己决定的，网页本身设了 <html lang="zh-CN"> 也不保证生效——
+   同一份 html 在不同人的电脑上，敲同样的数字可能被分出完全不一样的日期。这是原生控件的固有毛病，
+   没有 JS 能保证把它锁死成"先年后月后日"。所以这几处改用一个只认连续数字的文本框：
+   不管敲到第几位，永远按"前 4 位是年、接下来 2 位是月、最后 2 位是日"分段并自动点上"-"，
+   跟系统/浏览器的地区设置完全无关，谁的电脑上都是同一个结果。
+   用户如果就是想直接敲 "2027-07-15" 带着"-"敲也一样认——反正这里统统先把非数字字符去掉再重新分段。 */
+function dateStrToDigits(s) { return String(s || '').replace(/\D/g, ''); }
+function digitsToDateStr(digits) {
+  digits = digits.slice(0, 8);
+  if (digits.length <= 4) return digits;
+  if (digits.length <= 6) return digits.slice(0, 4) + '-' + digits.slice(4);
+  return digits.slice(0, 4) + '-' + digits.slice(4, 6) + '-' + digits.slice(6);
+}
+// 8 位数字凑齐了也不代表就是个真实存在的日子（比如 2 月 30 号）——不能让 new Date 自己"进位"到 3 月，
+// 那样表面上存进去一个东西，实际日期已经悄悄变了，比直接判定无效更容易埋雷
+function isValidDateStr(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '');
+  if (!m) return false;
+  const y = +m[1], mo = +m[2], d = +m[3];
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return false;
+  const dt = new Date(y, mo - 1, d);
+  return dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d;
+}
+// 日期文本框的输入实时格式化——每敲一个字符都重新按数字重排一次，用在 document 级委托监听里，
+// 不需要每次渲染完再挨个绑定（见下面 document.addEventListener('input', ...)）
+function maskDateInputLive(el) {
+  const digits = dateStrToDigits(el.value);
+  el.value = digitsToDateStr(digits);
+}
+// 敲完离开这个框时才真正校验：没敲完整、或者敲出来的根本不是真实日期，就清空，
+// 不留一个看着像日期、实际上是错的半成品在框里
+function normalizeMaskedDateOnBlur(el) {
+  const digits = dateStrToDigits(el.value);
+  if (!digits.length) { el.value = ''; return; }
+  const formatted = digitsToDateStr(digits);
+  el.value = (digits.length === 8 && isValidDateStr(formatted)) ? formatted : '';
+}
+// 供 readControl / cpData 收集这些"读值时才校验一次"的地方统一调用：合法就转成标准 YYYY-MM-DD，
+// 不合法或没敲完整一律按空处理——双保险，不完全依赖 blur 事件一定会先于读值触发
+function normalizeMaskedDateValue(raw) {
+  const digits = dateStrToDigits(raw);
+  if (!digits.length) return '';
+  const formatted = digitsToDateStr(digits);
+  return (digits.length === 8 && isValidDateStr(formatted)) ? formatted : '';
+}
+document.addEventListener('input', e => {
+  if (e.target.matches && e.target.matches('.date-mask')) maskDateInputLive(e.target);
+});
+document.addEventListener('focusout', e => {
+  if (e.target.matches && e.target.matches('.date-mask')) normalizeMaskedDateOnBlur(e.target);
+});
 function fmtDate(str) {
   if (!str) return '';
   const today = todayStr();
@@ -1390,7 +1914,12 @@ function dateClass(str) {
 
 /* 任务语义 */
 function isOpen(t) { return t.status === 'todo' || t.status === 'doing'; }
-function isOverdue(t) { return isOpen(t) && !!t.plan_date && t.plan_date < todayStr(); }   // 挂起不计逾期
+// 里程碑是任务下面的检查点：任务自己的计划完成时间可能还没到，但某个中间节点已经拖了——
+// 只要有一个没完成、且计划日期已过的里程碑，这条任务本身就该算逾期，不能只看任务自己的日期
+function hasOverdueMilestone(t) {
+  return DB.milestones.some(m => m.task === t.id && !m.deleted_at && m.done !== '1' && m.plan_date && m.plan_date < todayStr());
+}
+function isOverdue(t) { return isOpen(t) && ((!!t.plan_date && t.plan_date < todayStr()) || hasOverdueMilestone(t)); }   // 挂起不计逾期
 function isMine(t) {
   const me = DB.settings.me;
   return me ? (t.owner === me || (t.assignees || []).includes(me)) : false;
@@ -1413,6 +1942,38 @@ function hasCheckpoints(t) { return DB.milestones.some(m => m.task === t.id && !
 function recalcProgress(t) {
   const cps = DB.milestones.filter(m => m.task === t.id && !m.deleted_at);
   if (cps.length) t.progress = Math.round(cps.filter(m => m.done === '1').length / cps.length * 100);
+}
+/* ★ 进度和状态谁听谁的 ★
+   以前改进度只改进度，状态字段完全不联动——一条任务进度都推到 80% 了，状态还能停在"未开始"，
+   看板上这种矛盾状态很容易被忽略掉，也会让统计（比如"未开始任务数"）失真。
+   规则很简单：
+   · 如果这次保存里用户自己也动了状态下拉框（选的跟原来不一样），尊重这个显式选择——
+     选"已完成"就把进度顺带补到 100%（没有检查点的任务），从"已完成"改回别的状态就清掉实际完成时间；
+   · 否则（用户只碰了进度，没碰状态），状态跟着进度自动纠正：进度到了 100% 就该算完成，
+     进度掉下来了就不该再挂着"已完成"，进度从 0 推进了就不该还停在"未开始"。
+   "已挂起"是使用者主动选的暂停状态，两个方向都不去碰它——不能因为进度变了就把这个决定悄悄抹掉。
+   进度为 0 时不会把"进行中"打回"未开始"：进度归零很可能是重新规划，不代表这活儿真的没人碰过，
+   属于合理的中间状态，只往"更符合当前进度"的方向纠正，不做没把握的反向猜测。 */
+function reconcileStatusAndProgress(t, before) {
+  if (t.status === 'hold') return;
+  const statusExplicitlyChanged = !!before && t.status !== before.status;
+  if (statusExplicitlyChanged) {
+    if (t.status === 'done') {
+      t.actual_date = t.actual_date || todayStr();
+      if (!hasCheckpoints(t)) t.progress = 100;
+    } else if (before.status === 'done') {
+      t.actual_date = '';
+    }
+    return;
+  }
+  const p = Number(t.progress) || 0;
+  if (p >= 100) {
+    if (t.status !== 'done') { t.status = 'done'; t.actual_date = t.actual_date || todayStr(); }
+  } else if (t.status === 'done') {
+    t.status = 'doing'; t.actual_date = '';
+  } else if (p > 0 && t.status === 'todo') {
+    t.status = 'doing';
+  }
 }
 
 /* =============================================================
@@ -1467,6 +2028,9 @@ function snapshot() {
   undoStack.push(JSON.stringify({
     duties: DB.duties, works: DB.works, milestones: DB.milestones, tasks: DB.tasks, changelog: DB.changelog,
     users: DB.users, permissionMatrix: DB.permissionMatrix,
+    // 墓碑必须一起存：撤销"彻底删除"时如果只把记录放回数组、墓碑还留着，
+    // 下一次合并会照着墓碑再把它筛掉一遍，撤销就成了假的
+    purged: DB.purged || [],
   }));
   if (undoStack.length > UNDO_LIMIT) undoStack.shift();
 }
@@ -1478,6 +2042,7 @@ async function undoLast() {
   DB.changelog = d.changelog || [];
   DB.users = d.users || DB.users;
   DB.permissionMatrix = d.permissionMatrix !== undefined ? d.permissionMatrix : DB.permissionMatrix;
+  DB.purged = d.purged || [];   // 连墓碑一起回退，撤销彻底删除才是真的撤销（见 snapshot）
   rebuildIndex();
   await Repo.persist(DB);
   hideSnack();
@@ -1662,11 +2227,35 @@ function renderShell() {
 
   const me = DB.settings.me, meUser = myUser();
   $('#me-tag').textContent = (me && meUser) ? `${me}（${(ROLES.find(r => r.v === meUser.role) || {}).label}）` : '未设置使用者';
-  // 这台设备还没连上共享文件夹、但管理员已经配好了模板：不管是什么角色都露出这个入口，
-  // 不用非得能看数据页才找得到——点一下就会弹系统自己的文件夹选择框，选完之后不会再提示
-  const needShareConnect = !_fileHandle && DB.shareConfig && DB.shareConfig.pathTemplate && ('showDirectoryPicker' in window);
-  $('#share-connect-hint').innerHTML = needShareConnect
-    ? `<span class="share-connect-btn" data-act="connect-my-shared-folder" title="根据管理员配置的共享文件夹，点击连接">🔗 连接共享文件夹</span>` : '';
+  // 顶栏这个小按钮有四种形态，优先级从高到低：
+  // 0) 有改动还没推上去——最严重，别人根本看不到你干的活儿，闪烁提示直到推上去为止
+  // 1) 刷新页面后授权失效（最常见）——点一下就能恢复，不用重新翻文件夹，所以要跟"离线"分开说
+  // 2) 真的离线（连过但这次接不回来）
+  // 3) 从没连过
+  const fsaOk = 'showDirectoryPicker' in window;
+  $('#share-connect-hint').innerHTML =
+    (DB.settings.pendingSync && !_fileHandle && fsaOk)
+    ? `<span class="share-connect-btn urgent" data-act="restore-share-permission" title="你改的东西目前只存在这台电脑上，共享文件里还没有，别人看不到。点一下恢复连接就会自动补推上去">⚠ 有改动未同步·点击立即同步</span>`
+    : (_needPermissionRestore && fsaOk)
+    // ★ 这一条以前是普通样式的一行小字，是个真问题 ★
+    // 它的含义不只是"还没连上"，而是"你现在看到的整屏数据都可能是旧的"——
+    // 同事这段时间改的东西一条都不会进来，最近动态也不会有任何人的操作。
+    // 长得不起眼的话，用户只会看着一屏旧数据以为大家都没干活，所以跟"有改动未同步"同等对待
+    ? `<span class="share-connect-btn urgent" data-act="restore-share-permission" title="刷新页面后浏览器的文件读写授权失效了，现在看到的是本机上一次的数据，同事之后的改动都还没读进来。点一下就能恢复，不用重新选文件夹">⚠ 数据可能不是最新·点击恢复同步</span>`
+    : _offlineMode
+    ? `<span class="share-connect-btn urgent" data-act="connect-my-shared-folder" title="这台设备连过共享文件夹，但这次没连上，现在看到的是本机缓存的旧数据，点击可重新连接">⚠ 离线模式·数据非最新</span>`
+    : (!_fileHandle && fsaOk)
+    ? `<span class="share-connect-btn" data-act="connect-my-shared-folder" title="点击连接处里的共享数据文件夹">🔗 连接共享文件夹</span>`
+    // 已经连上：给一个手动"立即同步"，并把数据新鲜度直接写在上面。
+    // 定时同步是 5 分钟一轮，中间这几分钟里同事存的东西本来就还没到——
+    // 与其让人怀疑"是不是同步坏了"，不如让他随时能自己点一下确认
+    : _fileHandle
+    ? `<span class="share-connect-btn calm" data-act="sync-now" title="立刻跟共享文件对一次：把同事刚存的读进来，也把我这边的推上去">🔄 立即同步${
+        DB.settings.lastSyncAt ? `<span class="sync-age">（${esc(relTime(DB.settings.lastSyncAt))}）</span>` : ''}</span>` : '';
+  // 还没连上共享文件夹、当前看到的还是本机演示种子数据：显著标出来，别让人误当成真实数据
+  const isDemoData = !_fileHandle && DB.tasks.some(t => t.custom === '测试');
+  $('#demo-data-badge').innerHTML = isDemoData
+    ? `<span class="demo-data-badge" title="还没连接共享文件夹，当前看到的是本机生成的演示/测试数据，不是真实数据">⚠ 测试数据</span>` : '';
 
   $$('.page').forEach(el => el.classList.toggle('active', el.id === 'page-' + currentPage));
   // 侧栏交给 renderPage() 统一渲染一次（它内部按当前页判断是否需要）——
@@ -1813,7 +2402,7 @@ function renderToolbar() {
     }).join('');
     const searchChip = st.search ? `<span class="filter-chip" data-act="clear-search" data-page="tasks">搜索:${esc(st.search)} ×</span>` : '';
     tb.innerHTML = `<span id="view-label">${esc(TASK_VIEW_MAP[st.view].label)}</span>${chips}${searchChip}` +
-      `<input id="quick-input" type="text" placeholder="新建任务… 标题 $0101 @参与人 !1 ~2026-08-31  回车提交">` +
+      `<button class="btn primary" data-act="task-new">+ 新建任务</button>` +
       `<button class="btn" data-act="col-config" title="选择显示哪些列">▦ 列</button>` +
       `<input id="search-input" type="text" placeholder="/ 搜索…" value="${esc(st.search)}">`;
   } else if (currentPage === 'works' || currentPage === 'duties') {
@@ -1840,20 +2429,6 @@ function bindToolbarInputs(page) {
       timer = setTimeout(() => { UI[page].search = si.value; renderPage(); si.focus(); }, 150);
     });
   }
-  const qi = $('#quick-input');
-  if (qi) qi.addEventListener('keydown', async e => {
-    if (e.key !== 'Enter') return;
-    e.stopPropagation();
-    const raw = qi.value.trim();
-    if (!raw) return;
-    snapshot();
-    const t = parseQuickInput(raw);
-    await Repo.upsert('task', t);
-    qi.value = '';
-    if (UI.tasks.view === 'deleted') UI.tasks.view = 'all';
-    renderShell(); renderPage();
-    showSnack(`已添加：${t.title}`);
-  });
 }
 
 /* =============================================================
@@ -1931,7 +2506,13 @@ function renderCellValue(entity, rec, f, editable) {
         // 有检查点时进度是自动算出来的，不给双击编辑
         const locked = entity === 'task' && hasCheckpoints(rec);
         const pAttr = locked ? ' title="由检查点自动计算"' : editAttr;
-        return `<td${pAttr}><div class="progress-wrap"><div class="progress-bar"><div class="progress-fill" style="width:${n}%"></div></div><span class="progress-num">${n}%</span></div></td>`;
+        // 跟工作页"任务进度"格子下面挂"逾期 N"是一个道理：这条任务下面有没有里程碑拖期了，
+        // 得在进度格子里就能看出来，不用点进详情才发现
+        const overdueMs = entity === 'task'
+          ? DB.milestones.filter(m => m.task === rec.id && !m.deleted_at && m.done !== '1' && m.plan_date && m.plan_date < todayStr()).length
+          : 0;
+        const msHint = overdueMs ? `<div style="font-size:10px;color:var(--overdue);line-height:1;margin-top:1px">里程碑逾期 ${overdueMs}</div>` : '';
+        return `<td${pAttr}><div class="progress-wrap"><div class="progress-bar"><div class="progress-fill" style="width:${n}%"></div></div><span class="progress-num">${n}%</span></div>${msHint}</td>`;
       }
       return `<td class="cell-center"${editAttr}>${esc(rec[f.key] === '' ? '' : rec[f.key])}</td>`;
     }
@@ -2136,7 +2717,7 @@ function relTime(iso) {
   if (diff < 3600) return Math.floor(diff / 60) + ' 分钟前';
   if (diff < 86400) return Math.floor(diff / 3600) + ' 小时前';
   if (diff < 86400 * 30) return Math.floor(diff / 86400) + ' 天前';
-  return iso.slice(0, 10);
+  return localDay(iso);
 }
 
 function renderDashboard() {
@@ -2247,10 +2828,17 @@ function renderDashboard() {
       <span class="num">${l.doing + l.todo + l.late} 待完成</span></div>`).join('');
 
   /* ---------- ⑥ 最近动态：读变更日志，逐字段说清楚改了什么（见 pushLog/diffTask） ---------- */
-  const relevantLog = DB.changelog.filter(e => taskIds.has(e.taskId));
+  // 这里刻意用 visibleTasks() 而不是上面那个 taskIds：taskIds 已经把已删除的任务滤掉了，
+  // 于是"某某删除了任务X"这类动态永远显示不出来——恰恰是最该让人看见的一类动作。
+  // 年度范围仍然跟着全局年度筛选走，跟工作台其它面板保持一致
+  const logTaskIds = new Set(visibleTasks().map(t => t.id));
+  const relevantLog = DB.changelog.filter(e => logTaskIds.has(e.taskId));
   const feed = relevantLog.slice(-8).reverse().map(e => {
     const ft = byId('task', e.taskId);
-    return { id: e.taskId, updated_at: e.at, who: e.by, action: e.summary, title: ft ? ft.title : '（任务已不存在）' };
+    return {
+      id: e.taskId, updated_at: e.at, who: e.by, action: e.summary,
+      title: ft ? (ft.deleted_at ? ft.title + '（已删除）' : ft.title) : '（任务已不存在）',
+    };
   });
 
   $('#page-dashboard').innerHTML = `<div class="pad">
@@ -2431,7 +3019,7 @@ function computeSPI(tasks) {
   tasks.forEach(t => {
     if (!t.plan_date) return;
     const actual = Math.max(0, Math.min(100, Number(t.progress) || 0));
-    const created = (t.created_at || '').slice(0, 10);
+    const created = localDay(t.created_at);
     let planned;
     if (!created || t.plan_date <= created) planned = 100;
     else {
@@ -2475,7 +3063,7 @@ function monthKey(iso) { return (iso || '').slice(0, 7); }
    granularity: 'month'(近12个月) / 'week'(近12周，周一到周日) / 'day'(近15个自然日)。 */
 function backlogAsOf(tasks, dateStr) {
   return tasks.filter(t => {
-    const created = (t.created_at || '').slice(0, 10);
+    const created = localDay(t.created_at);
     if (created && created > dateStr) return false;   // 那天还没建这条任务
     if (t.status === 'hold') return false;   // 挂起不计入待办，跟 isOpen() 的口径保持一致
     if (t.status !== 'done') return true;
@@ -2541,17 +3129,21 @@ function planDueSeries(tasks, milestones) {
 function dueBuckets(tasks) {
   const open = tasks.filter(isOpen);
   const b = [{ label: '已逾期', cls: 'bar-late', n: open.filter(isOverdue).length }];
+  // isOverdue() 现在不只看任务自己的计划完成时间，任务下面有里程碑拖期了也算逾期（见 isOverdue 注释）。
+  // 这意味着一条任务的 plan_date 可能明明落在"本周内"甚至"更远"，但因为里程碑拖了期，
+  // isOverdue(t) 还是 true——如果下面这几个按 plan_date 分的桶不排掉这些任务，
+  // 就会在"已逾期"桶和它自己 plan_date 对应的那个桶里各算一次，总数对不上未完成任务数
   for (let w = 0; w < 6; w++) {
     const from = offsetDate(w * 7), to = offsetDate(w * 7 + 6);
     b.push({
       label: w === 0 ? '本周内' : `${w * 7 + 1}-${w * 7 + 7}天`,
       cls: w === 0 ? 'bar-soon' : 'bar-norm',
-      n: open.filter(t => t.plan_date && t.plan_date >= from && t.plan_date <= to).length,
+      n: open.filter(t => !isOverdue(t) && t.plan_date && t.plan_date >= from && t.plan_date <= to).length,
     });
   }
   const far = offsetDate(42);
-  b.push({ label: '更远', cls: 'bar-norm', n: open.filter(t => t.plan_date && t.plan_date > far).length });
-  b.push({ label: '无日期', cls: 'bar-norm', n: open.filter(t => !t.plan_date).length });
+  b.push({ label: '更远', cls: 'bar-norm', n: open.filter(t => !isOverdue(t) && t.plan_date && t.plan_date > far).length });
+  b.push({ label: '无日期', cls: 'bar-norm', n: open.filter(t => !isOverdue(t) && !t.plan_date).length });
   return b;
 }
 /* 到期分布的粗粒度占比（供饼图用，切太多小段不好看）：逾期 / 本周内 / 更远 / 无日期 */
@@ -2839,7 +3431,10 @@ function milestoneTreeHTML(tasks, dutyExpandedSet, workExpandedSet, dutyToggleAc
       const off = daysFromToday(m.plan_date);
       const cls = m.done === '1' ? 'done' : off < 0 ? 'late' : off <= 7 ? 'soon' : 'norm';
       const state = m.done === '1' ? '已完成' : off < 0 ? `逾期 ${-off} 天` : off === 0 ? '今天' : `还有 ${off} 天`;
-      return `<span class="gantt-pt ${cls}" style="left:${pct(off)}" title="${esc((m.deliverable || '') + ' · ' + m.plan_date + ' · ' + state)}"></span>`;
+      // 圆点自己带 data-act，点它跳去里程碑真正所属的那条任务——不能让它冒泡吃到父行的
+      // duty-drill/work-drill：折叠后的职责/工作行会把好几条任务的里程碑混画在同一条时间轴里，
+      // 点的是哪个点就该去哪条任务，不是笼统地钻进它所属的工作
+      return `<span class="gantt-pt ${cls}" data-act="task-detail" data-id="${esc(m.task)}" style="left:${pct(off)}" title="${esc((m.deliverable || '') + ' · ' + m.plan_date + ' · ' + state)}"></span>`;
     }).join('');
     return `<span class="gantt-track" style="--today:${pct(0)}">
       <span class="gantt-span" style="left:${pct(a)};width:${(((b - a) / (hi - lo)) * 100).toFixed(2)}%"></span>${pts}</span>`;
@@ -3524,10 +4119,30 @@ async function exportReportImage() {
 /* =============================================================
    18. 数据页
    ============================================================= */
+// 连接状态是从"最近一次真的把改动推到共享文件"这个时间点反推出来的（见 markUserSeen），
+// 不是真实的在线心跳——没有服务器，做不到那个。10 分钟是掐着 5 分钟一轮的定时软同步来定的，
+// 正常在用的人，这个窗口里怎么都该有一次同步；超过这个窗口就不算"在线"，只显示上次是什么时候
+function connectionStatusHTML(u) {
+  if (!u.lastSeenAt) return '<span class="hint">从未连接</span>';
+  const mins = (Date.now() - Date.parse(u.lastSeenAt)) / 60000;
+  return mins <= 10 ? '<span style="color:var(--done)">🟢 在线</span>' : '<span class="hint">⚪ 离线</span>';
+}
+/* 这个人最近一次同步时用的是哪一版 html。
+   分发方式是"每人自己存一份 html 拷贝"，所以"有人还在用旧版"是这套方案的固有风险，
+   而旧版可能带着已经修好的、会写坏数据的问题。光靠通知大家换新版没法核实，
+   这一列就是用来核实的：谁的版本号落后，一眼就看得见。 */
+function appVersionCellHTML(u) {
+  if (!u.lastAppVersion) return '<span class="hint">—</span>';
+  if (u.lastAppVersion === APP_VERSION) return `<span class="hint">${esc(u.lastAppVersion)}</span>`;
+  const older = u.lastAppVersion < APP_VERSION;
+  return `<span style="color:var(--overdue);font-weight:700"
+    title="${older ? '这个人用的 html 比你手上这份旧，请让他强制刷新或重新复制一份新的' : '这个人用的 html 比你手上这份新，该更新的是你自己'}"
+    >${esc(u.lastAppVersion)} ${older ? '⚠ 旧版' : '↑ 比你新'}</span>`;
+}
 function accountsPanelHTML() {
   const users = DB.users.filter(u => !u.deleted_at).sort((a, b) => a.name.localeCompare(b.name, 'zh'));
   return `<div class="panel"><div class="panel-h">账号与角色管理</div><div class="panel-b">
-    <table class="dtable"><thead><tr><th style="text-align:left">姓名</th><th>角色</th><th>工号</th><th></th></tr></thead><tbody>
+    <table class="dtable"><thead><tr><th style="text-align:left">姓名</th><th>角色</th><th>登录状态</th><th>连接状态</th><th>最近连接</th><th>程序版本</th><th></th></tr></thead><tbody>
       ${users.map(u => {
         const editable = canManageAccount(u);
         const roleLabel = (ROLES.find(r => r.v === u.role) || {}).label || u.role;
@@ -3535,15 +4150,19 @@ function accountsPanelHTML() {
           ? `<select class="role-select" data-act="account-role-change" data-name="${esc(u.name)}">${assignableRoles().map(r =>
               `<option value="${r.v}"${u.role === r.v ? ' selected' : ''}>${esc(r.label)}</option>`).join('')}</select>`
           : esc(roleLabel)}</td>
+          <td class="cell-center">${u.hash ? '已设置 PIN' : '<span class="hint">待首次登录设置</span>'}</td>
+          <td class="cell-center">${connectionStatusHTML(u)}</td>
+          <td class="cell-center">${u.lastSeenAt ? esc(fmtLocalDateTime(u.lastSeenAt)) + `（${relTime(u.lastSeenAt)}）` : '<span class="hint">—</span>'}</td>
+          <td class="cell-center">${appVersionCellHTML(u)}</td>
           <td class="cell-center">${editable
-            ? `<input class="jobno-input" data-act="account-jobno-change" data-name="${esc(u.name)}" value="${esc(u.jobNo || '')}" maxlength="8" placeholder="8位工号" style="width:82px;text-align:center">`
-            : esc(u.jobNo || '—')}</td>
-          <td class="cell-center">${editable ? `<button class="btn" data-act="admin-reset-pin" data-name="${esc(u.name)}">重置 PIN</button>
-            <button class="btn danger" data-act="admin-delete-user" data-name="${esc(u.name)}" style="margin-left:4px">删除</button>` : ''}</td></tr>`;
+            ? `<button class="btn danger" data-act="admin-delete-user" data-name="${esc(u.name)}">删除</button>` : ''}</td></tr>`;
       }).join('')}
     </tbody></table>
     <div class="hint" style="margin-top:8px">处室领导可以调整"员工/组长"两级账号的角色；"处室领导/部门领导/管理员"这三级只有管理员能改，且不能通过这里把别人改成处室领导、部门领导或管理员。
-    工号是这个人的 8 位数字工号，用来拼共享文件夹路径（见下面"共享文件夹设置"），改错了对方就连不上共享文件。
+    "连接状态/最近连接"是这个账号最近一次真的把改动同步到共享文件的时间，不是网页开没开着的实时心跳——没有服务器，做不到真正的实时在线。
+    "程序版本"是这个人最近一次同步时用的那份 html 的版本号——标红的说明他手上那份是旧的（多半是浏览器缓存住了、或者标签页一直没关过），
+    请让他按住 Ctrl 点刷新，或者把所有标签页关掉重新打开；旧版本会被自动禁止写入共享文件，只能查看。
+    PIN 由本人第一次登录时自己设置，管理员这里看不到、也改不了别人的 PIN。
     删除账号不会删掉这个人之前负责/参与过的任务、工作记录，只是这个账号本身没法再登录了；删除前会先确认，删完也可以 Ctrl+Z 撤销。</div>
   </div></div>`;
 }
@@ -3584,11 +4203,9 @@ function renderPermissions() {
     <div class="panel"><div class="panel-h">新增账号</div><div class="panel-b">
       <div class="form-row"><label>姓名</label><input id="adm-new-name" placeholder="真实姓名"></div>
       <div class="form-row"><label>角色</label><select id="adm-new-role">${ROLES.map(r => `<option value="${r.v}">${esc(r.label)}</option>`).join('')}</select></div>
-      <div class="form-row"><label>工号</label><input id="adm-new-jobno" maxlength="8" placeholder="8 位数字，选填"></div>
-      <div class="form-row"><label>初始 PIN</label><input id="adm-new-pin" type="password" placeholder="至少 4 位"></div>
       <div class="form-row"><label></label><button class="btn primary" data-act="admin-new-user">创建账号</button></div>
-      <div class="hint">直接帮同事建号，不用等他自己来注册（现在员工也没法自己注册了）；创建后把这个初始 PIN 告诉他，后面他想改就回到这里找管理员重置
-      （目前没有让本人自助改 PIN 的入口）。工号用来拼共享文件夹路径，没有的话可以先空着，之后在下面的账号列表里补上。</div>
+      <div class="hint">这里不用设 PIN——同事打开这个页面时，从"请确认你的身份"里选中自己的姓名，
+      第一次登录会提示他自己设置一个 PIN，以后每次登录都要输这个，管理员这边看不到、也改不了。</div>
     </div></div>
     ${accountsPanelHTML()}
     ${permissionMatrixPanelHTML()}
@@ -3611,10 +4228,10 @@ function renderData() {
   const yearMap = new Map();
   DB.works.filter(w => !w.deleted_at && w.year).forEach(w => yearMap.set(w.year, (yearMap.get(w.year) || 0) + 1));
   const yearRows = [...yearMap.entries()].sort((a, b) => b[0] - a[0]);
-  const shareCfg = DB.shareConfig || {};
+  const shareCfg = effectiveShareCfg();
+  const bcfg = backupCfg();
   const canConfigShare = hasPermission('system_admin');
   const me = myUser();
-  const myExpectedPath = me ? computeSharePath(shareCfg, me.jobNo) : '';
 
   $('#page-data').innerHTML = `<div class="pad">
     <div class="panel"><div class="panel-h">数据概况</div><div class="panel-b hint">
@@ -3623,38 +4240,67 @@ function renderData() {
       存储实现：<code>${esc(Repo.name)}</code>　接入内网服务端后此处会变为 <code>http</code>，页面代码无需改动。
     </div></div>
 
-    <div class="panel"><div class="panel-h"><span>备份状态</span></div><div class="panel-b">
+    <div class="panel"><div class="panel-h">备份</div><div class="panel-b">
       <div class="hint" style="margin-bottom:8px">
         ${bk.last
-          ? `上次完整备份：<b${bk.stale ? ' style="color:var(--overdue)"' : ''}>${esc(bk.last.slice(0, 16).replace('T', ' '))}</b>（${bk.days} 天前）`
-          : '<b style="color:var(--overdue)">从未备份</b>'}
+          ? `上次手动导出：<b${bk.stale ? ' style="color:var(--overdue)"' : ''}>${esc(fmtLocalDateTime(bk.last))}</b>（${bk.days} 天前）`
+          : '<b style="color:var(--overdue)">从未手动导出过</b>'}
         ${bk.stale ? '<br><span style="color:var(--overdue)">⚠ 备份之后数据有改动，建议重新导出。</span>' : '<br>✅ 备份已是最新。'}
-        <br>数据只存在这台机器的浏览器里，<b>清理浏览器数据会全部丢失</b>，请定期导出。
+        <br>数据只存在这台机器的浏览器里，<b>清理浏览器数据会全部丢失</b>，请定期导出，或用下面的定期自动备份。
       </div>
       <button class="btn primary" data-act="export-all">立即导出全部（JSON）</button>
       <button class="btn" data-act="import-backup" style="margin-left:8px">从备份恢复…</button>
+
+      ${canConfigShare ? `<div style="margin:14px 0 4px;padding-top:10px;border-top:1px solid var(--border)">
+        <div style="font-size:12.5px;font-weight:700;color:var(--text2);margin-bottom:8px">定期自动备份（仅管理员）</div>
+        <div class="form-row"><label>开启</label>
+          <input type="checkbox" data-act="backup-toggle"${bcfg.enabled ? ' checked' : ''}>
+          <span class="hint" style="margin-left:6px">开启后，每隔一段时间自动把当前全部数据另存一份到你指定的文件夹</span></div>
+        <div class="form-row"><label>间隔（小时）</label>
+          <input type="number" min="${BACKUP_MIN_HOURS}" step="1" style="width:80px" data-act="backup-interval-change" value="${bcfg.hours}"></div>
+        <div class="form-row"><label>备份文件夹</label>
+          <span>${bcfg.dirName ? `已选择：<b>${esc(bcfg.dirName)}</b>` : '<span class="hint">还没指定</span>'}</span>
+          <button class="btn" style="margin-left:8px" data-act="backup-pick-dir">选择备份文件夹…</button></div>
+        ${bcfg.dirName ? `<div class="hint" style="margin:-4px 0 8px">浏览器出于隐私限制不允许网页读取系统里的完整路径，
+          这里只能显示文件夹自己的名字（不含它上层的路径）——如果这台电脑上有同名的文件夹，选的时候留意一下选对了没有。</div>` : ''}
+        <div class="form-row"><label>上次自动备份</label>
+          <span>${bcfg.lastAt ? esc(fmtLocalDateTime(bcfg.lastAt)) + `（${relTime(bcfg.lastAt)}）` : '<span class="hint">还没备过</span>'}</span>
+          <button class="btn" style="margin-left:8px" data-act="backup-now">立即备份一次</button></div>
+        <div class="hint">备份文件名形如 <code>工作管理备份_20260728_020000.json</code>，只增不覆盖，需要时可在上面"从备份恢复"里选回来。
+        开关和间隔会记到共享数据文件里，换台电脑、换个管理员看到的都是同一份设置；只有"备份文件夹"这一项没法跨设备用
+        （文件夹句柄这东西天生只认得本机），<b>只存在你这台电脑</b>上，换台电脑要重新选一次。
+        浏览器的文件写入授权刷新页面后会失效，届时自动备份会先跳过，你点一次"立即备份一次"就能重新授权并接着自动跑。</div>
+      </div>` : ''}
     </div></div>
 
-    <div class="panel"><div class="panel-h"><span>年度管理</span></div><div class="panel-b">
-      <div class="hint" style="margin-bottom:8px">当前年度：<b>${DB.settings.year || '全部'}</b>　·
-        ${yearRows.map(([y, n]) => `${y}：${n} 项工作`).join(' · ') || '暂无年度数据'}</div>
-      <button class="btn primary" data-act="year-copy">复制工作到新年度…</button>
-      <span class="hint" style="margin-left:8px">编号沿用，里程碑日期顺延一年，任务不复制</span>
+    <div class="panel"><div class="panel-h">共享文件夹同步（多人协作）</div><div class="panel-b">
+      ${_fileHandle
+        ? `<div class="hint">已连接：<b>${esc(DB.settings.sharedFolderName || '')}</b>（内部同步文件：${esc(DB.settings.sharedFileName || '')}）　·
+            上次同步：${esc(DB.settings.lastSyncAt ? relTime(DB.settings.lastSyncAt) : '刚刚')}</div>
+           <div style="margin-top:8px"><button class="btn" data-act="disconnect-shared">断开连接</button></div>`
+        : `<div style="margin-top:2px"><button class="btn primary" data-act="connect-shared">连接共享文件夹…</button></div>`}
+      ${DB.settings.lastKnownWriteAt ? `<div class="hint" style="margin-top:8px">共享文件里目前那份数据，最后是
+        <b>${esc(DB.settings.lastKnownWriteBy || '未署名')}</b> 在 ${esc(fmtLocalDateTime(DB.settings.lastKnownWriteAt))}（${relTime(DB.settings.lastKnownWriteAt)}）写的，
+        用的版本是 <code>${esc(DB.settings.lastKnownWriteApp || '未知')}</code>${DB.settings.lastKnownWriteApp && DB.settings.lastKnownWriteApp !== APP_VERSION
+          ? `<br>⚠ 跟你这份（<code>${esc(APP_VERSION)}</code>）不是同一个版本——如果你觉得某个同事的改动没同步上来，
+             先确认一下他手上那份 html 是不是最新的，旧版本可能还没有最新的同步修复。` : ''}
+        <br>排查"某人的改动怎么没同步上来"时，这一行是最直接的证据：如果它一直不是那个人的名字/时间，
+        说明问题出在他那台设备（没连上、授权失效了、或者用的还是旧版 html），不是这份代码本身没同步。</div>` : ''}
+      <div class="hint" style="margin-top:8px">连接后，职责/工作/里程碑/任务/变更日志会和共享文件夹里的那份 JSON 文件同步；
+      每次保存都会先跟文件当前内容按"版本号/更新时间"逐条合并，不会互相覆盖，但两人几乎同时改同一条记录仍可能有一边被冲掉。
+      使用者姓名、列宽这些个人设置不会同步，只留在本机。因为没有服务器推送，页面每 5 分钟会自动跟共享文件同步一次来看别人存的新内容
+      （不会整页刷新，浏览器缩放、滚动位置都不受影响；有弹窗或正在编辑单元格时会跳过那一次）。
+      连接时选中处里共享的那个文件夹即可，文件夹里同步用的文件名是固定的（下面"共享文件夹设置"里配置，
+      默认 <code>${DEFAULT_SHARE_FILE_NAME}</code>）。第一次用需要每台电脑各自点一次"连接"；
+      需要 Chrome / 360 等 Chromium 内核浏览器，Firefox 等不支持；这个动作本身也只有管理员能点。</div>
     </div></div>
 
-    <div class="panel"><div class="panel-h"><span>数据体检</span></div><div class="panel-b">
-      ${hc.issues.length
-        ? hc.issues.map(i => `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12.5px">
-            <span style="color:${i.fix ? 'var(--overdue)' : 'var(--text2)'}">${i.fix ? '⚠' : 'ℹ'}</span>
-            <span style="flex:1">${esc(i.msg)}</span>
-            ${i.k === 'noWork' ? `<button class="btn" data-act="orphan-assign">批量指派…</button>` : ''}
-            ${i.k === 'noDate' ? `<button class="btn" data-act="health-nav-nodate">去补上…</button>` : ''}
-            ${i.fix ? `<button class="btn" data-act="health-fix" data-k="${i.k}">${esc(i.fix)}</button>` : ''}
-          </div>`).join('')
-        : '<div class="hint">✅ 未发现引用断裂或编号冲突。</div>'}
-      <div class="chart-note">体检检查：任务/里程碑指向的工作是否存在、任务的里程碑是否属于本工作、
-      同年度编号是否重复、未完成任务是否缺计划完成时间。标 ⚠ 的可一键修复，修复后 Ctrl+Z 可撤销。</div>
-    </div></div>
+    ${canConfigShare ? `<div class="panel"><div class="panel-h">共享文件夹设置（仅管理员）</div><div class="panel-b">
+      <div class="form-row"><label>文件名</label><input id="share-file-name" placeholder="${DEFAULT_SHARE_FILE_NAME}" value="${esc(shareCfg.fileName)}"></div>
+      <div class="form-row"><label></label><button class="btn primary" data-act="share-config-save">保存</button></div>
+      <div class="hint">文件夹里用来同步数据的那个文件叫什么名字。留空则用默认的
+      <code>${DEFAULT_SHARE_FILE_NAME}</code>。保存后所有人下次连接都按这份新规则来（已经连上的人不受影响，除非重新连接）。</div>
+    </div></div>` : ''}
 
     <div class="panel"><div class="panel-h">导入 / 导出</div><div class="panel-b">
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
@@ -3684,39 +4330,33 @@ function renderData() {
       先点"下载宽表模板"核对一遍列名再整理数据。</div>
     </div></div>
 
-    <div class="panel"><div class="panel-h">共享文件夹同步（多人协作）</div><div class="panel-b">
-      ${_fileHandle
-        ? `<div class="hint">已连接：<b>${esc(DB.settings.sharedFolderName || '')}</b>（内部同步文件：${esc(DB.settings.sharedFileName || '')}）　·
-            上次同步：${esc(DB.settings.lastSyncAt ? relTime(DB.settings.lastSyncAt) : '刚刚')}</div>
-           <div style="margin-top:8px"><button class="btn" data-act="disconnect-shared">断开连接</button></div>`
-        : `<div style="margin-top:2px"><button class="btn primary" data-act="connect-shared">连接共享文件夹…</button></div>`}
-      <div class="hint" style="margin-top:8px">连接后，职责/工作/里程碑/任务/变更日志会和共享文件夹里的那份 JSON 文件同步；
-      每次保存都会先跟文件当前内容按"版本号/更新时间"逐条合并，不会互相覆盖，但两人几乎同时改同一条记录仍可能有一边被冲掉。
-      使用者姓名、列宽这些个人设置不会同步，只留在本机。因为没有服务器推送，页面每 5 分钟会自动跟共享文件同步一次来看别人存的新内容
-      （不会整页刷新，浏览器缩放、滚动位置都不受影响；有弹窗或正在编辑单元格时会跳过那一次）。
-      为了安全，具体连哪个文件夹不让大家随便挑——文件夹里同步用的文件名是固定的（下面"共享文件夹设置"里配置，
-      默认 <code>${DEFAULT_SHARE_FILE_NAME}</code>），照着提示找到那唯一一个文件夹连接就行。第一次用需要每台电脑各自点一次"连接"；
-      需要 Chrome / 360 等 Chromium 内核浏览器，Firefox 等不支持；这个动作本身也只有管理员能点。</div>
+    <div class="panel"><div class="panel-h"><span>年度管理</span></div><div class="panel-b">
+      <div class="hint" style="margin-bottom:8px">当前年度：<b>${DB.settings.year || '全部'}</b>　·
+        ${yearRows.map(([y, n]) => `${y}：${n} 项工作`).join(' · ') || '暂无年度数据'}</div>
+      <button class="btn primary" data-act="year-copy">复制工作到新年度…</button>
+      <span class="hint" style="margin-left:8px">编号沿用，里程碑日期顺延一年，任务不复制</span>
     </div></div>
 
-    ${canConfigShare ? `<div class="panel"><div class="panel-h">共享文件夹设置（仅管理员）</div><div class="panel-b">
-      <div class="form-row"><label>路径模板</label><input id="share-path-template" style="width:100%;max-width:420px" placeholder="例如：\\\\NAS\\部门共享\\{工号}\\对接\\{工号}\\Todo" value="${esc(shareCfg.pathTemplate || '')}"></div>
-      <div class="form-row"><label>文件名</label><input id="share-file-name" placeholder="${DEFAULT_SHARE_FILE_NAME}" value="${esc(shareCfg.fileName || '')}"></div>
-      <div class="form-row"><label></label><button class="btn primary" data-act="share-config-save">保存</button></div>
-      <div class="hint">用 <code>{工号}</code> 表示这个人 8 位工号插入的位置（按你们网盘的命名规则来写，通常出现两次）；
-      在上面"账号与角色管理"里给每个人补上工号后，系统就能替每个人算出各自该连去哪个文件夹。文件名留空则用默认的
-      <code>${DEFAULT_SHARE_FILE_NAME}</code>。保存后所有人下次连接都按这份新规则来（已经连上的人不受影响，除非重新连接）。</div>
-      ${me ? `<div class="hint" style="margin-top:6px">你自己（${esc(me.name)}${me.jobNo ? '，工号 ' + esc(me.jobNo) : '，还没填工号'}）对应的路径：
-        <b>${esc(myExpectedPath) || '（还没配置路径模板）'}</b></div>` : ''}
-    </div></div>` : (me && me.jobNo && shareCfg.pathTemplate ? `<div class="panel"><div class="panel-h">你的共享文件夹路径</div><div class="panel-b hint">
-      请连接到这个文件夹：<b>${esc(myExpectedPath)}</b>（文件名固定为 <code>${esc(shareCfg.fileName || DEFAULT_SHARE_FILE_NAME)}</code>），
-      不清楚的话找管理员确认。</div></div>` : '')}
+    <div class="panel"><div class="panel-h"><span>数据体检</span></div><div class="panel-b">
+      ${hc.issues.length
+        ? hc.issues.map(i => `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12.5px">
+            <span style="color:${i.fix ? 'var(--overdue)' : 'var(--text2)'}">${i.fix ? '⚠' : 'ℹ'}</span>
+            <span style="flex:1">${esc(i.msg)}</span>
+            ${i.k === 'noWork' ? `<button class="btn" data-act="orphan-assign">批量指派…</button>` : ''}
+            ${i.k === 'noDate' ? `<button class="btn" data-act="health-nav-nodate">去补上…</button>` : ''}
+            ${i.fix ? `<button class="btn" data-act="health-fix" data-k="${i.k}">${esc(i.fix)}</button>` : ''}
+          </div>`).join('')
+        : '<div class="hint">✅ 未发现引用断裂或编号冲突。</div>'}
+      <div class="chart-note">体检检查：任务/里程碑指向的工作是否存在、任务的里程碑是否属于本工作、
+      同年度编号是否重复、未完成任务是否缺计划完成时间。标 ⚠ 的可一键修复，修复后 Ctrl+Z 可撤销。</div>
+    </div></div>
 
-    <div class="panel"><div class="panel-h">测试数据</div><div class="panel-b">
-      <div class="hint">当前有 <b>${testN}</b> 条标记为「测试」的任务（标签字段 = 测试）。正式使用前可一键清除。</div>
+    <div class="panel"><div class="panel-h">清理</div><div class="panel-b">
+      <div class="hint">当前有 <b>${testN}</b> 条标记为「测试」的任务（标签字段 = 测试）——本程序自己不会生成任何测试数据，
+        有的话通常是从别处导入进来的，正式使用前可一键清除。</div>
       <div style="margin-top:8px">
         <button class="btn" data-act="clear-test">清除全部测试任务</button>
-        <button class="btn" data-act="reset-all" style="margin-left:8px;color:var(--p1)">重置全部数据</button></div>
+        <button class="btn" data-act="reset-all" style="margin-left:8px;color:var(--p1)">清空全部数据</button></div>
     </div></div>
   </div>`;
   $('#status-left').textContent = '数据管理';
@@ -3730,36 +4370,14 @@ function padCode(s) {
   const v = String(s == null ? '' : s).trim();
   return /^\d{3}$/.test(v) ? '0' + v : v;
 }
-function parseQuickInput(raw) {
-  const t = blank('task', { status: 'todo', priority: '2', progress: 0 });
-  const parts = [];
-  for (const tok of raw.trim().split(/\s+/)) {
-    if (tok.startsWith('$') && tok.length > 1) {
-      const key = tok.slice(1), code = padCode(key);
-      // 先按编号在当前年度内匹配，再退回按名称模糊匹配
-      const byCode = visibleWorks().find(x => x.code === code);
-      if (byCode) { t.work = byCode.id; continue; }
-      const w = visibleWorks().find(x => x.name.includes(key));
-      if (w) { t.work = w.id; continue; }
-      continue;
-    }
-    if (tok.startsWith('@') && tok.length > 1) { t.assignees.push(tok.slice(1)); continue; }
-    if (tok.startsWith('~') && tok.length > 1) { const d = parseDue(tok.slice(1)); if (d) { t.plan_date = d; continue; } }
-    if (/^!([123])$/.test(tok)) { t.priority = tok[1]; continue; }
-    const d = parseDue(tok);
-    if (d && !t.plan_date) { t.plan_date = d; continue; }
-    parts.push(tok);
-  }
-  t.title = parts.join(' ') || '未命名任务';
-  // 只有"员工"角色建任务才默认自己是牵头人（这样才有编辑权限）；其它角色照旧退回工作牵头人兜底，
-  // 不强行把任务都算到操作者自己头上——组长/处室领导/部门领导/管理员经常是替别人建任务，不该被默认牵头
-  if (!t.owner) {
-    const iAmStaff = !!myUser() && myUser().role === 'staff';
-    if (iAmStaff) t.owner = DB.settings.me;
-    else if (t.work) { const w = byId('work', t.work); if (w) t.owner = w.owner; }
-  }
-  if (t.work) t.code = nextTaskCode(t.work);
-  return t;
+// 新建任务时默认谁牵头：只有"员工"角色建任务才默认自己（这样他才有权限编辑自己刚建的任务）；
+// 其它角色退回所属工作的牵头人兜底——组长/处室领导/部门领导/管理员经常是替别人建任务，
+// 不该把任务都算到操作者自己头上
+function defaultTaskOwner(workId) {
+  const me = myUser();
+  if (me && me.role === 'staff') return DB.settings.me;
+  const w = workId ? byId('work', workId) : null;
+  return w ? (w.owner || '') : '';
 }
 
 /* =============================================================
@@ -3945,6 +4563,9 @@ const ACTIONS = {
   },
 
   'work-new': () => { if (requirePermission('manage_duty_work')) openWorkForm(); },
+  // 新建任务：跟工作页的"+ 新建工作"同一个位置、同一种按钮，点了直接开任务详情弹窗把字段填全，
+  // 不再用工具栏那个要背语法（$编号 @人 !优先级 ~日期）的速记输入框
+  'task-new': () => openNewTask(),
   'work-del': d => {
     if (!requirePermission('manage_duty_work')) return;
     const w = byId('work', d.id); if (!w) return;
@@ -3983,7 +4604,30 @@ const ACTIONS = {
     updateCpProgressPreview();
   },
 
-  'switch-identity': () => { $('#login-gate').classList.add('show'); renderLoginPick(); },
+  // 点右上角的名字：已经登录时给一张身份信息卡，需要时可以从这里切换成别的账号
+  'switch-identity': () => {
+    const me = myUser();
+    if (!me) { $('#login-gate').classList.add('show'); renderLoginPick(); return; }
+    openModal('当前身份', `
+      <div class="form-row"><label>姓名</label><span>${esc(me.name)}</span></div>
+      <div class="form-row"><label>角色</label><span>${esc((ROLES.find(r => r.v === me.role) || {}).label || me.role)}</span></div>
+      <div class="form-row"><label>共享文件夹</label><span>${_fileHandle
+        ? esc(DB.settings.sharedFolderName || '已连接')
+        : (_needPermissionRestore ? '需要重新授权（点顶栏那个按钮）' : '未连接')}</span></div>
+      <div class="form-row"><label>同步状态</label><span>${DB.settings.pendingSync && !_fileHandle
+        ? '<b style="color:var(--overdue)">有改动还没同步给大家</b>'
+        : (_fileHandle ? '已同步' : '未连接共享文件夹')}</span></div>
+      <div class="form-row"><label>上次同步</label><span>${DB.settings.lastSyncAt
+        ? esc(fmtLocalDateTime(DB.settings.lastSyncAt)) : '（还没同步过）'}</span></div>`,
+      '切换身份', async () => {
+        closeModal();
+        DB.settings.me = '';
+        await Repo.persist(DB);
+        await ensureIdentity();
+        renderShell(); renderPage();
+        if (DB.settings.me) showSnack(`已切换为 ${DB.settings.me}`);
+      });
+  },
   'account-role-change': async (d, el) => {
     const u = DB.users.find(x => x.name === d.name);
     if (!u || !canManageAccount(u)) { showSnack('为了防止误操作，你暂时不能管理这个账号'); renderPage(); return; }
@@ -4018,56 +4662,20 @@ const ACTIONS = {
     }
     await applyChange();
   },
+  // 管理员只建姓名+角色，不代设 PIN——PIN 是这个人自己第一次登录时设的，管理员也看不到
   'admin-new-user': async () => {
     if (!requireRole('admin')) return;
     const name = $('#adm-new-name').value.trim();
     const role = $('#adm-new-role').value;
-    const pin = $('#adm-new-pin').value;
-    const jobNo = $('#adm-new-jobno').value.trim();
     if (!name) { showSnack('姓名不能为空'); return; }
-    if (DB.users.some(u => u.name === name)) { showSnack('这个名字已经有账号了'); return; }
-    if (pin.length < 4) { showSnack('PIN 至少 4 位'); return; }
-    if (jobNo && !/^\d{8}$/.test(jobNo)) { showSnack('工号必须是 8 位数字，或者留空以后再补'); return; }
-    const { salt, hash, iterations } = await hashPin(pin);
-    const user = { name, role, salt, hash, iterations, jobNo };
+    if (DB.users.some(u => u.name === name && !u.deleted_at)) { showSnack('这个名字已经有账号了'); return; }
+    const user = { name, role };
     stampMeta(user);
     snapshot();
     DB.users.push(user);
     await Repo.persist(DB);
     renderPage();
-    showSnack(`已创建账号：${name}（${(ROLES.find(r => r.v === role) || {}).label}）`);
-  },
-  'account-jobno-change': async (d, el) => {
-    const u = DB.users.find(x => x.name === d.name);
-    if (!u || !canManageAccount(u)) { showSnack('为了防止误操作，你暂时不能管理这个账号'); renderPage(); return; }
-    const val = el.value.trim();
-    if (val && !/^\d{8}$/.test(val)) { showSnack('工号必须是 8 位数字'); renderPage(); return; }
-    if (val === (u.jobNo || '')) return;
-    snapshot();
-    u.jobNo = val;
-    stampMeta(u);
-    await Repo.persist(DB);
-    renderPage();
-    showSnack(`已更新 ${d.name} 的工号`);
-  },
-  'admin-reset-pin': d => {
-    const u = DB.users.find(x => x.name === d.name);
-    if (!u || !canManageAccount(u)) { showSnack('为了防止误操作，你暂时不能管理这个账号'); return; }
-    openModal(`重置 PIN · ${d.name}`, `
-      <div class="form-row"><label>新 PIN</label><input id="reset-pin1" type="password" placeholder="至少 4 位"></div>
-      <div class="form-row"><label>确认</label><input id="reset-pin2" type="password" placeholder="再输一遍"></div>`,
-      '确认重置', async () => {
-        const p1 = $('#reset-pin1').value, p2 = $('#reset-pin2').value;
-        if (p1.length < 4) { showSnack('PIN 至少 4 位'); return; }
-        if (p1 !== p2) { showSnack('两次 PIN 不一致'); return; }
-        const { salt, hash, iterations } = await hashPin(p1);
-        snapshot();
-        u.salt = salt; u.hash = hash; u.iterations = iterations;
-        stampMeta(u);
-        await Repo.persist(DB);
-        closeModal();
-        showSnack(`已重置 ${d.name} 的 PIN`);
-      });
+    showSnack(`已创建账号：${name}（${(ROLES.find(r => r.v === role) || {}).label}），对方首次登录时自己设置 PIN`);
   },
   'admin-delete-user': d => {
     const u = DB.users.find(x => x.name === d.name && !x.deleted_at);
@@ -4114,40 +4722,74 @@ const ACTIONS = {
     const permLabel = (PERMISSIONS.find(p => p.key === d.key) || {}).label;
     showSnack(`已${el.checked ? '开启' : '关闭'}「${roleLabel}」的「${permLabel}」权限`);
   },
-  'login-next': () => {
-    const val = ($('#login-pick').value || '').trim();
-    if (!val) { renderLoginPick('请输入姓名'); return; }
-    const match = DB.users.find(u => !u.deleted_at && u.name === val);
-    if (!match) { renderLoginPick('系统里没有这个账号，请检查姓名是否输入正确，或联系管理员创建账号'); return; }
-    renderLoginVerify(match.name);
+  // 身份门禁里的"连接共享文件夹"：全新设备本机一个账号都没有，顶栏那个连接入口被门禁盖住了点不到，
+  // 只能在门禁里给一个。这里直接调 connectSharedFile，不走 confirmConnectWithHint 的提示弹窗——
+  // 那个弹窗是普通 modal，会被门禁盖住看不见
+  'login-connect-share': async () => {
+    await connectSharedFile();
+    if (_versionBlocked || _staleAppBlocked) return;   // 连上了但这份 html 太旧，界面已经换成升级提示，别再盖回登录框
+    // 连上之后账号名单多半从空变成了一整份，门禁该停哪一屏也就跟着变了——重新走一遍路由
+    if (_loginResolve) renderLoginGate();
   },
-  'login-back': () => renderLoginPick(),
-  'login-verify': async d => {
-    const user = DB.users.find(u => u.name === d.name);
+  // 从"请确认你的身份"输入姓名，进下一步：这个账号有没有设过 PIN，决定走验证还是首次设置
+  'login-pick-next': () => {
+    const name = ($('#login-pick').value || '').trim();
+    if (!name) { renderLoginPick('请输入姓名'); return; }
+    const u = DB.users.find(x => x.name === name && !x.deleted_at);
+    if (!u) { renderLoginPick('查无此人，请确认姓名或联系管理员'); return; }
+    if (u.hash) renderLoginVerify(name); else renderLoginSetPin(name);
+  },
+  'login-back': () => renderLoginGate(),
+  'login-verify-pin': async d => {
+    const user = DB.users.find(u => u.name === d.name && !u.deleted_at);
     const pin = $('#login-pin').value;
-    if (!(await verifyPin(pin, user))) { renderLoginVerify(d.name, 'PIN 不对，请重试'); return; }
+    if (!user || !(await verifyPin(pin, user))) { renderLoginVerify(d.name, 'PIN 不对，请重试'); return; }
     DB.settings.me = d.name;
     await Repo.persist(DB);
     hideLoginGate();
     renderShell(); renderPage();
     showSnack(`已切换为 ${d.name}${personalReminderMsg()}`);
-    await maybeAutoConnectSharedFolder();   // 这里是真的点击触发的，浏览器允许弹文件夹选择框
+  },
+  // 这个账号从来没设过 PIN（管理员建号时不代设）——第一次登录时自己设一个
+  'login-set-pin': async d => {
+    const user = DB.users.find(u => u.name === d.name && !u.deleted_at);
+    if (!user) { renderLoginPick('这个账号不存在了，请重新选择'); return; }
+    if (user.hash) { renderLoginVerify(d.name); return; }   // 万一别的设备已经先设过了，改成走验证，不能覆盖
+    const pin = $('#login-new-pin').value;
+    const pin2 = $('#login-new-pin2').value;
+    if (pin.length < 4) { renderLoginSetPin(d.name, 'PIN 至少 4 位'); return; }
+    if (pin !== pin2) { renderLoginSetPin(d.name, '两次 PIN 不一致'); return; }
+    const { salt, hash, iterations } = await hashPin(pin);
+    DB.settings.me = d.name;   // 先设好，stampMeta 记 updated_by 才准
+    Object.assign(user, { salt, hash, iterations });
+    stampMeta(user);
+    await Repo.persist(DB);
+    hideLoginGate();
+    renderShell(); renderPage();
+    showSnack(`PIN 设置成功，已登录为 ${d.name}${personalReminderMsg()}`);
   },
   // 只有系统里一个账号都没有时才会走到这里（引导创建第一个、自动就是管理员的账号）；
-  // 之后所有账号都必须由管理员在权限页"新增账号"里建（同时录入工号），不再允许自助注册
+  // 之后所有账号都必须由管理员在权限页"新增账号"里建，不再允许自助注册
   'login-create': async () => {
     const name = $('#login-new-name').value.trim();
     const pin = $('#login-new-pin').value;
     const pin2 = $('#login-new-pin2').value;
-    if (!name) { renderLoginCreate('姓名不能为空', true); return; }
-    if (DB.users.some(u => u.name === name)) { renderLoginCreate('这个名字已经有账号了', true); return; }
-    if (pin.length < 4) { renderLoginCreate('PIN 至少 4 位', true); return; }
-    if (pin !== pin2) { renderLoginCreate('两次 PIN 不一致', true); return; }
-    const { salt, hash, iterations } = await hashPin(pin);
+    if (!name) { renderLoginCreate('姓名不能为空'); return; }
+    if (DB.users.some(u => u.name === name && !u.deleted_at)) { renderLoginCreate('这个名字已经有账号了'); return; }
+    // 真正的"系统里一个账号都没有"这一步，姓名必须在 BOOTSTRAP_ADMINS 名单里才允许创建，
+    // 防止任何人连上一个空的共享文件夹（或纯本机场景）后随手把自己设成管理员
+    const isTrueBootstrap = !DB.users.some(u => !u.deleted_at);
+    if (isTrueBootstrap && !BOOTSTRAP_ADMINS.includes(name)) {
+      renderLoginCreate('这个姓名不在管理员名单里，无法创建首个账号，请联系管理员');
+      return;
+    }
+    if (pin.length < 4) { renderLoginCreate('PIN 至少 4 位'); return; }
+    if (pin !== pin2) { renderLoginCreate('两次 PIN 不一致'); return; }
     // 正常情况下这个动作只有系统里一个账号都没有时才会被 UI 引导到（见 renderLoginPick），这时新建的一定是管理员；
     // 这里仍然按"当前有没有管理员"来判断而不是硬编码谁的名字，是留一道自愈：万一什么原因导致管理员账号都没了，
     // 这条路径也能正常把新账号设成管理员，不会因为名字对不上而死锁
     const isFirstAdmin = !DB.users.some(u => u.role === 'admin' && !u.deleted_at);
+    const { salt, hash, iterations } = await hashPin(pin);
     const user = { name, role: isFirstAdmin ? 'admin' : 'staff', salt, hash, iterations };
     DB.settings.me = name;   // 先设好，stampMeta 记 updated_by 才准
     stampMeta(user);
@@ -4259,14 +4901,94 @@ const ACTIONS = {
   // 不设权限门槛：这只是照着管理员已经定好的模板连去同一个文件夹，不是"随便选"，谁都能点，
   // 顶栏那个红色小按钮（needShareConnect）就是靠这个动作连的
   'connect-my-shared-folder': () => confirmConnectWithHint(connectSharedFile),
+  /* 刷新页面后恢复共享连接。
+     文件系统访问的读写授权默认不跨页面存活，重开页面后 queryPermission 一般是 'prompt'；
+     requestPermission 又必须在用户手势里调用，代码没法自己偷偷恢复——所以做成一个按钮。
+     走到这里只需要重新授权，句柄还在 IndexedDB 里，不用再弹一次文件夹选择框。 */
+  'restore-share-permission': async () => {
+    if (_restoringPermission) return;   // 顶栏按钮和"首次点击自动恢复"可能同时触发，只让一次生效
+    _restoringPermission = true;
+    try { await doRestoreSharePermission(); } finally { _restoringPermission = false; }
+  },
+  /* 强制刷新：给 URL 挂一个一次性的时间戳参数再重新加载。
+     普通的 location.reload() 在不少浏览器上会直接吃缓存里那份；换个 URL 就绕过去了。
+     （老式的 reload(true) 早就被各浏览器废弃了，不能指望。） */
+  'force-reload': () => {
+    const base = location.href.split('#')[0].split('?')[0];
+    location.href = base + '?_=' + Date.now();
+  },
+  /* "我确认要继续用这一份"：把本机记的版本水位压回当前版本，解除旧版封锁。
+     只有"管理员有意退回旧版本"才该用到，所以要二次确认。
+     二次确认刻意做在门禁自己的界面里换一个按钮，而不是用 confirmModal——
+     门禁层（z-index 4000）盖在普通弹窗（3000）上面，从门禁里弹 confirmModal 是看不见的。 */
+  'ignore-stale-app': () => {
+    const box = $('#stale-app-actions');
+    if (box) box.innerHTML = `<span style="color:var(--overdue);font-weight:700">真的要用旧版本？可能会把大家的数据改坏。</span>
+      <button class="btn danger" data-act="ignore-stale-app-confirm">确认，我是有意的</button>
+      <button class="btn" data-act="force-reload">算了，去刷新</button>`;
+  },
+  'ignore-stale-app-confirm': () => {
+    DB.settings.maxSeenAppVersion = APP_VERSION;
+    _staleAppBlocked = false;
+    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); } catch (e) {}
+    $('#login-gate').classList.remove('show');
+    startAutoReload();
+    renderShell(); renderPage();
+    showSnack('已解除旧版本封锁——请尽快换成最新版');
+  },
+  // 手动"立即同步"：不等 5 分钟那一轮，直接调 syncNowAndRender()——
+  // 跟定时器自动触发的是同一个函数，效果保证一模一样（见 syncNowAndRender 的注释）
+  'sync-now': async () => {
+    if (!_fileHandle) { showSnack('还没连上共享文件夹，先点顶栏的连接按钮'); return; }
+    if (_syncBusy) { showSnack('正在同步中，请稍候'); return; }
+    await withSyncGate(async () => {
+      try {
+        await syncNowAndRender();
+        showSnack('已跟共享文件同步完成');
+      } catch (e) {
+        showSnack('同步失败：' + (e && e.message ? e.message : e));
+      }
+    });
+  },
+  /* --- 管理员定期备份（设置只存在这台电脑上，不进共享文件） --- */
+  'backup-pick-dir': async () => {
+    if (!requirePermission('system_admin')) return;
+    if (!('showDirectoryPicker' in window)) { showSnack('这个浏览器不支持文件系统访问，换 Chrome / 360 等 Chromium 内核浏览器再试'); return; }
+    try {
+      const dir = await window.showDirectoryPicker();
+      const perm = await dir.requestPermission({ mode: 'readwrite' });
+      if (perm !== 'granted') { showSnack('没有拿到这个文件夹的写入授权'); return; }
+      await idbSetBackupDir(dir);
+      DB.settings.autoBackupDirName = dir.name;
+      await Repo.persist(DB);
+      renderPage();
+      showSnack('备份文件夹已设为：' + dir.name);
+    } catch (e) {
+      if (e && e.name === 'AbortError') return;
+      showSnack('设置失败：' + (e && e.message ? e.message : e));
+    }
+  },
+  'backup-toggle': async (d, el) => {
+    if (!requirePermission('system_admin')) return;
+    updateShareConfig({ autoBackupEnabled: !!el.checked });
+    await Repo.persist(DB);
+    renderPage();
+    showSnack(el.checked ? '已开启定期备份' : '已关闭定期备份');
+  },
+  'backup-interval-change': async (d, el) => {
+    if (!requirePermission('system_admin')) return;
+    const h = Math.max(BACKUP_MIN_HOURS, Number(el.value) || 24);
+    updateShareConfig({ autoBackupHours: h });
+    await Repo.persist(DB);
+    renderPage();
+    showSnack(`备份间隔已设为 ${h} 小时`);
+  },
+  'backup-now': async () => { if (requirePermission('system_admin')) await runBackup(true); },
   'share-config-save': async () => {
     if (!requirePermission('system_admin')) return;
-    const pathTemplate = $('#share-path-template').value.trim();
     const fileName = $('#share-file-name').value.trim() || DEFAULT_SHARE_FILE_NAME;
     snapshot();
-    const cfg = { pathTemplate, fileName };
-    stampMeta(cfg);
-    DB.shareConfig = cfg;
+    updateShareConfig({ fileName });
     await Repo.persist(DB);
     renderPage();
     showSnack('已保存共享文件夹设置');
@@ -4292,10 +5014,12 @@ const ACTIONS = {
   },
   'reset-all': () => {
     if (!requirePermission('system_admin')) return;
-    confirmModal('重置全部数据', '将清空职责、工作、里程碑、任务，恢复到初始种子数据（含测试任务）。可用 Ctrl+Z 撤销。', '重置', async () => {
+    // 连着共享文件夹时不许清空：清完立刻就会同步出去，等于把全处的数据一起抹了
+    if (_fileHandle) { showSnack('已连接共享文件夹，不能清空数据，避免连大家的真实数据一起抹掉'); return; }
+    confirmModal('清空全部数据', '将清空本机的职责、工作、里程碑、任务（账号和权限配置保留）。可用 Ctrl+Z 撤销。', '清空', async () => {
       snapshot();
-      await Repo.bulk(() => seedAll());
-      renderShell(); renderPage(); showSnack('已重置');
+      await Repo.bulk(() => { DB.duties = []; DB.works = []; DB.milestones = []; DB.tasks = []; });
+      renderShell(); renderPage(); showSnack('已清空');
     }, true);
   },
 
@@ -4307,8 +5031,34 @@ const ACTIONS = {
   'dp-sc': d => dpCommit(parseDue(d.tok) || ''),
   'dp-clear': () => dpCommit(''),
   'dp-nav': d => dpNav(+d.dir),
+  // 日期数字文本框边上那个📅按钮：data-for 存的是它要打开的那个输入框的 id
+  // （里程碑检查点行没有稳定的字段名可用，渲染时现生成一个；任务详情/批量编辑本来就有固定 id）
+  'date-pick-open': d => { const input = $('#' + d.for); if (input) openDatePickerForInput(input); },
   'modal-cancel': () => closeModal(),
-  'modal-ok': () => { const cb = modalCallback; if (cb) cb(); else closeModal(); },
+  /* ★ 弹窗"确定"必须防连点 ★
+     原来是 `if (cb) cb();`——既不 await 也不上锁。而保存回调里要走一次共享文件的读—合并—写，
+     在网络盘上可能好几秒；这几秒里弹窗还开着、按钮还能点，界面上没有任何"正在保存"的迹象。
+     用户觉得"点了没反应"，很自然会再点几下，于是同一个保存被完整地执行了好几遍。
+     配合当时"里程碑整批删掉重建"的写法，结果就是一条任务下凭空多出好几套重复里程碑。
+     现在：执行期间锁住并把按钮置灰显示"处理中…"，让人看得见它在干活，也点不动第二次。 */
+  'modal-ok': async () => {
+    const cb = modalCallback;
+    if (!cb) { closeModal(); return; }
+    if (_modalBusy) return;
+    _modalBusy = true;
+    const btn = $('#modal-ok-btn');
+    const label = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = '处理中…';
+    try { await cb(); }
+    finally {
+      _modalBusy = false;
+      btn.disabled = false;
+      // 回调里可能又开了一个新弹窗（比如"里程碑顺序看起来不太对"那个二次确认），
+      // 那时按钮文案已经是新弹窗自己的了，不能拿旧的覆盖回去
+      if (btn.textContent === '处理中…') btn.textContent = label;
+    }
+  },
   'status-done-only': async () => {
     const t = _statusOnlyTask; _statusOnlyTask = null;
     closeModal();
@@ -4332,7 +5082,7 @@ function afterEdit(entity, id, fieldKey) {
 // - perm-toggle 是 checkbox——click 时 el.checked 虽已是新值，但会跟 change 重复触发一次
 // - account-role-change 是 select——点开下拉框本身就会先发一个 click（这时用户还没选完！），
 //   之前就是因为点击分发器把这次"打开下拉框"的 click 也当成了"确认选择"，选都没选就提交了
-const CHANGE_ONLY_ACTS = ['account-role-change', 'perm-toggle', 'account-jobno-change'];
+const CHANGE_ONLY_ACTS = ['account-role-change', 'perm-toggle', 'backup-toggle', 'backup-interval-change'];
 document.addEventListener('click', e => {
   if (e.target.closest('.col-resize')) return;
   const el = e.target.closest('[data-act]');
@@ -4354,8 +5104,14 @@ document.addEventListener('change', e => {
   if (rc) ACTIONS['account-role-change'](rc.dataset, rc, e);
   const pt = e.target.closest('[data-act="perm-toggle"]');
   if (pt) ACTIONS['perm-toggle'](pt.dataset, pt, e);
-  const jn = e.target.closest('[data-act="account-jobno-change"]');
-  if (jn) ACTIONS['account-jobno-change'](jn.dataset, jn, e);
+  // ★ 曾经的真实 bug ★ 'backup-toggle'/'backup-interval-change' 被放进了 CHANGE_ONLY_ACTS，
+  // 点击分发器因此故意不理它们，但这里一直没有补上对应的 change 分支——两个动作实际上从来没被调用过。
+  // 表现出来就是：勾选框/数字框自己的原生状态看着改了，但 DB.settings 里的值纹丝不动，
+  // 下次随便一次重渲染（比如 5 分钟一轮的软同步）它们就会被打回原来的样子，像是"自己变回去了"
+  const bt = e.target.closest('[data-act="backup-toggle"]');
+  if (bt) ACTIONS['backup-toggle'](bt.dataset, bt, e);
+  const bi = e.target.closest('[data-act="backup-interval-change"]');
+  if (bi) ACTIONS['backup-interval-change'](bi.dataset, bi, e);
   if (e.target.classList.contains('cp-chk')) updateCpProgressPreview();   // 勾选/取消里程碑完成状态，实时刷新进度预览
 });
 document.addEventListener('dblclick', e => {
@@ -4528,7 +5284,10 @@ function openInlineEdit(entity, id, f, td) {
     snapshot();
     const before = entity === 'task' ? clone(r) : null;
     r[f.key] = val;
-    if (before) pushLog(id, diffTask(before, r, [f.key]));
+    // 单独编辑进度这一格时，状态并没有被同时改动，属于"只碰了进度"的那条分支——
+    // 该不该顺带跳出"未开始"/退出"已完成"，交给 reconcileStatusAndProgress 统一判断
+    if (before && f.key === 'progress') reconcileStatusAndProgress(r, before);
+    if (before) pushLog(id, diffTask(before, r, [f.key, 'status', 'actual_date']));
     await Repo.upsert(entity, r);
     afterEdit(entity, id, f.key);
   };
@@ -4858,14 +5617,12 @@ async function wpCommit(val) {
 /* ---- 日期选择器 ---- */
 let _dp = null, dpCloseListener = null;
 
-function openDatePicker(entity, id, fieldKey, td) {
-  commitActiveEdit();
-  const r = byId(entity, id); if (!r) return;
-  const ref = r[fieldKey] ? new Date(r[fieldKey] + 'T00:00:00') : new Date();
-  _dp = { entity, id, field: fieldKey, year: ref.getFullYear(), month: ref.getMonth() };
-  renderDpCalendar();
+/* 浮层日历的定位 + "点击外面收起"，网格内联编辑和表单里嵌入的日期框共用这一份：
+   前者的锚点是那个 <td>，后者的锚点是日期框自己（或者边上那个📅按钮），逻辑完全一样，
+   区别只在锚点是谁，抽出来避免两处各写一遍容易走样的定位代码。 */
+function openDpPopup(anchorEl) {
   const wrap = $('#date-picker-wrap');
-  const rect = td.getBoundingClientRect();
+  const rect = anchorEl.getBoundingClientRect();
   wrap.style.left = Math.min(rect.left, window.innerWidth - 220) + 'px';
   wrap.style.top = (rect.bottom + 4) + 'px';
   wrap.classList.add('show');
@@ -4874,13 +5631,42 @@ function openDatePicker(entity, id, fieldKey, td) {
     if (rect.bottom + 4 + h > window.innerHeight - 8) wrap.style.top = Math.max(8, rect.top - h - 4) + 'px';
   });
   if (dpCloseListener) document.removeEventListener('mousedown', dpCloseListener);
-  dpCloseListener = ev => { if (!wrap.contains(ev.target) && !td.contains(ev.target)) dpClose(); };
+  dpCloseListener = ev => { if (!wrap.contains(ev.target) && !anchorEl.contains(ev.target)) dpClose(); };
   setTimeout(() => document.addEventListener('mousedown', dpCloseListener), 0);
+}
+function openDatePicker(entity, id, fieldKey, td) {
+  commitActiveEdit();
+  const r = byId(entity, id); if (!r) return;
+  const ref = r[fieldKey] ? new Date(r[fieldKey] + 'T00:00:00') : new Date();
+  _dp = { mode: 'grid', entity, id, field: fieldKey, year: ref.getFullYear(), month: ref.getMonth() };
+  renderDpCalendar();
+  openDpPopup(td);
+}
+/* ★ 日期数字文本框旁边那个📅按钮点开的就是这个 ★
+   跟网格内联编辑共用同一套日历 UI，选中一天之后的"落地"方式不一样：网格那边是直接改这条记录
+   并同步（见 dpCommit 里 mode==='grid' 那一支），这里只是把选中的日期写回这个输入框自己的 value，
+   跟手动敲数字效果完全一致——真正的保存仍然走这个输入框所在表单本来的保存流程
+   （点"保存"/"确定"按钮时统一读取），不会因为点了日历就绕开表单直接改数据库。
+   这样"点选日历"和"手动敲数字"两种输入方式在同一个框里并存，互不冲突。 */
+function openDatePickerForInput(inputEl) {
+  if (!inputEl) return;
+  commitActiveEdit();
+  const cur = normalizeMaskedDateValue(inputEl.value);
+  const ref = cur ? new Date(cur + 'T00:00:00') : new Date();
+  _dp = { mode: 'input', target: inputEl, year: ref.getFullYear(), month: ref.getMonth() };
+  renderDpCalendar();
+  openDpPopup(inputEl);
+}
+// 日历当前应该高亮哪一天：网格模式去查对应记录的字段，表单模式直接读目标输入框自己的 value
+function dpCurrentValue() {
+  if (!_dp) return '';
+  if (_dp.mode === 'input') return _dp.target ? normalizeMaskedDateValue(_dp.target.value) : '';
+  const r = byId(_dp.entity, _dp.id);
+  return r ? (r[_dp.field] || '') : '';
 }
 function renderDpCalendar() {
   if (!_dp) return;
-  const r = byId(_dp.entity, _dp.id);
-  const sel = r ? (r[_dp.field] || '') : '';
+  const sel = dpCurrentValue();
   const today = todayStr();
   const firstDow = new Date(_dp.year, _dp.month, 1).getDay();
   const days = new Date(_dp.year, _dp.month + 1, 0).getDate();
@@ -4909,6 +5695,17 @@ function dpNav(dir) {
 }
 async function dpCommit(date) {
   if (!_dp) return;
+  if (_dp.mode === 'input') {
+    // 表单模式：只管把选中的日期写回这个输入框，不直接碰数据库——date 来自日历点选/快捷方式，
+    // 已经是规整好的 YYYY-MM-DD 或空串，不需要再跑一遍敲数字那套格式化
+    const target = _dp.target;
+    dpClose();
+    if (target) {
+      target.value = date;
+      if (typeof target.focus === 'function') target.focus();
+    }
+    return;
+  }
   const { entity, id, field } = _dp;
   dpClose();
   const r = byId(entity, id); if (!r) return;
@@ -4968,9 +5765,27 @@ function updateCpProgressPreview() {
 }
 function cpRowHTML(m) {
   const reportLevel = (m && m.report_level) || 'section';   // 新检查点默认选中"处室领导"，不是空白占位
-  return `<div class="cp-row" data-cp-row>
+  // 之前这里（可编辑状态，也是最常打开的状态）完全没有逾期提示——一条已经拖期的里程碑跟正常的长得一模一样，
+  // 编辑的时候根本看不出哪条该催了。跟只读视图（见上面 openTaskDetail 的 !canEdit 分支）用同一套判断
+  const overdue = m && m.done !== '1' && m.plan_date && m.plan_date < todayStr();
+  const lateDays = overdue ? -daysFromToday(m.plan_date) : 0;
+  /* ★ data-ms-id 是这一行对应的那条里程碑记录的 id，一定要带上 ★
+     以前这里没有它，保存时的做法是"把原来的里程碑全部软删除，再按界面上的行重新建一批新的"。
+     那样有两个严重后果：
+     1) 保存不是幂等的——同一份内容存两次，就会多出一整套重复的里程碑；
+     2) 每次保存所有里程碑的 id 都变了，多人同步时对不上账，历史也断了。
+     实际事故就是这么来的：保存要走一次共享文件读写（网络盘上可能好几秒），
+     这期间弹窗还开着、按钮还能点，用户觉得"没反应"就又点了几下，
+     于是一条任务下凭空多出好几套一模一样的里程碑。
+     带上 id 之后，保存变成"按 id 就地更新、界面上没有的才删、真新增的才建"，点几次都是同一个结果。 */
+  // 检查点行没有稳定的字段名可以拿来当日期框的 id（一条任务下好几行，都叫 cp-date 会重复），
+  // 每次渲染现生成一个：只要求"这一轮渲染里唯一"，不需要跨渲染保持不变
+  const dateId = uid('cpd');
+  return `<div class="cp-row${overdue ? ' cp-row-overdue' : ''}" data-cp-row data-ms-id="${esc(m && m.id ? m.id : '')}">
     <span class="cp-drag-handle" draggable="true" title="按住拖动调整顺序">⠿</span>
-    <input type="date" class="cp-date" value="${esc(m ? m.plan_date : '')}">
+    <span class="date-mask-wrap"><input id="${dateId}" type="text" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="YYYY-MM-DD" class="cp-date date-mask" value="${esc(m ? m.plan_date : '')}">
+      <button type="button" class="date-pick-btn" data-act="date-pick-open" data-for="${dateId}" title="从日历里选">📅</button></span>
+    ${overdue ? `<span class="cp-overdue-badge" title="计划完成时间 ${esc(m.plan_date)}，已经过了 ${lateDays} 天还没完成">⚠ 逾期 ${lateDays} 天</span>` : ''}
     <input type="text" class="cp-deliv" placeholder="交付物，可自由填写" value="${esc(m ? m.deliverable : '')}">
     <select class="cp-report-level">
       ${REPORT_LEVELS.map(o => `<option value="${o.v}"${reportLevel === o.v ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}
@@ -4999,9 +5814,12 @@ function fieldControl(f, val, idPrefix) {
     case 'persons':
       return `<input id="${id}" value="${esc((val || []).join('、'))}" placeholder="多人用顿号或逗号分隔">`;
     case 'date':
-      // 跟里程碑的日期输入（cpRowHTML 里的 .cp-date）统一成同一种表示/输入方式：原生日期选择器，
-      // 不再是"YYYY-MM-DD / today / +7"这种要背关键字的自由文本框
-      return `<input id="${id}" type="date" value="${esc(val || '')}">`;
+      // 跟里程碑的日期输入（cpRowHTML 里的 .cp-date）统一成同一种表示/输入方式：
+      // 主体是只认连续数字、自动按 4/2/2 分段的文本框，不依赖浏览器/系统地区设置来决定分段顺序
+      // （原生 <input type="date"> 在这上面并不可靠，见 date-mask 相关函数的注释）；
+      // 旁边保留一个📅按钮，点了照样能弹出日历点选——两种输入方式并存，各取所需
+      return `<span class="date-mask-wrap"><input id="${id}" type="text" inputmode="numeric" autocomplete="off" maxlength="10" placeholder="YYYY-MM-DD" class="date-mask" value="${esc(val || '')}">
+        <button type="button" class="date-pick-btn" data-act="date-pick-open" data-for="${id}" title="从日历里选">📅</button></span>`;
     case 'num':
       return `<input id="${id}" type="number" value="${esc(val === '' || val == null ? '' : val)}"${f.key === 'progress' ? ' min="0" max="100"' : ''}>`;
     case 'lines':
@@ -5018,7 +5836,9 @@ function readControl(f, idPrefix) {
   switch (f.type) {
     case 'persons': return splitNames(raw);
     case 'lines':   return parseLines(el.value);
-    case 'date':    return raw;   // 原生 date 控件本身就保证是空串或合法的 YYYY-MM-DD，不用再额外解析
+    // 原生 date 控件本身能保证空串或合法的 YYYY-MM-DD；现在改成数字文本框之后就没有这层保证了，
+    // 正常情况下 blur 时 normalizeMaskedDateOnBlur 已经清过一遍，这里再校验一次是双保险
+    case 'date':    return normalizeMaskedDateValue(raw);
     case 'num': {
       if (raw === '') return f.key === 'progress' ? 0 : '';
       let n = Math.max(0, Number(raw) || 0);
@@ -5102,15 +5922,34 @@ function openColConfig() {
 }
 
 /* 任务详情：一次编辑全部字段（表格列放不下的都在这里） */
-function openTaskDetail(id) {
-  const t = byId('task', id);
+/* 某个职责下可选的工作（当前年度内、未删除），按编号排序。
+   任务详情里"所属职责"变了就拿它重算"所属工作"的选项，两级联动 */
+function worksOfDuty(dutyCode) {
+  return visibleWorks().filter(w => w.duty === dutyCode)
+    .sort((a, b) => String(a.code || '').localeCompare(String(b.code || '')));
+}
+function workOptionsHTML(dutyCode, selectedId) {
+  const list = worksOfDuty(dutyCode);
+  if (!list.length) return '<option value="">（这个职责下还没有工作）</option>';
+  return '<option value="">（未归属）</option>' + list.map(w =>
+    `<option value="${esc(w.id)}"${w.id === selectedId ? ' selected' : ''}>${esc((w.code || '') + ' ' + w.name)}</option>`).join('');
+}
+// 新建任务：先造一份还没入库的草稿，直接用任务详情弹窗把字段填全，点"创建"才真正落库
+function openNewTask() {
+  const draft = blank('task', { status: 'todo', priority: '2', progress: 0 });
+  draft.owner = defaultTaskOwner('');
+  openTaskDetail(draft.id, draft);
+}
+function openTaskDetail(id, draft) {
+  const isNew = !!draft;
+  const t = isNew ? draft : byId('task', id);
   if (!t) return;
   // 不是自己负责/参与的任务：得有 view_others_detail 权限才能打开详情弹窗（表格行本身仍然看得到，这条只管详情弹窗）
-  if (!isRecordOwnerOrParticipant('task', t) && !hasPermission('view_others_detail')) {
+  if (!isNew && !isRecordOwnerOrParticipant('task', t) && !hasPermission('view_others_detail')) {
     showSnack('为了防止误操作，暂时不能查看他人任务的详情');
     return;
   }
-  const canEdit = canEditRecord('task', t);   // 查看谁都能看，只有负责人/参与人或组长以上能改
+  const canEdit = isNew || canEditRecord('task', t);   // 查看谁都能看，只有负责人/参与人或组长以上能改
   const fs = schema('task').fields.filter(f => !f.internal);
   // "work" 字段自己有专门的分支（下面 cell() 里），不走这条通用判断，这里只管其它走通用渲染的字段
   const wide = k => k === 'title';
@@ -5125,11 +5964,13 @@ function openTaskDetail(id) {
         const listHTML = existingCps.length ? `<div class="ms-list">${existingCps.map(m => {
           const levelLabel = (REPORT_LEVELS.find(r => r.v === m.report_level) || {}).label || '';
           const overdue = m.done !== '1' && m.plan_date && m.plan_date < todayStr();
-          return `<div class="ms-item">
+          const lateDays = overdue ? -daysFromToday(m.plan_date) : 0;
+          // 逾期的里程碑不能只靠文字变红——整行给个浅红底 + 左边一道红条，一眼扫过去就能看出这行不一样
+          return `<div class="ms-item${overdue ? ' ms-item-overdue' : ''}">
             <span class="ms-date"${overdue ? ' style="color:var(--overdue)"' : ''}>${esc(m.plan_date || '无日期')}</span>
             <span class="ms-deliv">${esc(m.deliverable || '（未填写交付物）')}</span>
             ${levelLabel ? `<span class="ms-level">${esc(levelLabel)}</span>` : ''}
-            <span class="ms-status"${m.done === '1' ? ' style="color:var(--done)"' : (overdue ? ' style="color:var(--overdue)"' : '')}>${m.done === '1' ? `✓ 已交付${m.actual_date ? '（' + esc(m.actual_date) + '）' : ''}` : (overdue ? '已逾期' : '未交付')}</span>
+            <span class="ms-status"${m.done === '1' ? ' style="color:var(--done)"' : (overdue ? ' style="color:var(--overdue);font-weight:700"' : '')}>${m.done === '1' ? `✓ 已交付${m.actual_date ? '（' + esc(m.actual_date) + '）' : ''}` : (overdue ? `⚠ 已逾期 ${lateDays} 天` : '未交付')}</span>
           </div>`;
         }).join('')}</div>` : `<div class="hint" style="padding:4px 0">暂无里程碑</div>`;
         return `<label>${esc(f.label)}</label><div class="full">${listHTML}</div>`;
@@ -5144,18 +5985,20 @@ function openTaskDetail(id) {
         </div>`;
     }
     if (f.key === 'work' && f.type === 'ref') {
-      const dutyDisplay = w ? `${w.duty} ${(byId('duty', w.duty) || {}).name || ''}` : '未归属';
-      const dutyCell = `<label>所属职责</label><div><span class="detail-ro">${esc(dutyDisplay)}</span></div>`;
+      const curDuty = w ? w.duty : '';
       if (!canEdit) {
-        return `${dutyCell}
+        const dutyDisplay = w ? `${w.duty} ${(byId('duty', w.duty) || {}).name || ''}` : '未归属';
+        return `<label>所属职责</label><div><span class="detail-ro">${esc(dutyDisplay)}</span></div>
           <label>${esc(f.label)}</label><div class="full"><span class="detail-ro">${esc(w ? (w.code + ' ' + w.name) : '未归属')}</span></div>`;
       }
-      // 已归属工作的任务，详情页里不给「（无）」选项，避免手滑清空；未归属的任务保留，否则会被强行指到列表第一项
-      const opts = optionsOf('task', f, null);
-      return `${dutyCell}
+      // 所属职责和所属工作两级联动：先选职责，工作的选项跟着只列这个职责下的（见下面给 #td-duty 绑的 change）
+      const duties = DB.duties.filter(d => !d.deleted_at)
+        .sort((a, b) => String(a.code || '').localeCompare(String(b.code || '')));
+      return `<label for="td-duty">所属职责</label>
+        <div><select id="td-duty"><option value="">（未归属）</option>${duties.map(d =>
+          `<option value="${esc(d.code)}"${d.code === curDuty ? ' selected' : ''}>${esc(d.code + ' ' + d.name)}</option>`).join('')}</select></div>
         <label for="td-work">${esc(f.label)}</label>
-        <div class="full"><select id="td-work">${!t.work ? '<option value="">（无）</option>' : ''}${opts.map(o =>
-          `<option value="${esc(o.v)}"${t.work === o.v ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}</select></div>`;
+        <div class="full"><select id="td-work">${workOptionsHTML(curDuty, t.work)}</select></div>`;
     }
     if (f.key === 'progress') {
       const locked = lockProgress(f);
@@ -5182,9 +6025,16 @@ function openTaskDetail(id) {
         return `<div class="inline-field"><label for="td-${ff.key}">${esc(ff.label)}</label>
           <div>${isRo ? `<span class="detail-ro">${esc(t[ff.key] || '—')}</span>` : fieldControl(ff, t[ff.key], 'td-')}</div></div>`;
       };
+      // 任务自己的计划完成时间可能还没到，但名下有里程碑拖期了，isOverdue(t) 一样判定这条任务逾期
+      // （见 isOverdue 的注释）——这种情况必须在计划完成时间旁边说清楚"为什么"，不然会觉得莫名其妙：
+      // 明明日期还没到，怎么工作台/图表页都把它算成逾期了
+      const msLateOnly = isOverdue(t) && !(t.plan_date && t.plan_date < todayStr());
       return `<div class="full-row"><div class="inline-fields-row">
         ${miniCell(f)}${miniCell(fieldDef('task', 'priority'))}${miniCell(fieldDef('task', 'plan_date'))}
-      </div></div>`;
+      </div></div>
+      ${msLateOnly ? `<div class="full-row"><div class="hint" style="color:var(--overdue);font-weight:700">
+        ⚠ 本任务自己的计划完成时间还没到，但下面有里程碑已经逾期，所以仍判定为逾期任务
+      </div></div>` : ''}`;
     }
     const ro = f.readonly || !canEdit;
     return `<label for="td-${f.key}">${esc(f.label)}</label>
@@ -5194,15 +6044,17 @@ function openTaskDetail(id) {
   };
 
   $('#modal-box').classList.add('wide');
-  openModal('任务详情',
+  openModal(isNew ? '新建任务' : '任务详情',
     `<div class="detail-grid">${fs.map(cell).join('')}</div>
      ${peopleDatalist()}
      <div class="detail-meta">
-       创建：${esc((t.created_at || '').slice(0, 10))}　·
-       最后修改：${esc((t.updated_at || '').slice(0, 10))} by ${esc(t.updated_by || '—')}
-       ${canEdit ? '' : '　·　<span style="color:var(--text3)">只读：不是你负责/参与的任务</span>'}
+       ${isNew
+         ? '任务编号会在选定所属工作后自动生成；里程碑/交付物可以现在填，也可以创建后再补。'
+         : `创建：${esc(localDay(t.created_at))}　·
+            最后修改：${esc(localDay(t.updated_at))} by ${esc(t.updated_by || '—')}
+            ${canEdit ? '' : '　·　<span style="color:var(--text3)">只读：不是你负责/参与的任务</span>'}`}
      </div>`,
-    canEdit ? '保存' : '关闭', async () => {
+    isNew ? '创建' : (canEdit ? '保存' : '关闭'), async () => {
       if (!canEdit) { closeModal(); return; }
       // 弹确认框会顶掉这个弹窗自己的 DOM（modal 只有一个槽位），所以要先把所有字段/里程碑的待存值读出来，
       // 而不是等确认完了再回来读——那时候 td-* 这些输入框已经不在了
@@ -5214,16 +6066,19 @@ function openTaskDetail(id) {
       });
       const cpRows = $$('#cp-list [data-cp-row]');
       const cpData = cpRows.map(r => ({
-        plan_date: r.querySelector('.cp-date').value,
+        id: (r.getAttribute && r.getAttribute('data-ms-id')) || '',   // 空字符串 = 界面上新加的一行，还没有对应记录
+        // 数字文本框没有原生 date 控件那种"要么合法要么空"的保证，读的时候顺手校验/清理一遍
+        plan_date: normalizeMaskedDateValue(r.querySelector('.cp-date').value),
         deliverable: r.querySelector('.cp-deliv').value.trim(),
         report_level: r.querySelector('.cp-report-level').value,
         done: r.querySelector('.cp-chk').checked ? '1' : '0',
       })).filter(d => d.plan_date || d.deliverable);
       const pendingOwner = 'owner' in collected ? collected.owner : t.owner;
+      if (isNew && !(collected.title || '').trim()) { showSnack('任务标题不能为空'); return; }
       const doSave = async () => {
         snapshot();
         const before = clone(t);
-        // 全量替换里程碑没有稳定的逐条 id，用「日期+交付物」做粗略比对，描述新增/移除/完成数变化
+        // 变更摘要用「日期+交付物」做比对（只是给人看的描述，不参与实际增删——那个按 id 走，见下面 Repo.bulk 里）
         const cpKey = c => c.plan_date + '|' + c.deliverable;
         const beforeKeys = new Set(existingCps.map(cpKey));
         const afterKeys = new Set(cpData.map(cpKey));
@@ -5239,12 +6094,49 @@ function openTaskDetail(id) {
         let dateAdjustedMsg = '';
         await Repo.bulk(() => {
           Object.assign(t, collected);
-          existingCps.forEach(m => softDelete('milestone', m.id));
+          if (isNew) {
+            // 草稿这时候才真正入库：牵头人没填的话按"谁建的任务、归在哪项工作下"给个合理默认值；
+            // 编号在下面统一处理，不在这里单独判断
+            if (!t.owner) t.owner = defaultTaskOwner(t.work);
+            DB.tasks.push(t);
+          }
+          /* ★ 编号只在这两种情况下(重新)生成 ★
+             1) 所属工作确实变了——不管是从没选到选了、还是换成了另一个工作，都跟网格上单独改
+                "所属工作"那一格（wpCommit/批量改所属工作）保持一致的规则：工作一变，编号跟着重生成；
+             2) 这是一条新任务、打开表单时工作就已经带进来了（比如从某项工作下面点"新建任务"）、
+                还从没编过号——这种情况下面第 1 条判断不出"变没变"（前后都是同一个工作），
+                单独补一条件兜底，覆盖"新建时按所属工作直接生成编号"这个最常见的场景。
+             工作没变、也不是新任务时绝对不能重算：nextTaskCode 是按"当前已用的最大号 +1"算的，
+             这条任务自己的旧编号本来就算在"已用"里，不看工作有没有变就重算，编号会一直往上跳。
+             没选工作（t.work 为空）就没有编号可编，跟原来"暂不编号"的行为保持一致。 */
+          if (t.work !== before.work || (isNew && !t.code)) {
+            t.code = t.work ? nextTaskCode(t.work) : '';
+          }
+          /* ★ 按 id 就地更新，绝对不能再"整批删掉重建" ★
+             重建方案会让保存变成非幂等的：同一份内容存两次就多一整套重复里程碑。
+             真出过事故——保存要等一次共享文件读写，用户以为没反应就多点了几下，
+             一条任务下就凭空多出好几套一模一样的里程碑（详见 cpRowHTML 里 data-ms-id 那段注释）。
+             现在：界面上还在的按 id 更新，界面上被删掉的才软删除，只有真正新加的行才建新记录。 */
+          const keepIds = new Set(cpData.map(c => c.id).filter(Boolean));
+          existingCps.forEach(m => { if (!keepIds.has(m.id)) softDelete('milestone', m.id); });
           cpData.forEach(cd => {
-            DB.milestones.push(stampMeta(blank('milestone', {
-              task: t.id, plan_date: cd.plan_date, deliverable: cd.deliverable, report_level: cd.report_level, done: cd.done,
-              actual_date: cd.done === '1' ? todayStr() : '',
-            })));
+            const cur = cd.id ? byId('milestone', cd.id) : null;
+            if (cur) {
+              cur.task = t.id;   // 新建任务时草稿 id 才最终确定，老里程碑要跟着认领过去
+              cur.plan_date = cd.plan_date;
+              cur.deliverable = cd.deliverable;
+              cur.report_level = cd.report_level;
+              cur.done = cd.done;
+              // 已完成的保留原来的实际完成日期（别把历史抹成今天），从完成改回未完成就清掉
+              cur.actual_date = cd.done === '1' ? (cur.actual_date || todayStr()) : '';
+              if (cur.deleted_at) delete cur.deleted_at;   // 上一次误删的又被提交回来，等于撤销删除
+              stampMeta(cur);
+            } else {
+              DB.milestones.push(stampMeta(blank('milestone', {
+                task: t.id, plan_date: cd.plan_date, deliverable: cd.deliverable, report_level: cd.report_level, done: cd.done,
+                actual_date: cd.done === '1' ? todayStr() : '',
+              })));
+            }
           });
           recalcProgress(t);
           // 里程碑的计划日期不该晚于任务自己的"计划完成时间"——这在逻辑上说不通（东西还没到，任务却已经算完成了）。
@@ -5254,19 +6146,26 @@ function openTaskDetail(id) {
             dateAdjustedMsg = `计划完成时间已顺延至 ${latestMs}（有里程碑排在了原计划之后）`;
             t.plan_date = latestMs;
           }
-          if (t.status === 'done') {
-            t.actual_date = t.actual_date || todayStr();
-            if (!t.progress && !hasCheckpoints(t)) t.progress = 100;
-          }
+          // 进度和状态在这里统一对账：不管进度是刚才手改的，还是靠上面 recalcProgress
+          // 从检查点完成比例算出来的，都不该出现"进度 100% 却还挂着未开始/进行中"这种矛盾状态
+          reconcileStatusAndProgress(t, before);
           stampMeta(t);
+          // ★ pushLog 必须挪进 Repo.bulk 的回调里，跟任务/里程碑的改动同一批持久化 ★
+          // 以前它是在 await Repo.bulk(...) 之后才调用的：那时候这次保存该同步的都已经同步完了，
+          // 这条"最近动态"记录反而要等到下一次保存（不管是谁、改了什么）才会顺便被推上去。
+          // 管理员恰恰是靠"最近动态"确认同事有没有在动东西的，任务数据和这条记录如果不是
+          // 同一次推上去的，管理员这次同步看到了任务变化、却看不到对应的动态说明是谁改的，
+          // 会显得比实际情况更让人摸不着头脑
+          pushLog(t.id, isNew ? `新建任务「${t.title}」` : [diffTask(before, t), cpParts.join('；')].filter(Boolean).join('；'));
         });
-        pushLog(t.id, [diffTask(before, t), cpParts.join('；')].filter(Boolean).join('；'));
         closeModal();
+        if (isNew && UI.tasks.view === 'deleted') UI.tasks.view = 'all';   // 新建完却停在"已删除"视图里会看不见刚建的任务
         renderShell(); renderPage();
-        showSnack(['已保存', dateAdjustedMsg].filter(Boolean).join('，'));
+        showSnack([isNew ? `已创建：${t.title}` : '已保存', dateAdjustedMsg].filter(Boolean).join('，'));
       };
       const proceedAfterOrderCheck = async () => {
-        if (ownerChangeNeedsWarning(t, pendingOwner)) { confirmOwnerChange(doSave); return; }
+        // 新建时不存在"把任务从别人手里转走"这回事，跳过转移确认
+        if (!isNew && ownerChangeNeedsWarning(t, pendingOwner)) { confirmOwnerChange(doSave); return; }
         await doSave();
       };
       const orderIssue = findCpOrderIssue(cpData);
@@ -5276,8 +6175,19 @@ function openTaskDetail(id) {
       }
       await proceedAfterOrderCheck();
     });
+  bindDutyWorkCascade();
   setTimeout(() => { const el = $('#td-title'); if (el) { el.focus(); el.select(); } }, 60);
   updateCpProgressPreview();
+}
+// 任务详情里"所属职责"一变，"所属工作"的选项就只列这个职责下的工作。
+// 这个 change 只能在弹窗内容渲染完之后绑，所以单独拎出来一个函数
+function bindDutyWorkCascade() {
+  const ds = $('#td-duty');
+  if (!ds) return;
+  ds.addEventListener('change', () => {
+    const ws = $('#td-work');
+    if (ws) { ws.innerHTML = workOptionsHTML(ds.value, ''); ws.value = ''; }
+  });
 }
 
 /* =============================================================
@@ -5447,7 +6357,44 @@ function healthCheck() {
   if (msLateMap.size) issues.push({ k: 'msLateThanTask', n: msLateMap.size,
     msg: `${msLateMap.size} 条任务的里程碑计划日期晚于任务本身的计划完成时间`, fix: '把这些任务的计划完成时间顺延到最晚的里程碑日期' });
 
-  return { issues, orphanTasks, orphanMs, msLateMap, noDateHasMsMap };
+  /* 同一任务下内容完全一样的重复里程碑。
+     来源是一个已经修掉的 bug：任务详情保存曾经"把里程碑整批删掉再重建"，而弹窗的确定按钮又没防连点，
+     于是保存慢的时候用户多点几下，一条任务下就多出好几套一模一样的里程碑（见 cpRowHTML 的 data-ms-id 注释）。
+     代码已经改成按 id 就地更新，不会再产生新的重复，但已经躺在共享文件里的那些得能一键清掉。
+     判定标准取得很严——任务+日期+交付物+呈报层级+完成状态全都一样才算重复，
+     只留最早创建的那条。差一个字都不动，宁可漏掉也不能误删别人真填的东西。 */
+  const dupMsMap = new Map();   // 保留的那条 id -> 要删掉的重复条数
+  const dupMsIds = [];
+  const msSeen = new Map();
+  DB.milestones.filter(m => !m.deleted_at).slice()
+    .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))   // 最早建的那条留下
+    .forEach(m => {
+      const k = [m.task, m.plan_date, m.deliverable, m.report_level, m.done].join(' ');
+      const keep = msSeen.get(k);
+      if (keep) { dupMsIds.push(m.id); dupMsMap.set(keep, (dupMsMap.get(keep) || 0) + 1); }
+      else msSeen.set(k, m.id);
+    });
+  if (dupMsIds.length) issues.push({ k: 'dupMs', n: dupMsIds.length,
+    msg: `${dupMsIds.length} 个里程碑跟同一任务下的另一个完全重复（日期、交付物、呈报层级、完成状态全都一样）`,
+    fix: '每组只保留最早创建的那一个，其余删除' });
+
+  /* 进度和状态对不上——多半是历史数据：以前改进度不会联动状态，日积月累就会有一批
+     "进度都过半了、状态却还是未开始"或者"标了已完成、进度却没到 100%"的任务。
+     判定规则跟 reconcileStatusAndProgress 保持一致（挂起的任务不算，进度为 0 也不强行打回未开始），
+     一键修复直接复用同一个函数，不用另外再写一套判断逻辑，两处规则永远保持一致。 */
+  const progressMismatch = DB.tasks.filter(t => {
+    if (t.deleted_at || t.status === 'hold') return false;
+    const p = Number(t.progress) || 0;
+    if (p >= 100 && t.status !== 'done') return true;
+    if (p < 100 && t.status === 'done') return true;
+    if (p > 0 && t.status === 'todo') return true;
+    return false;
+  });
+  if (progressMismatch.length) issues.push({ k: 'progressMismatch', n: progressMismatch.length,
+    msg: `${progressMismatch.length} 条任务的进度和状态对不上（比如进度过半了状态还是未开始、或者标了已完成进度却没到 100%）`,
+    fix: '按当前进度自动纠正状态' });
+
+  return { issues, orphanTasks, orphanMs, msLateMap, noDateHasMsMap, dupMsIds, progressMismatch };
 }
 
 async function fixHealth(kind) {
@@ -5464,6 +6411,33 @@ async function fixHealth(kind) {
       const t = byId('task', taskId);
       if (t) { t.plan_date = date; stampMeta(t); }
     });
+    if (kind === 'dupMs') {
+      // 用软删除（不是彻底删除）：万一判重判错了，「已删除」视图里还找得回来。
+      // 删完顺手把受影响任务的进度重算一遍——进度是按里程碑完成比例算的，
+      // 重复的里程碑会把分母撑大，之前显示的进度本来就是偏低的
+      const touched = new Set();
+      r.dupMsIds.forEach(id => {
+        const m = byId('milestone', id);
+        if (!m) return;
+        m.deleted_at = new Date().toISOString();
+        stampMeta(m);
+        if (m.task) touched.add(m.task);
+      });
+      touched.forEach(taskId => {
+        const t = byId('task', taskId);
+        if (t) { recalcProgress(t); stampMeta(t); }
+      });
+    }
+    if (kind === 'progressMismatch') {
+      // 复用跟"改进度自动联动状态"完全同一个函数，规则永远只有一处，不会跟界面上实时联动的行为对不上
+      r.progressMismatch.forEach(t0 => {
+        const t = byId('task', t0.id); if (!t) return;
+        const before = clone(t);
+        reconcileStatusAndProgress(t, before);
+        pushLog(t.id, diffTask(before, t, ['status', 'actual_date', 'progress']));
+        stampMeta(t);
+      });
+    }
   });
   renderPage();
   showSnack('已修复（Ctrl+Z 可撤销）');
@@ -5506,6 +6480,9 @@ function importBackup(text) {
       DB.milestones = (d.milestones || []).map(r => normalize('milestone', r));
       DB.tasks = d.tasks.map(r => normalize('task', r));
       DB.changelog = Array.isArray(d.changelog) ? d.changelog : [];
+      // 墓碑跟着备份一起还原。老备份文件没有这个字段，按空处理即可：
+      // 备份是"整体替换"，替换进来的那批记录本来就没有对应的墓碑
+      DB.purged = Array.isArray(d.purged) ? d.purged : [];
       if (d.settings) DB.settings = Object.assign(DB.settings, d.settings);
       migrateWorkIds();
       rebuildIndex();
@@ -5577,6 +6554,7 @@ function openDutyForm() {
    23. 弹窗 / 提示条
    ============================================================= */
 let modalCallback = null;
+let _modalBusy = false;   // 弹窗"确定"正在执行中——防止连点把同一个保存跑好几遍（见 ACTIONS['modal-ok']）
 function openModal(title, bodyHTML, okText, cb, danger) {
   $('#modal-title').textContent = title;
   $('#modal-body').innerHTML = bodyHTML;
@@ -5593,11 +6571,25 @@ function closeModal() {
   $('#modal-overlay').classList.remove('show');
   $('#modal-box').classList.remove('wide');
   $('#modal-body').innerHTML = '';
+  syncCatchUp();   // 弹窗开着期间被跳过的那次同步，现在补上（弹窗一开一上午的情况很常见）
 }
 $('#modal-overlay').addEventListener('click', function (e) { if (e.target === this) closeModal(); });
 
 let snackTimer = null;
-function showSnack(msg) {
+/* ★ 优先提示不能被"已保存"这类顺口的成功提示悄悄盖掉 ★
+   起因：任务详情/里程碑保存这些地方，都是"先 await Repo.persist(...)，再 showSnack('已保存')"这个套路。
+   而 Repo.persist 内部如果发现这次其实没有真正同步出去（共享文件失败、或者干脆没连上），
+   会自己先 showSnack 一句警告——但函数一返回，外层紧接着的那句 showSnack('已保存') 立刻把它冲掉，
+   用户实际看到的永远是"已保存"三个字，压根不知道数据根本没推出去。这正是"同事说已保存、
+   我这边却看不到"的真实原因：不是没检测到，是检测到了但提示被自己人盖住了。
+   修法：给 Repo.persist 那几句警告标记 priority，priority 消息独占一段"不许被顶掉"的窗口，
+   窗口内任何普通 showSnack 调用直接放弃——不需要去改遍布全文件的几十处"已保存"调用点，
+   这一处改完，所有调用点自动都对。 */
+let _snackPriorityUntil = 0;
+function showSnack(msg, opts) {
+  const now = Date.now();
+  if (!(opts && opts.priority) && now < _snackPriorityUntil) return;
+  if (opts && opts.priority) _snackPriorityUntil = now + 1500;
   $('#snack-msg').textContent = msg;
   // "撤销"按钮只在撤销栈里真的有东西时才露出来——不然点了会显示"没有可撤销的操作了"，等于白给个假按钮
   $('#undo-btn').classList.toggle('hidden', undoStack.length === 0);
@@ -5696,62 +6688,173 @@ const RELOAD_INTERVAL_MS = 5 * 60 * 1000;   // 没有推送机制，只能定时
 // 之前用 location.reload() 整页刷新，副作用是浏览器缩放会被重置回 100%——
 // 改成"软同步"：不真的导航，只是重新走一遍 Repo.persist 的合并逻辑再重绘当前页，
 // 浏览器标签页本身没有被刷新，缩放、滚动位置这些浏览器级状态自然不会被打扰
+function stopAutoReload() {
+  if (_reloadTimer) { clearInterval(_reloadTimer); _reloadTimer = null; }
+}
+/* 同步现在被这几种情况挡住：弹窗开着、门禁开着、单元格正在编辑。
+   挡是对的（不能把人家手上的操作打断），但原来挡完就算了——
+   任务详情弹窗开着放一上午，这一上午就一次都没同步过，而且界面上完全看不出来。
+   所以挡下来的那次要记账，等挡的原因消失了立刻补上（见 syncCatchUp）。 */
+let _syncBlockedPending = false;
+function syncBlocked() {
+  return $('#modal-overlay').classList.contains('show')
+    || $('#login-gate').classList.contains('show')
+    || !!_activeEdit;
+}
+/* ★ 三条会去碰共享文件的路径——5 分钟定时器、标签页重新可见/拿到焦点、手动点"立即同步"按钮——
+   共用同一把闸，同一时刻只准一条在跑 ★
+   网络盘上对同一个文件句柄几乎同时发起两次读写，行为没有保证：可能一个写覆盖另一个正读到一半的内容，
+   也可能其中一次直接报错。与其让这种并发悄悄发生、只在极偶然的时机才暴露出问题，
+   不如干脆规定错过就错过——下一轮定时器 / 下一次切回标签页 / 用户自己再点一下按钮，自然会补上。 */
+let _syncBusy = false;
+async function withSyncGate(fn) {
+  if (_syncBusy) return false;
+  _syncBusy = true;
+  try { return await fn(); } finally { _syncBusy = false; }
+}
+/* ★ "同步一次"只有这一份实现，谁触发的都调它 ★
+   这就是"立即同步"按钮点下去发生的全部事情：读—合并—写，然后立刻把当前页面重绘一遍。
+   定时器、pullOnWake、手动按钮三条路径，区别只在"什么时候调用它"，调用之后发生的事必须
+   一模一样——之前定时器是自己另抄一遍"Repo.persist(DB); renderShell(); renderPage();"，
+   两处代码看着一样，但两份终究是两份，以后改一处很容易忘了改另一处，
+   届时又会变成"自动同步了、页面却没跟着刷新"这种让人摸不着头脑的不一致。 */
+async function syncNowAndRender() {
+  await Repo.persist(DB);   // 内部会读共享文件当前内容、跟本地合并、写回去
+  renderShell(); renderPage();
+}
 function startAutoReload() {
   if (_reloadTimer) return;
   _reloadTimer = setInterval(async () => {
     if (!_fileHandle) return;
-    if ($('#modal-overlay').classList.contains('show')) return;   // 弹窗开着先不同步，免得手上的操作被打断
-    if ($('#login-gate').classList.contains('show')) return;
-    if (_activeEdit) return;                                       // 单元格正编辑中也先不同步
-    await Repo.persist(DB);   // 内部会读共享文件当前内容、跟本地合并、写回去
-    renderShell(); renderPage();
+    if (syncBlocked()) { _syncBlockedPending = true; return; }
+    await withSyncGate(syncNowAndRender);
+    await maybeAutoBackup();  // 顺带看一眼定期备份到点没有（只有管理员、且配置开着才会真写）
   }, RELOAD_INTERVAL_MS);
 }
-// 共享文件夹不再让每个人自己随便选文件——管理员在数据页配一份"路径模板"（含 {工号} 占位符，
-// 每个账号的 8 位工号在权限页建号时录入），文件夹里的文件名也是固定的，员工只需要照着提示去点那一个文件夹，
-// 挑不出别的文件。这道门槛主要靠 system_admin 权限把关（见 ACTIONS['connect-shared']），这里只管路径怎么算。
-const DEFAULT_SHARE_FILE_NAME = 'todo_sync_data.json';
-const SHARE_PLACEHOLDER = '{工号}';
-function computeSharePath(cfg, jobNo) {
-  if (!cfg || !cfg.pathTemplate) return '';
-  return cfg.pathTemplate.split(SHARE_PLACEHOLDER).join(jobNo || '________');
+/* 定时器被挡掉过就补一次。关弹窗、退出单元格编辑之后调用，代价很小（只读一次文件）。 */
+async function syncCatchUp() {
+  if (!_syncBlockedPending || !_fileHandle || syncBlocked()) return;
+  _syncBlockedPending = false;
+  await pullOnWake(true);
 }
-// 当前登录者自己该连去哪个文件夹——用来在弹出系统选择框之前把这句话说清楚。
-// 工号没填或者管理员还没配置模板时返回空字符串，不强行显示一句带下划线占位符的假路径
-function sharePathHintText() {
-  const cfg = DB.shareConfig;
-  if (!cfg || !cfg.pathTemplate) return '';
-  const me = myUser();
-  if (!me || !me.jobNo) return '';
-  return computeSharePath(cfg, me.jobNo);
+
+/* ★ 「同事改了我这边看不到」最要命的一环就在这里 ★
+   在这之前，把共享文件里的新内容读进来只有两个触发点：我自己动手改了点什么，或者 5 分钟一轮的定时器。
+   于是有两个很常见、但界面上完全看不出来的场景，会让人对着一屏旧数据看很久：
+   1) 刚刷新完页面：浏览器的读写授权不跨刷新存活，_fileHandle 是 null，定时器等于没有，
+      页面渲染的是 localStorage 里那份可能已经放了很久的旧数据。如果这时候只是看看工作台、
+      不点任何东西，那个"点击恢复共享连接"就一直没人点，数据也就一直不更新；
+   2) 标签页切到后台：浏览器会把后台标签的 setInterval 狠狠节流（常见是降到一分钟一次甚至更少），
+      笔记本合盖休眠期间干脆一次都不跑。等你切回来，屏幕上是十几分钟甚至更早以前的数据。
+   两种情况下界面都若无其事，看不出"你看到的不是最新的"——这正是"同事的改动没反映出来"的由来。
+   修法：只要这个标签页重新变可见 / 窗口重新拿到焦点，就立刻拉一次（只读，很便宜）。 */
+const PULL_MIN_GAP_MS = 15 * 1000;   // 防抖：切来切去时别把文件读爆
+let _lastPullAt = 0;
+async function pullOnWake(force) {
+  if (!_fileHandle) return false;
+  if (syncBlocked()) { _syncBlockedPending = true; return false; }
+  const now = Date.now();
+  if (!force && now - _lastPullAt < PULL_MIN_GAP_MS) return false;
+  _lastPullAt = now;
+  return await withSyncGate(async () => {
+    try {
+      if (await pullFromFile()) { renderShell(); renderPage(); return true; }
+    } catch (e) {
+      // 拉取失败不打扰用户：本机数据一条没少，下一次触发（切回标签页/定时器）自然会再试
+    }
+    return false;
+  });
+}
+document.addEventListener('visibilitychange', () => { if (!document.hidden) pullOnWake(); });
+window.addEventListener('focus', () => { pullOnWake(); });
+// 共享文件夹现在没有"路径模板/工号"这些讲究了——谁都可以选，只要选中处里共享的那个文件夹，
+// 里面固定文件名的那个 json 就是大家共用的数据。身份认证靠姓名 + PIN，跟连的是哪个文件夹无关。
+// ★ 分发前请按需修改这一行 ★
+// BOOTSTRAP_ADMINS：系统里一个账号都没有时（真·bootstrap）第一次创建管理员账号，姓名必须在这个名单里才允许创建，
+// 防止任何人在还没联系上真正的管理员之前，随手把自己设成管理员。名单外的人到了这一步只会看到"请联系管理员"。
+const BOOTSTRAP_ADMINS = ['徐捷'];
+// ★ 分发前按处里实际情况核对 ★ 管理员仍可在数据页覆盖，但不配置也能直接用
+const DEFAULT_SHARE_FILE_NAME = '科技规划处工作管理.json';
+function effectiveShareCfg() {
+  const c = DB.shareConfig || {};
+  return {
+    fileName: c.fileName || DEFAULT_SHARE_FILE_NAME,
+    // 开关和间隔以前存在 DB.settings 里，只留在这台电脑上——这本身没错，真正的坑是
+    // 那两个输入框的 change 事件根本没接上 ACTIONS（见 CHANGE_ONLY_ACTS 那段注释），
+    // 改了跟没改一样，隔一阵重渲染就打回原样，像是"自己变回去了"。事件接上之后本机已经不会再丢，
+    // 这里顺手把它们挪进 shareConfig 一起同步：换台电脑、或者别的管理员来看，看到的是同一个开关状态，
+    // 不用每台设备各自设一遍。备份目标文件夹的句柄没法跨设备用，那个仍然留在本机 settings 里。
+    autoBackupEnabled: !!c.autoBackupEnabled,
+    autoBackupHours: Math.max(BACKUP_MIN_HOURS, Number(c.autoBackupHours) || 24),
+  };
+}
+// 改共享文件夹设置的这几个动作（备份开关/间隔/文件名）共用同一条更新路径：
+// 在现有配置基础上打补丁，而不是各自重新拼一个新对象——否则先改了备份间隔，
+// 再去存文件名的那个动作会把间隔这种"当时没提到"的字段悄悄冲掉
+function updateShareConfig(patch) {
+  const cfg = Object.assign(effectiveShareCfg(), patch);
+  stampMeta(cfg);
+  DB.shareConfig = cfg;
+}
+// 判断从共享文件里读到的内容像不像本应用自己的数据格式——跟 importBackup() 校验备份文件用同一个最低标准。
+// 选错文件夹时，那个文件夹里的同名文件很可能是别的用途的 json，内容对不上，这时候不能当成"连接成功"，
+// 否则要么把无关数据当空文件覆盖掉，要么把无关数据的字段硬凑进 DB 里
+function isValidShareData(obj) {
+  return !!obj && Array.isArray(obj.duties) && Array.isArray(obj.tasks);
 }
 async function connectSharedFile() {
   if (!('showDirectoryPicker' in window)) { showSnack('这个浏览器不支持文件系统访问，换 Chrome / 360 等 Chromium 内核浏览器再试'); return; }
   try {
-    // 选文件夹而不是选文件：文件夹里放哪个文件由 shareConfig.fileName 固定死，不会挑错文件。
-    // 浏览器不允许代码直接把选择框定位到任意路径（这是平台级的安全限制，没有绕过的办法），
-    // 只能传一个"上次连过的文件夹句柄"当起点提示——如果这台设备之前连过（哪怕现在权限已经失效），
-    // 至少能让选择框停在差不多的位置，省得从头翻文件夹树；真正全新的设备第一次连，这里帮不上忙，
-    // 只能靠调用方（见 confirmConnectWithHint）先把完整路径文字讲清楚
+    // 浏览器不允许代码直接把选择框定位到任意路径（平台级安全限制），
+    // 只能传一个"上次连过的文件夹句柄"当起点提示，省得每次都从头翻文件夹树
     const opts = {};
     try { const prevHandle = await idbGetHandle(); if (prevHandle && prevHandle.kind === 'directory') opts.startIn = prevHandle; } catch (e) {}
     const dirHandle = await window.showDirectoryPicker(opts);
     const perm = await dirHandle.requestPermission({ mode: 'readwrite' });
     if (perm !== 'granted') { showSnack('没有拿到读写权限，连接取消'); return; }
-    const fileName = (DB.shareConfig && DB.shareConfig.fileName) || DEFAULT_SHARE_FILE_NAME;
+    const fileName = effectiveShareCfg().fileName;
     const handle = await dirHandle.getFileHandle(fileName, { create: true });
-    let remote = { duties: [], works: [], milestones: [], tasks: [], changelog: [], users: [], permissionMatrix: null, shareConfig: null };
     const text = await (await handle.getFile()).text();
+    let remote = { duties: [], works: [], milestones: [], tasks: [], changelog: [], users: [], permissionMatrix: null, shareConfig: null };
     if (text.trim()) {
-      try { remote = JSON.parse(text); }
-      catch (e) { showSnack('这个文件内容不是合法 JSON，按空数据处理，请确认选对了文件夹'); }
+      let parsed;
+      try { parsed = JSON.parse(text); } catch (e) { parsed = null; }
+      if (!isValidShareData(parsed)) {
+        showSnack('这个文件夹里的文件不是本应用的数据格式，连接失败，请确认选对了共享文件夹');
+        return;   // 不算连接成功：不设置 _fileHandle，也不记这台设备"连过"
+      }
+      remote = parsed;
     }
-    const merged = mergeSyncPayload(syncPayload(DB), remote);
-    Object.assign(DB, merged);
+    // 文件是更新版本的 html 写的：不连了，直接挡住要求先换新版；否则一编辑就会把新版本的字段抹掉
+    if (!checkDataVersion(remote)) return;
+    if (!checkAppVersion(remote)) return;   // 同理：本机这份 html 落后于共享文件里见过的版本，先别连
+    // 这台设备第一次真正连上共享文件夹：本机之前可能一直在用演示数据，也可能有人趁着还没连上时
+    // 自己建过账号——这些都不能拿去跟共享文件"合并"，直接以共享文件为准，避免测试数据/自建账号
+    // 污染大家的真实数据。shareConfig/permissionMatrix 是管理员在本机配置、可能还没来得及连接就
+    // 已经存在的设置，继续用原来"谁的版本更新听谁的"规则，不能被一个全新空文件的 null 值冲掉
+    const firstEverConnect = !(await hasEverConnectedShare());
+    if (firstEverConnect) {
+      DB.duties = remote.duties || [];
+      DB.works = remote.works || [];
+      DB.milestones = remote.milestones || [];
+      DB.tasks = remote.tasks || [];
+      DB.changelog = remote.changelog || [];
+      DB.users = remote.users || [];
+      DB.purged = remote.purged || [];   // 墓碑也整体听共享文件的，本机那些只针对演示数据的墓碑没有意义
+      DB.permissionMatrix = mergePermissionMatrix(DB.permissionMatrix, remote.permissionMatrix);
+      DB.shareConfig = mergePermissionMatrix(DB.shareConfig, remote.shareConfig);
+      if (!DB.users.some(u => u.name === DB.settings.me && !u.deleted_at)) DB.settings.me = '';
+    } else {
+      const merged = mergeSyncPayload(syncPayload(DB), remote);
+      Object.assign(DB, merged);
+    }
     rebuildIndex();
     await idbSetHandle(dirHandle);
     _dirHandle = dirHandle;
     _fileHandle = handle;
+    _everConnected = true;   // 以后这台设备再没连上就得报警了（见 Repo.persist）
+    _offlineMode = false;   // 手动连上了，离线警告可以撤掉了
+    _needPermissionRestore = false;
     _lastSyncedMtime = 0;   // 强制下一次保存重新核对文件是否被动过，而不是直接覆盖
     DB.settings.sharedFileName = fileName;
     DB.settings.sharedFolderName = dirHandle.name;
@@ -5759,41 +6862,175 @@ async function connectSharedFile() {
     renderShell(); renderPage();
     showSnack('已连接共享文件夹：' + dirHandle.name);
     startAutoReload();
+    // 首次真连接会清掉本机身份（本机自建的身份不算数）——这时候没法自动认出是谁，
+    // 只能重新弹一次门禁，让这台设备的使用者从共享文件里的真实账号名单里选自己、走一遍姓名+PIN
+    if (!DB.settings.me) await ensureIdentity();
   } catch (e) {
     if (e && e.name === 'AbortError') return;   // 用户自己关掉了选择框，不算错误
     showSnack('连接失败：' + (e && e.message ? e.message : e));
   }
 }
-// 手动点"连接共享文件夹"（顶栏提示/数据页按钮）：先把这个人自己该选哪个文件夹说清楚，
-// 点"继续连接"之后才真的弹系统选择框——这一步不是权限门槛，只是把路径讲明白，
-// 免得用户对着系统选择框不知道该翻到哪
+// 手动点"连接共享文件夹"（顶栏提示/数据页按钮）：先提醒一句要选哪个文件夹，
+// 点"继续连接"之后才真的弹系统选择框——这一步不是权限门槛，只是把话说清楚
 function confirmConnectWithHint(afterConfirm) {
-  const hint = sharePathHintText();
-  if (!hint) { afterConfirm(); return; }
+  const fileName = effectiveShareCfg().fileName;
   openModal('连接共享文件夹', `
-    <p>接下来会弹出系统自带的文件夹选择框，请在里面找到并选中这一个文件夹：</p>
-    <p style="margin:8px 0;padding:8px;background:var(--bg);border-radius:4px;word-break:break-all"><code>${esc(hint)}</code></p>`,
+    <p>接下来会弹出系统自带的文件夹选择框，请选中处里共享的那个数据文件夹
+      （里面应该有一个叫 <code>${esc(fileName)}</code> 的文件，没有的话程序会自动新建一个空的）。</p>`,
     '继续连接', async () => { closeModal(); await afterConfirm(); });
 }
 // 登录/建号成功后调用：这时候是真的用户点击（"确认"/"创建"按钮）触发的，浏览器允许在这个手势范围内弹文件夹选择框；
-// 只有"这台设备还没连、且管理员已经配好了模板"才会弹，不会每次登录都莫名其妙弹一个选择框。
-// 这里不再额外弹一次"确认连接"的对话框（之前改过一次专门去掉这一步），只用一条不挡路的提示条把路径带一句，
-// 紧接着直接弹系统选择框
+// 只有"这台设备还没连"才会弹，不会每次登录都莫名其妙弹一个选择框。
 async function maybeAutoConnectSharedFolder() {
   if (_fileHandle) return;
-  if (!DB.shareConfig || !DB.shareConfig.pathTemplate) return;
   if (!('showDirectoryPicker' in window)) return;
-  const hint = sharePathHintText();
-  if (hint) showSnack('即将弹出系统的文件夹选择框，请选中：' + hint);
+  showSnack('即将弹出系统的文件夹选择框，请选中处里共享的那个数据文件夹');
   await connectSharedFile();
+}
+/* ---- 管理员定期自动备份 ----
+   共享文件夹里那一个 json 是全处唯一的一份数据，被误删/被写坏就全没了。所以让管理员挂一个定期快照：
+   每隔 N 小时把当前完整数据另存一份到他自己指定的文件夹里，文件名带时间戳，只增不覆盖。
+
+   为什么这些设置只存在管理员本机（DB.settings 不进共享文件）：备份是"这台电脑往这个文件夹存"，
+   换台电脑、换个人，目标文件夹根本不存在；而且文件夹句柄本身也没法同步给别人。 */
+const BACKUP_MIN_HOURS = 1;
+function backupCfg() {
+  const s = DB.settings || {};
+  // 开关/间隔现在存在 DB.shareConfig 里、随共享文件同步；备份目标文件夹的句柄没法跨设备用，
+  // 那两项（dirName/lastAt）继续留在本机 settings
+  const cfg = effectiveShareCfg();
+  return {
+    enabled: cfg.autoBackupEnabled,
+    hours: cfg.autoBackupHours,
+    dirName: s.autoBackupDirName || '',
+    lastAt: s.autoBackupAt || '',
+  };
+}
+// 距离上次备份是否已经够久了。从没备份过就算"该备份"
+function backupDue() {
+  const c = backupCfg();
+  if (!c.enabled) return false;
+  if (!c.lastAt) return true;
+  const last = Date.parse(c.lastAt);
+  if (isNaN(last)) return true;
+  return (Date.now() - last) >= c.hours * 3600 * 1000;
+}
+/* 真正写一份备份出去。manual=true 是管理员点"立即备份一次"，这时候有用户手势，
+   授权失效可以当场要回来；自动触发时没有手势，只能悄悄跳过，等下次手动或下次点击。
+   返回是否真的写成功了。 */
+async function runBackup(manual) {
+  if (!roleAtLeast('admin')) { if (manual) showSnack('只有管理员能做这个备份'); return false; }
+  let dir = null;
+  try { dir = await idbGetBackupDir(); } catch (e) {}
+  if (!dir) { if (manual) showSnack('还没有指定备份文件夹，请先点"选择备份文件夹"'); return false; }
+  let perm = 'denied';
+  try { perm = await dir.queryPermission({ mode: 'readwrite' }); } catch (e) {}
+  if (perm !== 'granted') {
+    if (!manual) return false;   // 没有用户手势，requestPermission 调不了，等管理员自己点一次
+    try { perm = await dir.requestPermission({ mode: 'readwrite' }); } catch (e) {}
+    if (perm !== 'granted') { showSnack('没有拿到备份文件夹的写入授权'); return false; }
+  }
+  try {
+    const name = `工作管理备份_${stamp()}.json`;
+    const fh = await dir.getFileHandle(name, { create: true });
+    const w = await fh.createWritable();
+    await w.write(JSON.stringify(DB, null, 1));
+    await w.close();
+    DB.settings.autoBackupAt = new Date().toISOString();
+    DB.settings.lastBackupAt = DB.settings.autoBackupAt;   // 顺便消掉"很久没备份了"的提醒
+    await Repo.persist(DB);
+    if (manual) { renderPage(); showSnack('已备份：' + name); }
+    return true;
+  } catch (e) {
+    if (manual) showSnack('备份失败：' + (e && e.message ? e.message : e));
+    return false;
+  }
+}
+// 开机和每轮定时同步时都问一句：到点了就顺手备份一次
+async function maybeAutoBackup() {
+  if (!backupDue()) return;
+  await runBackup(false);
+}
+
+/* ---- 刷新页面后把读写授权要回来 ----
+   浏览器的文件系统访问授权默认不跨页面存活：重新打开页面时 queryPermission 一般返回 'prompt'。
+   这不是"连不上"，但 requestPermission 必须在用户手势里调用，代码没法自己偷偷恢复——这是平台规则。
+   所以做两手：顶栏给一个明确的按钮；同时挂一个一次性监听，用户在页面上第一次点任何地方就顺势把授权要回来，
+   多数情况下用户根本不用去找那个按钮，点一下"允许"就继续用了。 */
+let _restoringPermission = false;
+/* ★ "任何正式保存都要真正触发一次同步尝试"就是靠这个函数兑现的 ★
+   刷新页面后授权失效是"看着保存成功、其实没同步出去"最常见的原因：_fileHandle 是 null，
+   Repo.persist 只能把这次改动记成"待同步"，指望用户自己另外去点一下顶栏那个红色按钮，
+   或者随便点一下页面（armPermissionAutoRestore 的一次性监听）。问题是，如果同事刷新页面之后
+   第一个动作就是打开任务详情改点东西、然后点保存——在这之前他完全没有"随便点别处"的机会，
+   授权自然一直没恢复，这次保存也就注定进"待同步"，而不是真的推给大家。
+   但"点保存"这个动作本身，跟"点页面任意位置"一样，都是一次真实的用户手势——
+   请求文件读写授权必须发生在用户手势里，这两者是等价的。与其干等用户之后去点别的地方，
+   不如就地把这次点击的手势用掉，在真正开始保存之前，先试着把授权要回来：
+   成功了这次保存就能如实同步出去，失败了也没有任何损失，照常按原来的"待同步"逻辑处理。
+   跟 armPermissionAutoRestore 共用 _restoringPermission 这把锁，避免两边同时各发一次
+   requestPermission 请求。 */
+async function ensureFileHandleFresh() {
+  if (_fileHandle || !_needPermissionRestore || _versionBlocked || _staleAppBlocked || _restoringPermission) return;
+  _restoringPermission = true;
+  try {
+    let handle = null;
+    try { handle = await idbGetHandle(); } catch (e) { return; }
+    if (!handle) return;
+    let perm = 'denied';
+    try { perm = await handle.requestPermission({ mode: 'readwrite' }); } catch (e) { return; }
+    if (perm !== 'granted') return;
+    await tryReconnectSharedFile();
+  } finally { _restoringPermission = false; }
+}
+async function doRestoreSharePermission() {
+  let handle = null;
+  try { handle = await idbGetHandle(); } catch (e) {}
+  if (!handle) { showSnack('本机没有存过共享文件夹，请重新连接一次'); await confirmConnectWithHint(connectSharedFile); return; }
+  let perm = 'denied';
+  try { perm = await handle.requestPermission({ mode: 'readwrite' }); } catch (e) {}
+  if (perm !== 'granted') { showSnack('没有拿到读写授权，暂时按离线用；点顶栏那个按钮可以再试一次'); return; }
+  if (await tryReconnectSharedFile()) {
+    _offlineMode = false;
+    _needPermissionRestore = false;
+    const hadPending = !!DB.settings.pendingSync;
+    await Repo.persist(DB);          // 跟共享文件合并一次；积压在本机的改动也在这一步整批推上去
+    // ★ 门禁开着的时候绝对不能重画它 ★
+    // 这个函数多半是被"用户第一次点页面"那个一次性监听触发的，而用户第一次点页面
+    // 往往正是在登录门禁里（点输入框、点"下一步"）。以前这里无条件调 ensureIdentity() + renderPage()，
+    // 会把人家刚输了一半的姓名/PIN 整个清掉、退回第一步——同事因此反复被打断，
+    // 很可能干脆把浏览器的授权框点掉了，于是整个会话都是断开的，改什么都同步不出去
+    if (!_loginResolve) {
+      if (!DB.settings.me) await ensureIdentity();
+      renderShell(); renderPage();
+    }
+    showSnack(hadPending ? '已恢复共享连接，本机积压的改动已经同步给大家了' : '已恢复共享文件夹连接');
+  } else {
+    showSnack('恢复失败，请点「连接共享文件夹」重新选一次');
+  }
+}
+// 用户在页面上第一次点击时顺势恢复授权（一次性，成功与否都不再重复挂）。
+// 用捕获阶段是为了抢在正常的点击处理之前拿到这次用户手势，但不阻断它——原来的点击照常生效
+function armPermissionAutoRestore() {
+  if (!_needPermissionRestore) return;
+  const once = async () => {
+    document.removeEventListener('click', once, true);
+    if (!_needPermissionRestore || _restoringPermission) return;
+    _restoringPermission = true;
+    try { await doRestoreSharePermission(); } finally { _restoringPermission = false; }
+  };
+  document.addEventListener('click', once, true);
 }
 async function disconnectSharedFile() {
   _fileHandle = null;
   _dirHandle = null;
-  if (_reloadTimer) { clearInterval(_reloadTimer); _reloadTimer = null; }
+  stopAutoReload();
   try { await idbClearHandle(); } catch (e) {}
   DB.settings.sharedFileName = '';
   DB.settings.sharedFolderName = '';
+  // 主动断开是用户自己的决定，不算"该同步却没同步"，别再红着提示了
+  _everConnected = false;
+  DB.settings.pendingSync = false;
   await Repo.persist(DB);
   renderShell(); renderPage();
   showSnack('已断开，改回本机存储');
@@ -5802,16 +7039,33 @@ async function disconnectSharedFile() {
 async function tryReconnectSharedFile() {
   try {
     const handle = await idbGetHandle();
-    if (!handle) return false;
+    if (!handle) return false;   // 这台设备从没连过
     const perm = await handle.queryPermission({ mode: 'readwrite' });
-    if (perm !== 'granted') return false;
+    if (perm !== 'granted') {
+      // ★ 刷新页面后最常见的就是这一条 ★
+      // 文件系统访问权限默认不跨页面存活，重新打开页面时 queryPermission 通常返回 'prompt' 而不是 'granted'。
+      // 这不是"连不上"，只是需要用户点一下重新授权（requestPermission 必须在用户手势里调，代码没法自己偷偷调）。
+      // 所以这里跟真的离线区分开：标记成"等着授权"，顶栏给一个点一下就能恢复的按钮，
+      // 不再一律显示"离线模式"，也不用再重新走一遍选文件夹。
+      _needPermissionRestore = true;
+      return false;
+    }
+    _needPermissionRestore = false;
+    _everConnected = true;
     if (handle.kind === 'directory') {
-      const fileName = (DB.shareConfig && DB.shareConfig.fileName) || DEFAULT_SHARE_FILE_NAME;
+      const fileName = effectiveShareCfg().fileName;
       _dirHandle = handle;
       _fileHandle = await handle.getFileHandle(fileName, { create: true });
     } else {
       _fileHandle = handle;   // 兼容升级前连的是文件句柄（还没重新连接过），先照旧用，下次点"重新连接"就会升级成文件夹句柄
     }
+    // 开机接回来之后先看一眼版本：文件要是被更新版本的 html 写过，这里就直接挡住，
+    // 不能等到用户改了点东西、第一次保存时才发现——那时候界面上的编辑动作已经做完了
+    const cur = await readSharedFile();
+    if (cur) cacheRemoteWriteInfo(cur.remote);
+    if (cur && !checkDataVersion(cur.remote)) return true;
+    // 开机接回来就先查一次版本：要拦就在用户动手改东西之前拦，不能等他改了半天第一次保存才说不行
+    if (cur && !checkAppVersion(cur.remote)) return true;
     startAutoReload();
     return true;
   } catch (e) { return false; }
@@ -6043,7 +7297,11 @@ document.addEventListener('keydown', e => {
   }
   if (editing) return;
   if (e.key === '/') { const s = $('#search-input'); if (s) { e.preventDefault(); s.focus(); } }
-  if (e.key === 'n' || e.key === 'N') { const q = $('#quick-input'); if (q) { e.preventDefault(); q.focus(); } }
+  // n：在任务页/工作页快捷新建（原来是把焦点丢进速记输入框，那个输入框已经换成按钮了）
+  if (e.key === 'n' || e.key === 'N') {
+    if (currentPage === 'tasks') { e.preventDefault(); openNewTask(); }
+    else if (currentPage === 'works') { e.preventDefault(); ACTIONS['work-new'](); }
+  }
 });
 
 let _vsTick = false;
@@ -6217,6 +7475,12 @@ function seedAll() {
    27. 启动
    ============================================================= */
 async function boot() {
+  // 先问一句"这台设备连过共享文件夹没有"，再往下走。
+  // 必须放在最前面：下面的数据迁移、身份门禁都会调 Repo.persist，而 persist 要靠 _everConnected
+  // 判断"这次保存没推上共享文件到底该不该报警"。晚一步问，开机头几次保存就会漏报
+  if ('showDirectoryPicker' in window) {
+    try { _everConnected = await hasEverConnectedShare(); } catch (e) { _everConnected = false; }
+  }
   const saved = await Repo.load();
   if (saved && saved.duties) {
     DB = Object.assign(DB, saved);
@@ -6231,15 +7495,30 @@ async function boot() {
     if (migratedMs || migratedCodes || migrated || migratedPerm) await Repo.persist(DB);
     rebuildIndex();
     restoreUI();
-  } else {
-    seedAll();
-    await Repo.persist(DB);
   }
-  if (await tryReconnectSharedFile()) await Repo.persist(DB);   // 接回上次连接的共享文件，顺带合并一次
+  // 首次打开、本机没有任何存档：什么都不做，就是一份空系统。
+  // 这个 html 不自带任何演示/测试数据——它是发给全处同事的正式工具，一打开就摆一堆假任务，
+  // 既容易被当成真数据，也可能被谁一不小心同步进共享文件里。数据只有两个来源：连共享文件夹，或者管理员导入。
+  if ('showDirectoryPicker' in window) {
+    const reconnected = await tryReconnectSharedFile();
+    if (reconnected) {
+      await Repo.persist(DB);   // 接回上次连接的共享文件，顺带合并一次
+    } else if (_needPermissionRestore) {
+      // 句柄还在，只是刷新页面后读写授权失效了——这不算离线。顶栏会给一个"点击恢复共享连接"，
+      // 同时挂上"第一次点页面任何地方就自动恢复"，用户基本无感（见 armPermissionAutoRestore）
+      armPermissionAutoRestore();
+    } else if (_everConnected) {
+      _offlineMode = true;   // 连过、这次真接不回来（文件夹挪了/网盘没挂上）：先用本机缓存离线进入，不阻塞使用
+    }
+    // 从没连过：不强制阻塞，身份门禁上会带一个"连接共享文件夹"的按钮（见 renderLoginPick/renderLoginCreate）
+  }
+  if (_versionBlocked || _staleAppBlocked) return;   // 版本太旧已经被挡住了，后面的身份门禁/页面渲染都不用走了
   await ensureIdentity();   // 没有有效身份就在这里挂住，等选完/建完账号再往下走
   const p = (location.hash || '').replace(/^#\//, '');
   currentPage = PAGES.some(x => x.key === p) ? p : 'dashboard';
   goto(currentPage);
+
+  maybeAutoBackup();   // 管理员开了定期备份、且距上次够久了，开机就顺手存一份（不阻塞界面）
 
   // 备份提醒：数据只在本机浏览器，超过 7 天未备份且期间有改动就提示一次
   const bk = backupState();

@@ -25,15 +25,16 @@ async function main() {
   const groups = [...new Set(S.PERMISSIONS.map(p => p.group))];
   ok('分成 4 组：查看/操作/账号/系统', groups.sort().join(',') === ['查看', '操作', '账号', '系统'].sort().join(','), groups);
   const viewPerms = S.PERMISSIONS.filter(p => p.group === '查看').map(p => p.key).sort();
-  ok('查看组包含 7 项', viewPerms.length === 7, viewPerms);
+  // 数据页已经不在权限矩阵里了（改成跟权限页一样硬编码只有管理员能看），所以查看组是 6 项不是 7 项
+  ok('查看组包含 6 项', viewPerms.length === 6, viewPerms);
   ok('查看组具体项正确', viewPerms.join(',') ===
-     ['view_tasks', 'view_works', 'view_duties', 'view_charts', 'view_report', 'view_data', 'view_others_detail'].sort().join(','));
+     ['view_tasks', 'view_works', 'view_duties', 'view_charts', 'view_report', 'view_others_detail'].sort().join(','));
+  ok('view_data 已经从权限矩阵里彻底移除（不再是可配置项）', !S.PERMISSIONS.some(p => p.key === 'view_data'));
 
-  section('DEFAULT_PERMISSION_MATRIX：查看类默认对三个角色都开放（不因为升级突然挡住老用户）——数据页除外，那个默认只对管理员开放');
-  const viewPermsExceptData = viewPerms.filter(k => k !== 'view_data');
+  section('DEFAULT_PERMISSION_MATRIX：查看类默认对三个角色都开放（不因为升级突然挡住老用户）');
   ['staff', 'comanager', 'director'].forEach(role => {
-    ok(`${role} 默认除数据页外的查看权限都是 true`, viewPermsExceptData.every(k => S.DEFAULT_PERMISSION_MATRIX[role][k] === true), role);
-    ok(`${role} 默认 view_data 是 false（数据页默认仅管理员可见）`, S.DEFAULT_PERMISSION_MATRIX[role].view_data === false, role);
+    ok(`${role} 默认查看权限都是 true`, viewPerms.every(k => S.DEFAULT_PERMISSION_MATRIX[role][k] === true), role);
+    ok(`${role} 的矩阵里不再有 view_data 这一项`, !('view_data' in S.DEFAULT_PERMISSION_MATRIX[role]), role);
   });
 
   section('canSeePage：工作台没有查看权限门槛，永远可见');

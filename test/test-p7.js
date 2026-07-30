@@ -16,17 +16,16 @@ async function main() {
   const bakMe = S.DB.settings.me;
   const restore = () => { S.DB.users = JSON.parse(JSON.stringify(bakUsers)); S.DB.settings.me = bakMe; };
 
-  section('PIN 哈希与校验');
-  const h1 = await S.hashPin('1234');
-  ok('哈希产出 salt/hash/iterations', !!h1.salt && !!h1.hash && h1.iterations > 0);
-  const h2 = await S.hashPin('1234');
-  ok('同样的 PIN 两次哈希，salt 不同（没有偷懒复用）', h1.salt !== h2.salt);
-  const h3 = await S.hashPin('1234', h1.salt);
-  ok('同一个 salt + 同一个 PIN，哈希结果一致（可复现校验）', h3.hash === h1.hash);
-  const fakeUser = { salt: h1.salt, hash: h1.hash, iterations: h1.iterations };
-  ok('verifyPin 正确 PIN 通过', await S.verifyPin('1234', fakeUser));
-  ok('verifyPin 错误 PIN 不通过', !(await S.verifyPin('4321', fakeUser)));
-  ok('verifyPin 面对没有账号信息时不通过而不是抛异常', !(await S.verifyPin('1234', null)));
+  // 身份认证是姓名 + PIN：PBKDF2 加盐哈希，salt/hash/iterations 存在账号记录里
+  section('PIN 校验：hashPin/verifyPin');
+  ok('hashPin/verifyPin 都存在', typeof S.hashPin === 'function' && typeof S.verifyPin === 'function');
+  await (async () => {
+    const { salt, hash, iterations } = await S.hashPin('123456');
+    const user = { name: 'P7-PIN测试', role: 'staff', salt, hash, iterations };
+    ok('正确的 PIN 验证通过', await S.verifyPin('123456', user));
+    ok('错误的 PIN 验证不通过', !(await S.verifyPin('654321', user)));
+  })();
+  ok('账号没有 salt/hash 时 verifyPin 返回 false，不抛异常', !(await S.verifyPin('123456', { name: 'x', role: 'staff' })));
 
   section('角色等级判断');
   ok('ROLE_RANK 顺序：员工 < 组长 < 处室领导 < 管理员',
@@ -118,45 +117,49 @@ async function main() {
   S.DB.users = noAdminUsers;
   S.DB.settings.me = '';
   q('#login-new-name').value = '徐捷';
-  q('#login-new-pin').value = '5678';
-  q('#login-new-pin2').value = '5678';
+  q('#login-new-pin').value = '123456';
+  q('#login-new-pin2').value = '123456';
   await S.ACTIONS['login-create']();
   const xujie = S.DB.users.find(u => u.name === '徐捷');
   ok('徐捷在没有管理员时创建账号，自动成为管理员', !!xujie && xujie.role === 'admin', xujie && xujie.role);
   ok('创建后本机身份自动切到徐捷', S.DB.settings.me === '徐捷');
+  ok('PIN 一起哈希记下来了（以后就是靠它验证的）', xujie && !!xujie.hash);
 
   q('#login-new-name').value = '普通同事';
-  q('#login-new-pin').value = '1111';
-  q('#login-new-pin2').value = '1111';
+  q('#login-new-pin').value = '123456';
+  q('#login-new-pin2').value = '123456';
   await S.ACTIONS['login-create']();
   const normalUser = S.DB.users.find(u => u.name === '普通同事');
   ok('已经有管理员之后，再新建的账号默认是员工，不会跟着变管理员', !!normalUser && normalUser.role === 'staff', normalUser && normalUser.role);
 
-  section('login-create：校验逻辑（重名/PIN 太短/两次不一致）');
+  section('login-create：校验逻辑（重名/PIN 长度/两次 PIN 一致）');
   q('#login-new-name').value = '徐捷';
-  q('#login-new-pin').value = '9999';
-  q('#login-new-pin2').value = '9999';
+  q('#login-new-pin').value = '123456';
+  q('#login-new-pin2').value = '123456';
   await S.ACTIONS['login-create']();
   ok('重名会被拒绝，不会覆盖已有账号', S.DB.users.filter(u => u.name === '徐捷').length === 1);
   q('#login-new-name').value = '新人甲';
   q('#login-new-pin').value = '12';
   q('#login-new-pin2').value = '12';
   await S.ACTIONS['login-create']();
-  ok('PIN 太短会被拒绝', !S.DB.users.some(u => u.name === '新人甲'));
+  ok('PIN 不足 4 位会被拒绝', !S.DB.users.some(u => u.name === '新人甲'));
   q('#login-new-name').value = '新人乙';
-  q('#login-new-pin').value = '1234';
-  q('#login-new-pin2').value = '4321';
+  q('#login-new-pin').value = '123456';
+  q('#login-new-pin2').value = '654321';
   await S.ACTIONS['login-create']();
   ok('两次 PIN 不一致会被拒绝', !S.DB.users.some(u => u.name === '新人乙'));
 
-  section('login-verify：PIN 校验流程');
-  S.DB.settings.me = '测试管理员';   // 先切到别的身份，才能看出"验证失败=没有切换成功"
-  q('#login-pin').value = '0000';
-  await S.ACTIONS['login-verify']({ name: '普通同事' });
-  ok('PIN 错误时不会切换身份', S.DB.settings.me !== '普通同事', S.DB.settings.me);
-  q('#login-pin').value = '1111';
-  await S.ACTIONS['login-verify']({ name: '普通同事' });
-  ok('PIN 正确时成功切换身份', S.DB.settings.me === '普通同事');
+  section('身份识别：选姓名 + 验 PIN，对上了才放行');
+  S.DB.settings.me = '';
+  await S.ACTIONS['login-verify-pin']({ name: '普通同事' });   // 还没输 PIN，页面上是空的
+  ok('PIN 是空的验证不通过', !S.DB.settings.me);
+  q('#login-pin').value = '123456';
+  await S.ACTIONS['login-verify-pin']({ name: '普通同事' });
+  ok('PIN 对上了就登录成功', S.DB.settings.me === '普通同事', S.DB.settings.me);
+  S.DB.settings.me = '';
+  q('#login-pin').value = '000000';
+  await S.ACTIONS['login-verify-pin']({ name: '普通同事' });
+  ok('PIN 不对不给进（身份仍然是空的）', !S.DB.settings.me);
 
   section('users 随共享文件合并（复用通用的按 rev/updated_at 合并逻辑）');
   const localUsers = [{ name: '甲', role: 'staff', rev: 1, updated_at: '2026-01-01T00:00:00.000Z' }];

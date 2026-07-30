@@ -58,7 +58,6 @@ async function main() {
   S.DB.settings.me = '测试管理员';
   q('#adm-new-name').value = nameBefore;
   q('#adm-new-role').value = 'staff';
-  q('#adm-new-pin').value = '13571357';
   await S.ACTIONS['admin-new-user']();
   ok('新建了账号', !!S.DB.users.find(u => u.name === nameBefore));
   await S.undoLast();
@@ -70,7 +69,7 @@ async function main() {
   ok('部门领导排在处室领导之上、管理员之下', S.ROLE_RANK.director < S.ROLE_RANK.gm && S.ROLE_RANK.gm < S.ROLE_RANK.admin);
   const gmDefault = S.DEFAULT_PERMISSION_MATRIX.gm;
   ok('部门领导默认能看任务/工作/职责/图表页 + 他人任务详情', gmDefault.view_tasks && gmDefault.view_works && gmDefault.view_duties && gmDefault.view_charts && gmDefault.view_others_detail);
-  ok('部门领导默认看不了数据页', gmDefault.view_data === false);
+  ok('数据页已经不由矩阵控制了（改成硬编码仅管理员），矩阵里不该再有这一项', !('view_data' in gmDefault));
   ok('部门领导默认没有任何编辑/管理类权限', !gmDefault.edit_others_task && !gmDefault.manage_duty_work && !gmDefault.bulk_ops && !gmDefault.manage_staff_accounts && !gmDefault.manage_director_accounts && !gmDefault.system_admin);
 
   section('新增"部门领导"角色：实际生效——能看不能改，数据页/权限页都进不去');

@@ -162,7 +162,9 @@ async function main() {
   const workLabelIdx = editHtml.indexOf('>所属工作<');
   ok('所属职责排在所属工作前面（跟编号同一行）', dutyIdx > -1 && workLabelIdx > -1 && dutyIdx < workLabelIdx);
   ok('所属工作的值撑满一整行（class="full"）', /所属工作<\/label>\s*<div class="full">/.test(editHtml));
-  ok('所属职责显示的是职责编号+名称', new RegExp(`>所属职责<\\/label><div><span class="detail-ro">${dutyCode}`).test(editHtml));
+  // 所属职责现在是可选的下拉框（跟所属工作两级联动），不再是只读文本
+  ok('所属职责是个下拉框', editHtml.includes('id="td-duty"'));
+  ok('下拉框里当前职责是选中状态', new RegExp(`value="${dutyCode}" selected`).test(editHtml), dutyCode);
   ok('只读模式下所属工作也是撑满一整行（不是编辑时才这样）', /所属工作<\/label><div class="full">/.test(roHtml));
 
   section('工作台时间线 / 报告页点里程碑：现在直接打开任务详情，不再弹一个单独的里程碑管理框');
@@ -188,14 +190,14 @@ async function main() {
   S.DB.settings.me = emptyName;
   ok('没有逾期/本周到期任务时返回空字符串', S.personalReminderMsg() === '');
 
-  section('登录流程：login-verify 成功后的提示里带上了这句提醒');
-  S.DB.settings.me = '测试管理员';   // 先切走，才能看出下面 login-verify 是否真的切换成功
-  const targetUser = S.DB.users.find(u => u.name === meName);
-  const h = await S.hashPin('8642');
-  targetUser.salt = h.salt; targetUser.hash = h.hash; targetUser.iterations = h.iterations;
-  q('#login-pin').value = '8642';
-  await S.ACTIONS['login-verify']({ name: meName });
-  ok('身份确实切换成功了', S.DB.settings.me === meName);
+  // 登录是姓名+PIN，这句提醒挂在"设置 PIN/验证 PIN 成功登录"这两个动作上
+  section('登录流程：首次设置 PIN 登录成功后，提示里带上了这句提醒');
+  S.DB.settings.me = '测试管理员';   // 先切走，才能看出下面是否真的切换成功
+  q('#login-new-pin').value = '123456';
+  q('#login-new-pin2').value = '123456';
+  S.DB.settings.me = '';
+  await S.ACTIONS['login-set-pin']({ name: meName });
+  ok('身份确实切换成功了', S.DB.settings.me === meName, S.DB.settings.me);
   ok('切换提示里带上了逾期/本周到期提醒', q('#snack-msg').textContent.includes('逾期') && q('#snack-msg').textContent.includes('本周到期'), q('#snack-msg').textContent);
 
   restore();
