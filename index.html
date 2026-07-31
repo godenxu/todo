@@ -615,7 +615,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260730020732';
+const APP_VERSION = 'v20260730200450';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -1179,7 +1179,19 @@ function byId(e, id) { return id ? (IDX[e].get(id) || null) : null; }
 function newerRecord(a, b) {          // a 是否比 b「更新」：先比版本号，版本号一样再比时间
   const ra = a.rev || 0, rb = b.rev || 0;
   if (ra !== rb) return ra > rb;
-  return (a.updated_at || '') > (b.updated_at || '');
+  const ta = a.updated_at || '', tb = b.updated_at || '';
+  if (ta !== tb) return ta > tb;
+  /* ★ 版本号和修改时间完全相同、只有"删没删"不一样时，采纳已删除的那一份 ★
+     这种平局在正常情况下不该出现：任何一次编辑都会 stampMeta 把版本号顶高。
+     它只可能来自一个已经修掉的老问题——那时 softDelete 不 stampMeta，删除不改版本号，
+     于是删除永远传不到别人那里（见 softDelete 的注释）。
+     光把 softDelete 修好只能保证"以后的删除"传得出去；那些已经卡住的记录（一台删了、
+     另一台还留着，两边版本号一样）还是会一直卡着。加上这一条，它们下次同步就自动对齐了。
+     万一真的误删：到「已删除」视图点恢复即可——恢复现在会正经 stampMeta，版本号更高，
+     能干净地盖过这条平局规则，不会被它锁死。
+     权限矩阵/共享文件夹配置也走这个函数，但它们没有 deleted_at，两边都是 false，走不到这里。 */
+  if (!!a.deleted_at !== !!b.deleted_at) return !!a.deleted_at;
+  return false;
 }
 function mergeByPk(pk, localList, remoteList) {
   const map = new Map((localList || []).map(r => [r[pk], r]));
@@ -1281,6 +1293,48 @@ function mergeUserPresence(list, local, remote) {
       ? Object.assign({}, u, { lastSeenAt: t.lastSeenAt, lastAppVersion: t.lastAppVersion })
       : u;
   });
+}
+/* ★ 本机手上有没有"文件里还没有"的东西 ★
+   在此之前，只要 Repo.persist 被调用就一定会把整个文件重写一遍——包括 5 分钟一轮的定时同步。
+   也就是说，十个人开着这个页面什么都不干，共享文件也会每 5 分钟被完整重写十次。
+   在挂载盘上这是纯粹的浪费：每一次写入都要穿过网盘驱动，都会刷掉它的缓存、
+   都在跟别人的写入抢同一个文件，而这些写入里绝大多数一个字节的新内容都没有。
+
+   判断方法刻意不用"把两边序列化出来比字符串"：那样会被字段顺序、数组顺序这些跟内容无关的
+   差异干扰，动不动就误判成"有改动"，白写照旧。这里直接复用合并时那套逐条判断——
+   问的就是合并算法自己会问的问题：我这边有没有哪条记录是文件里没有的、或者比文件里那条更新的？
+   有 → 必须写；一条都没有 → 文件里已经包含了我全部的东西，这次写入没有任何意义。
+
+   changelog / purged 这两个是封顶的（超出条数会丢掉最旧的），所以要跳过"比文件里最旧那条还老"的
+   条目：那些是对方已经淘汰掉的历史，我这边碰巧还留着，不该因此判定成"我有新东西"——
+   否则会变成我推上去、对方合并时又淘汰掉、下一轮我再推，永远停不下来。 */
+function hasLocalContribution(local, remote) {
+  const anyNewer = (pk, mine, theirs) => {
+    const m = new Map((theirs || []).map(r => [r[pk], r]));
+    return (mine || []).some(r => { const o = m.get(r[pk]); return !o || newerRecord(r, o); });
+  };
+  if (anyNewer('code', local.duties, remote.duties)) return true;
+  if (anyNewer('id', local.works, remote.works)) return true;
+  if (anyNewer('id', local.milestones, remote.milestones)) return true;
+  if (anyNewer('id', local.tasks, remote.tasks)) return true;
+  if (anyNewer('name', local.users, remote.users)) return true;
+
+  const oldestOf = (list, key) => (list || []).reduce((mx, e) => {
+    const v = (e && e[key]) || '';
+    return (mx === null || v < mx) ? v : mx;
+  }, null);
+  const theirLog = new Set((remote.changelog || []).map(e => e.id));
+  const oldestLogAt = oldestOf(remote.changelog, 'at');
+  if ((local.changelog || []).some(e => !theirLog.has(e.id) && (oldestLogAt === null || (e.at || '') >= oldestLogAt))) return true;
+
+  const theirPurged = new Set((remote.purged || []).map(p => p.entity + ' ' + p.id));
+  const oldestPurgeAt = oldestOf(remote.purged, 'at');
+  if ((local.purged || []).some(p => !theirPurged.has(p.entity + ' ' + p.id) && (oldestPurgeAt === null || (p.at || '') >= oldestPurgeAt))) return true;
+
+  // 权限矩阵/共享文件夹配置是整个对象比版本，跟 mergePermissionMatrix 的规则保持一致
+  if (local.permissionMatrix && (!remote.permissionMatrix || newerRecord(local.permissionMatrix, remote.permissionMatrix))) return true;
+  if (local.shareConfig && (!remote.shareConfig || newerRecord(local.shareConfig, remote.shareConfig))) return true;
+  return false;
 }
 function mergeSyncPayload(local, remote) {
   // 先把两边的墓碑并起来，再拿并集去筛每一类记录——
@@ -1428,9 +1482,25 @@ async function syncToFile(db) {
     if (!checkDataVersion(cur.remote)) return;
     if (!checkAppVersion(cur.remote)) return;   // 刚发现自己是旧版：这次写入就地取消
     cacheRemoteWriteInfo(cur.remote);   // 记一下"我这次写之前，文件里是谁写的"，供排查同步问题用
-    const merged = mergeSyncPayload(syncPayload(db), cur.remote);
+    // 先把合并前的本机数据留一份引用，下面判断"有没有东西要推"要用它跟文件里的内容比，
+    // 不能等 Object.assign 之后再比——那时候本机数据已经包含对方的内容了，永远比得出"没差别"
+    const localPayload = syncPayload(db);
+    const merged = mergeSyncPayload(localPayload, cur.remote);
     Object.assign(db, merged);
     rebuildIndex();
+    /* ★ 本机没有任何文件里还没有的东西，就不写 ★（见 hasLocalContribution 的注释）
+       读—合并这一步已经做完了，对方的新内容已经进到本机了，该看到的都看到了；
+       缺的只是"把我的推上去"，而我根本没有要推的。这种情况下写入不但没意义，
+       还会在挂载盘上白白刷一次缓存、跟别人抢一次文件。 */
+    if (!hasLocalContribution(localPayload, cur.remote)) {
+      db.settings.lastSyncAt = new Date().toISOString();   // 确实跟文件对过账了，新鲜度要更新
+      return;
+    }
+    /* 「最近连接」心跳只在真的要写的时候搭顺风车，绝不为它单独写一次文件。
+       代价是这一列的含义变成"最近一次真正保存过改动"，而不是"最近一次打开着页面"——
+       但这恰恰是排查"同事改了东西我这边没看到"时真正想知道的那个时间点，
+       而且原来那个也从来不是实时在线心跳（没有服务器，做不到）。 */
+    if (db.settings.me) markUserSeen(db.settings.me);
     const writeId = uid('w');
     const w = await _fileHandle.createWritable();
     await w.write(JSON.stringify(filePayload(merged, db, writeId)));
@@ -1497,7 +1567,9 @@ const Repo = {
     if (!flush()) { showSnack('保存失败：本地存储可能已满，请到「数据」页导出备份', { priority: true }); return false; }
     if (_fileHandle) {
       try {
-        if (db.settings.me) markUserSeen(db.settings.me);   // 权限页"最近连接"就是靠这一下记的
+        // 心跳（markUserSeen）已经挪进 syncToFile 里、只在真的要写文件时才记——
+        // 放在这里会让每次 persist 都改到 users，于是"本机有没有新东西要推"永远判定为有，
+        // 那个"没改动就别写"的优化会被自己人废掉
         await syncToFile(db);
         if (db.settings.pendingSync) { db.settings.pendingSync = false; flush(); }   // 积压的改动这次一起推上去了
       } catch (e) {
@@ -1575,14 +1647,27 @@ function diffTask(before, after, keys) {
 }
 
 /* ★ 可迁移性设计 4：软删除保留墓碑，合并多人数据时不会"复活"已删记录 */
+/* ★ 删除/恢复必须 stampMeta，否则这次操作根本传不到别人那里 ★
+   合并是按"版本号(rev)更高的赢，版本号一样再比修改时间"来的（见 newerRecord）。
+   以前这两个函数只改 deleted_at，不动 rev / updated_at——于是对别的设备来说，
+   这条记录"看起来跟我手上那条一模一样新"，合并时就保留本地那份（没删的），删除被直接丢掉。
+
+   真实事故：同事在任务详情里删掉一条里程碑，别人工作台的「最近动态」看得到这个动作
+   （动态是按 id 取并集的新纪录，一定传得过去），但打开任务详情那条里程碑还在。
+   一个删除动作，"说明"传过去了、"事实"没传过去，非常难查。
+
+   为什么以前没暴露：单条删除（任务/工作/职责的 × 按钮）走的是 Repo.upsert，而 upsert 自己会
+   stampMeta，等于顺手补上了；只有走 Repo.bulk 的那几条路径（任务详情里删里程碑、批量删除任务、
+   宽表导入替换里程碑）没人补，才会中招。把 stampMeta 放进这两个函数本身，所有调用点就都对了——
+   已经过 upsert 的那几条会被 stamp 两次，只是 rev 多加 1，对合并没有任何影响。 */
 function softDelete(entity, id) {
   const r = byId(entity, id);
-  if (r) r.deleted_at = new Date().toISOString();
+  if (r) { r.deleted_at = new Date().toISOString(); stampMeta(r); }
   return r;
 }
 function undelete(entity, id) {
   const r = byId(entity, id);
-  if (r) delete r.deleted_at;
+  if (r) { delete r.deleted_at; stampMeta(r); }
   return r;
 }
 // 记一条"这条被彻底删了"的墓碑。没有它的话，这条记录会从任何一台还没同步的设备上原样飘回来

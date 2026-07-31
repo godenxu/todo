@@ -58,18 +58,34 @@ async function main() {
   ok('只有业务字段，没有 settings', Object.keys(payload).sort().join(',') === 'changelog,duties,milestones,permissionMatrix,purged,shareConfig,tasks,users,works');
   ok('settings（使用者/列宽等）确实被排除在外', !('settings' in payload));
 
-  section('syncToFile：文件没被别人动过 → 直接写当前状态，不做合并');
+  /* ★ 这一段的预期在 P48 变了 ★
+     以前只要调用 syncToFile 就一定重写整个文件，哪怕本机一个字节的新内容都没有。
+     在挂载盘上这是纯浪费（每 5 分钟每台设备白写一次），现在改成：
+     先读—合并（这一步照旧，对方的新内容该进来还是进来），
+     然后判断"本机有没有文件里还没有的东西"，没有就不写。详见 hasLocalContribution。 */
+  section('syncToFile：文件内容跟本机完全一致 → 只读合并，不写（新行为）');
   const untouched = makeFakeHandle(JSON.stringify(S.syncPayload(S.DB)), 5000);
   S.setFileHandle(untouched);
   S.setLastSyncedMtime(5000);
   const beforeTaskCount = S.DB.tasks.length;
   await S.syncToFile(S.DB);
-  ok('写入了一次', untouched._writes.length === 1);
-  ok('写入内容不含 settings', !JSON.parse(untouched._writes[0]).settings);
-  ok('本地任务数没有因为这次快路径同步而变化', S.DB.tasks.length === beforeTaskCount);
-  ok('_lastSyncedMtime 跟着文件新的 mtime 走', S.lastSyncedMtime === untouched._mtime());
+  ok('★本机没有要推的东西，一次都没写', untouched._writes.length === 0, untouched._writes.length);
+  ok('本地任务数没有因为这次同步而变化', S.DB.tasks.length === beforeTaskCount);
+  ok('但确实跟文件对过账了，新鲜度时间有更新', !!S.DB.settings.lastSyncAt);
 
-  section('syncToFile：文件被别人动过 → 先读出来合并，再写回，且刷新本地内存');
+  section('syncToFile：本机有新东西 → 照常写，且写入内容不含 settings');
+  const mineNewer = S.DB.tasks.find(t => !t.deleted_at);
+  const dirtyHandle = makeFakeHandle(JSON.stringify(S.syncPayload(S.DB)), 5000);
+  mineNewer.title = '本机刚改的标题';
+  mineNewer.rev = (mineNewer.rev || 1) + 3;          // 比文件里那条新
+  mineNewer.updated_at = '2099-06-01T00:00:00.000Z';
+  S.setFileHandle(dirtyHandle);
+  await S.syncToFile(S.DB);
+  ok('★本机确实有新内容，写了一次', dirtyHandle._writes.length === 1, dirtyHandle._writes.length);
+  ok('写入内容不含 settings', !JSON.parse(dirtyHandle._writes[0]).settings);
+  ok('_lastSyncedMtime 跟着文件新的 mtime 走', S.lastSyncedMtime === dirtyHandle._mtime());
+
+  section('syncToFile：文件被别人动过、本机没有新东西 → 合并进内存但不回写');
   const t0 = S.DB.tasks.find(t => !t.deleted_at);
   const remotePayload = S.syncPayload(S.DB);
   // 模拟"对方"新增了一条任务，且把 t0 的标题改了（rev 更高）
@@ -80,13 +96,32 @@ async function main() {
   remotePayload.tasks = [...remotePayload.tasks.filter(t => t.id !== t0.id), changedT0, otherNewTask];
   const changedHandle = makeFakeHandle(JSON.stringify(remotePayload), 9999);
   S.setFileHandle(changedHandle);
-  S.setLastSyncedMtime(1);   // 跟文件当前 mtime(9999) 不一致，走合并分支
+  S.setLastSyncedMtime(1);
   await S.syncToFile(S.DB);
-  ok('写入了一次', changedHandle._writes.length === 1);
   ok('对方版本号更高的记录，本地内存里也换成了对方的标题', S.byId('task', t0.id).title === '被对方改过的标题');
   ok('对方新增的记录，本地内存里也出现了', !!S.byId('task', 'other_new_task'));
-  ok('写回文件的内容里同样包含对方新增的记录', JSON.parse(changedHandle._writes[0]).tasks.some(t => t.id === 'other_new_task'));
   ok('索引已经跟着重建（byId 立刻查得到新记录）', S.byId('task', 'other_new_task').title === '对方新建的任务');
+  ok('★纯粹是对方比我新，我这边没有要推的 → 不回写', changedHandle._writes.length === 0, changedHandle._writes.length);
+
+  section('syncToFile：双方各有各的新东西 → 合并后回写，文件里两边的都有');
+  const bothPayload = S.syncPayload(S.DB);
+  const otherTask2 = { id: 'other_new_task_2', code: '', work: t0.work, title: '对方新建的任务二', owner: '', assignees: [],
+    status: 'todo', priority: '2', plan_date: '', progress: 0, actual_date: '', source: '', custom: '',
+    rev: 1, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', updated_by: '对方' };
+  bothPayload.tasks = [...bothPayload.tasks, otherTask2];
+  const bothHandle = makeFakeHandle(JSON.stringify(bothPayload), 12345);
+  // 本机也新建一条，文件里没有
+  S.DB.tasks.push({ id: 'mine_new_task', code: '', work: t0.work, title: '本机新建的任务', owner: '', assignees: [],
+    status: 'todo', priority: '2', plan_date: '', progress: 0, actual_date: '', source: '', custom: '',
+    rev: 1, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', updated_by: '我' });
+  S.rebuildIndex();
+  S.setFileHandle(bothHandle);
+  await S.syncToFile(S.DB);
+  ok('★双方都有独有内容，这次必须写', bothHandle._writes.length === 1, bothHandle._writes.length);
+  const writtenBoth = JSON.parse(bothHandle._writes[0]);
+  ok('写回文件的内容里包含对方新增的记录', writtenBoth.tasks.some(t => t.id === 'other_new_task_2'));
+  ok('写回文件的内容里也包含本机新增的记录', writtenBoth.tasks.some(t => t.id === 'mine_new_task'));
+  ok('对方新增的记录也进了本地内存', !!S.byId('task', 'other_new_task_2'));
   S.setFileHandle(null);
 
   section('Repo.persist：只有连了共享文件才会触碰它');
@@ -97,7 +132,14 @@ async function main() {
   S.setFileHandle(noopHandle);
   S.setLastSyncedMtime(noopHandle._mtime());
   await S.Repo.persist(S.DB);
-  ok('已连接时 persist 会顺带同步一次共享文件', noopHandle._writes.length === 1);
+  ok('已连接、但本机没有新东西时，persist 也不会白写一次', noopHandle._writes.length === 0, noopHandle._writes.length);
+  // 制造一条本机独有的记录，再存一次，这次必须真的写出去
+  S.DB.tasks.push({ id: 'persist_new_task', code: '', work: t0.work, title: 'persist 测试新任务', owner: '', assignees: [],
+    status: 'todo', priority: '2', plan_date: '', progress: 0, actual_date: '', source: '', custom: '',
+    rev: 1, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', updated_by: '我' });
+  S.rebuildIndex();
+  await S.Repo.persist(S.DB);
+  ok('本机有新东西时，persist 会真的同步出去', noopHandle._writes.length === 1, noopHandle._writes.length);
   S.setFileHandle(null);
 
   section('浏览器不支持文件系统访问时优雅降级');

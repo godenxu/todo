@@ -197,9 +197,15 @@ async function main() {
   ok('一切正常时不用红底闪烁（不然天天红着，真出事没人当回事）', !okHint.includes('urgent'), okHint);
 
   section('★②：sync-now 动作本身可用');
+  // P48 之后"没有要推的东西就不写"，所以这里先造一条本机独有的记录，
+  // 否则点一下只会读—合并、不写文件，写入次数不变（那也是对的，见 test-p6.js）
+  S.DB.tasks.push({ id: 'p41_sync_now_task', code: '', work: '', title: 'P41立即同步测试任务', owner: '', assignees: [],
+    status: 'todo', priority: '2', plan_date: '', progress: 0, actual_date: '', source: '', custom: '',
+    rev: 1, created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', updated_by: '我' });
+  S.rebuildIndex();
   const writes3 = store.writes;
   await S.ACTIONS['sync-now']();
-  ok('点一下确实推了一次（读—合并—写整套）', store.writes > writes3, { before: writes3, after: store.writes });
+  ok('本机有东西要推时，点一下确实推了一次（读—合并—写整套）', store.writes > writes3, { before: writes3, after: store.writes });
   ok('给了明确反馈', q('#snack-msg').textContent.includes('同步'), q('#snack-msg').textContent);
   S.setFileHandle(null);
   await S.ACTIONS['sync-now']();

@@ -109,7 +109,7 @@ const exportTail = `
   get importEntity(){return _importEntity}, get importMode(){return _importMode},
   spCommitMulti, spAddFromInput, spFlushManualInput, splitNames, matchFilters,
   facetBlock, personFacet, personFacetBlock, personUnion, renderToolbar,
-  mergeEntityList, mergeChangelog, syncPayload, mergeSyncPayload, syncToFile, mergeByPk,
+  mergeEntityList, mergeChangelog, syncPayload, mergeSyncPayload, syncToFile, mergeByPk, hasLocalContribution,
   recordPurge, mergePurged, applyPurged, PURGED_LIMIT, rebuildIndex,
   connectSharedFile, disconnectSharedFile, tryReconnectSharedFile, newerRecord, isValidShareData,
   get fileHandle(){return _fileHandle}, setFileHandle(h){ _fileHandle = h; },
