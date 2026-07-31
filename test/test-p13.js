@@ -61,7 +61,16 @@ async function main() {
   await S.ACTIONS['admin-new-user']();
   ok('新建了账号', !!S.DB.users.find(u => u.name === nameBefore));
   await S.undoLast();
-  ok('撤销后，刚创建的账号也跟着消失了（账号变更现在也在撤销范围内）', !S.DB.users.find(u => u.name === nameBefore));
+  /* P50 之后撤销的实现方式变了：不再是"把内存里的数据整个拨回旧版本"，而是落成一次新的向前编辑
+     （详见 undoRestoreList）。原因是直接塞回旧记录的话，它的版本号比共享文件里那条低，
+     一同步就被原样盖回来，撤销等于没生效。
+     对"撤销刚创建的账号"来说，表现从"这条记录从数组里消失"变成了"这条记录被软删除"——
+     效果一样（登录、账号列表都按 !deleted_at 过滤），但删除这件事现在能正确同步给别人了。 */
+  const undoneUser = S.DB.users.find(u => u.name === nameBefore);
+  ok('撤销后，刚创建的账号不再是有效账号（账号变更也在撤销范围内）',
+    !undoneUser || !!undoneUser.deleted_at, undoneUser);
+  ok('★而且是软删除而不是直接抹掉——这样这次撤销才能同步给其他人',
+    !!(undoneUser && undoneUser.deleted_at));
   restore();
 
   section('新增"部门领导"角色：定义齐全');

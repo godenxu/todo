@@ -314,6 +314,31 @@ td.cell-center { text-align: center; }
   font-family: var(--font); font-size: 12px; color: var(--text); background: #fff; outline: none; cursor: pointer; }
 .role-select:focus { border-color: var(--accent); }
 .role-select:hover { border-color: var(--accent); }
+/* ===== 日志页 ===== */
+.log-filters { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+.log-filters select { height: 26px; padding: 0 6px; border: 1px solid var(--border2); border-radius: 4px;
+  font-family: var(--font); font-size: 12px; color: var(--text); background: #fff; outline: none; cursor: pointer; }
+.log-filters select:focus, .log-filters select:hover { border-color: var(--accent); }
+/* 内容列可能很长（逐字段的"从A改成B"），这一列必须允许折行，否则整张表被撑到横向滚动 */
+.log-table td:last-child { white-space: normal; word-break: break-all; line-height: 1.5; }
+.log-table .log-time { font-size: 11.5px; color: var(--text2); }
+.log-row { cursor: pointer; }
+.log-row:hover { background: var(--bg); }
+.log-tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 10.5px; white-space: nowrap; }
+.log-tag-login { background: #e8f0fe; color: #1a56b8; }
+.log-tag-edit { background: var(--bg); color: var(--text2); border: 1px solid var(--border2); }
+.log-tag-admin { background: #fff3e0; color: #a35a00; }
+.log-tag-alert { background: #fdecea; color: #b3261e; font-weight: 700; }
+/* 安全告警条：整块用醒目的红边，跟普通面板明确区分开 */
+.sec-panel { border: 1px solid #f0b4ae; }
+.sec-panel .panel-h { background: #fdecea; color: #b3261e; font-weight: 700; }
+.sec-item { display: flex; align-items: flex-start; gap: 12px; padding: 8px 0; border-bottom: 1px dashed var(--border); }
+.sec-item:last-child { border-bottom: none; }
+.sec-txt { flex: 1; font-size: 12.5px; line-height: 1.6; }
+.nav-badge { display: inline-block; min-width: 16px; height: 16px; line-height: 16px; padding: 0 4px; margin-left: 5px;
+  border-radius: 8px; background: #b3261e; color: #fff; font-size: 10.5px; text-align: center; vertical-align: middle; }
+.log-pager { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 10px; }
+.log-pager .btn[disabled] { opacity: .45; cursor: default; }
 .perm-matrix th { text-align: center; }
 .perm-matrix td.cell-center input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent); }
 .perm-matrix td.cell-center input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .6; }
@@ -554,6 +579,7 @@ td.col-sel, th.col-sel { text-align: center; padding: 0; }
       <div class="page" id="page-charts"></div>
       <div class="page" id="page-report"></div>
       <div class="page" id="page-data"></div>
+      <div class="page" id="page-logs"></div>
       <div class="page" id="page-permissions"></div>
     </div>
     <div id="statusbar">
@@ -615,7 +641,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260730200450';
+const APP_VERSION = 'v20260731014708';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -1141,6 +1167,9 @@ const PAGES = [
   { key: 'charts',    label: '图表', viewPermission: 'view_charts' },
   { key: 'report',    label: '报告', viewPermission: 'view_report' },
   { key: 'data',      label: '数据', adminOnly: true },
+  // 日志页跟数据页/权限页归为同一类：它把"谁什么时候登录过、谁改了什么"摊开给人看，
+  // 是排查用的管理视角，同样硬编码成管理员专属，不进权限矩阵
+  { key: 'logs',      label: '日志', adminOnly: true },
   { key: 'permissions', label: '权限', adminOnly: true },
 ];
 function canSeePage(p) {
@@ -1336,25 +1365,156 @@ function hasLocalContribution(local, remote) {
   if (local.shareConfig && (!remote.shareConfig || newerRecord(local.shareConfig, remote.shareConfig))) return true;
   return false;
 }
+/* =============================================================
+   ★ 安全：越权提权检测 ★
+
+   共享的 JSON 是明文放在网盘上的，处里每个人在操作系统层面都能改它——
+   拿记事本把自己那条的 "role":"staff" 改成 "admin"，下次同步就成了管理员。
+   而且每个人手上都有一份自己的 index.html，也能随手把校验代码删掉。
+   这两件事决定了：没有服务器就不可能"阻止"篡改，这个目标本身达不到。
+
+   能达到的是另外两件事，这一节做的就是这两件：
+   1) 让篡改的结果在别人机器上不生效——本机不采纳来路不明的提权，
+      每个人的客户端各自独立地把它挡掉，篡改者只能骗到他自己那一台；
+   2) 让它藏不住——记进日志、弹告警、在导航栏亮红点。
+
+   判断依据：一次合法的角色提升，一定伴随一条由有权限的人写下的变更记录
+   （见 pushAdminLog 的几个调用点，它跟角色改动是同一批写进共享文件的）。
+   拿记事本改 role 的人不会同时伪造那条记录；就算他照葫芦画瓢补一条，
+   记录里也白纸黑字写着是谁把谁提成了什么——等于实名举报。
+
+   刻意只查"提升"不查"降级/平级"：
+   · 真实威胁就是提权，降级没人会拿来害自己；
+   · 更重要的是避免误伤——变更日志是有条数上限的（CHANGELOG_LIMIT），
+     一台离线很久的设备重新连上时，那条授权记录可能早就被挤掉了。
+     只查提升的话，这种误判最坏的后果是"某人的升职暂时没同步过来"，
+     而不是把整个角色体系判成非法。 */
+const ADMIN_LOG_KIND = 'admin';   // 账号/角色/权限矩阵的变更记录
+const ALERT_LOG_KIND = 'alert';   // 检测到的异常，同样进日志让所有人都看得见
+let _integrityAlerts = [];        // 最近一次合并里挡下来的提权，供导航栏红点和日志页告警条用
+function roleOfIn(users, name) {
+  const u = (users || []).find(x => x && x.name === name && !x.deleted_at);
+  return u ? u.role : '';
+}
+// 这次提权有没有"条子"：得有一条指名道姓的变更记录，且签这条子的人当时确实有这个身份
+function roleUpgradeAuthorized(name, toRole, changelog, users) {
+  return (changelog || []).some(e =>
+    e && e.kind === ADMIN_LOG_KIND && e.target === name && e.roleTo === toRole
+    // 自己给自己签的条子不算数——这正是要防的那个动作
+    && (e.by || '') !== name
+    // 签字人得真的是处室领导及以上。攻击者当然也可以顺手捧一个傀儡上去，
+    // 但那次"捧"本身同样是一次提权，会在这里被同一套规则挡下来
+    && (ROLE_RANK[roleOfIn(users, e.by)] ?? -1) >= ROLE_RANK.director);
+}
+function guardRoleIntegrity(localUsers, mergedUsers, mergedChangelog) {
+  const alerts = [];
+  const localMap = new Map((localUsers || []).map(u => [u.name, u]));
+  const users = (mergedUsers || []).map(m => {
+    const l = localMap.get(m.name);
+    if (!l) return m;                    // 本机第一次见到这个账号，没有基准可比，只能接受
+    if (l.role === m.role) return m;
+    if ((ROLE_RANK[m.role] ?? 0) <= (ROLE_RANK[l.role] ?? 0)) return m;   // 降级/平级不管
+    if (roleUpgradeAuthorized(m.name, m.role, mergedChangelog, mergedUsers)) return m;
+    alerts.push({ name: m.name, from: l.role, to: m.role, by: m.updated_by || '未知', at: m.updated_at || '' });
+    /* 不采纳，保留本机这份（连版本号一起保留，不顶高）。
+       故意不把"改正后的值"推回文件：一是普通同事的机器不该悄悄改写别人的账号数据；
+       二是留在文件里的那条脏数据正好是证据，等管理员来处理。
+       每台机器每次合并都会独立地再挡一次，所以在管理员处理之前，
+       篡改者在所有人眼里都还是原来的角色。 */
+    return l;
+  });
+  return { users, alerts };
+}
+
 function mergeSyncPayload(local, remote) {
   // 先把两边的墓碑并起来，再拿并集去筛每一类记录——
   // 只要有任何一台设备记得"这条被彻底删过"，它就不该在合并结果里重新出现
   const purged = mergePurged(local.purged, remote.purged);
+  const changelog = mergeChangelog(local.changelog, remote.changelog);
+  const mergedUsers = mergeUserPresence(
+    applyPurged('user', 'name', mergeByPk('name', local.users, remote.users), purged),
+    local.users, remote.users);
+  // 角色提升要过一遍授权检查（见上面那段注释）；挡下来的记在 _integrityAlerts 里等着报警
+  const guard = guardRoleIntegrity(local.users, mergedUsers, changelog);
+  _integrityAlerts = guard.alerts;
   return {
     duties: applyPurged('duty', 'code', mergeEntityList('duty', local.duties, remote.duties), purged),
     works: applyPurged('work', 'id', mergeEntityList('work', local.works, remote.works), purged),
     milestones: applyPurged('milestone', 'id', mergeEntityList('milestone', local.milestones, remote.milestones), purged),
     tasks: applyPurged('task', 'id', mergeEntityList('task', local.tasks, remote.tasks), purged),
-    changelog: mergeChangelog(local.changelog, remote.changelog),
-    users: mergeUserPresence(
-      applyPurged('user', 'name', mergeByPk('name', local.users, remote.users), purged),
-      local.users, remote.users),
+    changelog,
+    users: guard.users,
     permissionMatrix: mergePermissionMatrix(local.permissionMatrix, remote.permissionMatrix),
     shareConfig: mergePermissionMatrix(local.shareConfig, remote.shareConfig),
     purged,
   };
 }
 
+/* ★ 合并熔断：一次同步不该悄悄删掉一大片 ★
+   正常协作里没人会一次删掉十几条记录。真出现，八成是三种情况之一：
+   谁误点了批量删除 / 谁导入了一份残缺的表把数据覆盖了 / 文件在网盘上损坏了。
+   这三种都属于"发生时没人察觉，几天后才发现"的事故——而那时候本地缓存也早被覆盖了。
+   所以在应用这次合并之前，先把合并前的本机数据整份留一份，再醒目地告诉用户，
+   给一个一键回滚。不做硬阻断：网盘延迟大、离线再上线是常态，
+   动不动就卡住同步只会让人乱点，反而更危险。 */
+const MERGE_DAMAGE_LIMIT = 15;
+const MERGE_ALERT_KEY = 'todo_v4_merge_alert';
+// 合并前还活着、合并后变成已删除（或整条消失）的记录有多少条
+function mergeDamageReport(localPayload, mergedPayload) {
+  const gone = (pk, before, after) => {
+    const m = new Map((after || []).map(r => [r[pk], r]));
+    return (before || []).filter(r => !r.deleted_at)
+      .filter(r => { const o = m.get(r[pk]); return !o || !!o.deleted_at; }).length;
+  };
+  const r = {
+    tasks: gone('id', localPayload.tasks, mergedPayload.tasks),
+    milestones: gone('id', localPayload.milestones, mergedPayload.milestones),
+    works: gone('id', localPayload.works, mergedPayload.works),
+    duties: gone('code', localPayload.duties, mergedPayload.duties),
+    users: gone('name', localPayload.users, mergedPayload.users),
+  };
+  r.total = r.tasks + r.milestones + r.works + r.duties + r.users;
+  return r;
+}
+/* 合并之后集中报警。syncToFile 和 pullFromFile 两条路径都要调——
+   只挂在其中一条上的话，另一条就成了绕过检测的后门（历史上这类"只改了一半"的问题出过好几次）。
+   必须在 Object.assign(db, merged) 之前拿到 localPayload，它是"合并前"的那份基准。 */
+function noteMergeAlerts(localPayload, merged) {
+  const damage = mergeDamageReport(localPayload, merged);
+  if (damage.total > MERGE_DAMAGE_LIMIT) {
+    armMergeDamageAlert(localPayload, damage);
+    pushAlertLog(`同步进来的这批改动删除了 ${damage.total} 条记录（任务 ${damage.tasks}、里程碑 ${damage.milestones}、工作 ${damage.works}、职责 ${damage.duties}、账号 ${damage.users}），已在本机留底，可回滚`);
+    showSnack(`⚠ 这次同步删掉了 ${damage.total} 条记录，已自动留底。请到「日志」页确认，不对可以一键回滚`, { priority: true });
+  }
+  _integrityAlerts.forEach(a => {
+    // 同一起提权只记一条：不去重的话，每 5 分钟一轮同步就刷一条，正经日志会被淹掉
+    const dup = (DB.changelog || []).some(e => e && e.kind === ALERT_LOG_KIND && e.target === a.name && e.roleTo === a.to);
+    if (!dup) {
+      pushAlertLog(`检测到未经授权的角色提升：${a.name} 被改成了「${roleLabel(a.to)}」（原本是「${roleLabel(a.from)}」），`
+        + `但没有找到任何有权限的人做过这次调整的记录。本机已拒绝采纳，仍按「${roleLabel(a.from)}」对待。`,
+        { target: a.name, roleTo: a.to });
+    }
+  });
+  if (_integrityAlerts.length) {
+    showSnack(`⚠ 挡下 ${_integrityAlerts.length} 处未经授权的角色改动，详见「日志」页`, { priority: true });
+  }
+}
+function loadMergeAlert() {
+  try { const raw = localStorage.getItem(MERGE_ALERT_KEY); return raw ? JSON.parse(raw) : null; }
+  catch (e) { return null; }
+}
+function clearMergeAlert() { try { localStorage.removeItem(MERGE_ALERT_KEY); } catch (e) {} }
+// 留底必须落到 localStorage，不能只放内存：刷新一次页面就没了的"可回滚"等于没有
+function armMergeDamageAlert(localPayload, damage) {
+  try {
+    localStorage.setItem(MERGE_ALERT_KEY, JSON.stringify({
+      at: new Date().toISOString(), damage, payload: localPayload,
+    }));
+  } catch (e) { return; }   // localStorage 满了就只报警不留底，总比整个同步崩掉强
+}
+
+// 开机时读到的本机缓存是哪一版 html 写的，以及它跟当前这一版对不对得上（见 boot / Repo.persist）
+let _localCacheAppVersion = '', _localCacheStale = false;
 let _fileHandle = null, _dirHandle = null, _lastSyncedMtime = 0;
 let _offlineMode = false;   // 这台设备之前连过共享文件夹，但这次开机连不上——先用本机缓存顶着，不阻塞使用
 let _versionBlocked = false;   // 共享文件是更新版本的 html 写的，我这份太旧——只读不写，并且挡住界面要求升级
@@ -1488,6 +1648,16 @@ async function syncToFile(db) {
     const merged = mergeSyncPayload(localPayload, cur.remote);
     Object.assign(db, merged);
     rebuildIndex();
+    /* ★ 必须放在 Object.assign 之后 ★
+       这个函数会往 DB.changelog 里追加告警记录。放在 assign 之前的话，
+       紧接着的 Object.assign 会把 DB.changelog 整个换成 merged.changelog，
+       刚写进去的告警当场就没了——本机确实挡住了篡改，但日志里一个字都不留，
+       等于"挡住了却没人知道"，把这套机制最重要的一半（藏不住）废掉了。
+       放在后面还顺带解决另一件事：此时 db.changelog 和 merged.changelog 是同一个数组，
+       下面那次写入用的正是 merged，于是告警会跟着这次同步一起推给所有人。
+       localPayload 仍然是合并前那份——syncPayload 拿的是数组引用，
+       Object.assign 换掉的是 db 上的指向，不影响它。 */
+    noteMergeAlerts(localPayload, merged);
     /* ★ 本机没有任何文件里还没有的东西，就不写 ★（见 hasLocalContribution 的注释）
        读—合并这一步已经做完了，对方的新内容已经进到本机了，该看到的都看到了；
        缺的只是"把我的推上去"，而我根本没有要推的。这种情况下写入不但没意义，
@@ -1530,9 +1700,13 @@ async function pullFromFile() {
   if (!checkDataVersion(cur.remote)) return false;
   // 拉取本身是只读的，就算判定成旧版也照样把数据读进来给人看——被拦掉的只有写入
   checkAppVersion(cur.remote);
-  const merged = mergeSyncPayload(syncPayload(DB), cur.remote);
+  const localPayload = syncPayload(DB);
+  const merged = mergeSyncPayload(localPayload, cur.remote);
   Object.assign(DB, merged);
   rebuildIndex();
+  // 只读拉取同样要查：越权和误删不会因为"我这次没写"就不存在。
+  // 同样必须放在 Object.assign 之后，理由见 syncToFile 里那段注释
+  noteMergeAlerts(localPayload, merged);
   // lastSyncAt 的含义是"最后一次跟共享文件对上账的时间"，只读拉取同样对上了账，
   // 所以这里也要更新——否则顶栏那个新鲜度会一直显示成上一次写入的时间，比实际情况悲观
   DB.settings.lastPullAt = DB.settings.lastSyncAt = new Date().toISOString();
@@ -1563,6 +1737,14 @@ const Repo = {
     // ★ 保存本身就是一次真实的用户手势，顺手用它把授权要回来 ★ 见 ensureFileHandleFresh 的注释：
     // 这是"任何正式保存都要真正触发一次同步尝试"的关键一步，不能指望用户自己另外去点别的地方
     if (!_fileHandle) await ensureFileHandleFresh();
+    /* 在本机缓存上盖一个"这份缓存是哪一版 html 写的"的戳。
+       换了新版 html 之后，浏览器里那份 localStorage 还是老的（STORAGE_KEY 是固定的，
+       新旧版本读写的是同一份），开机时它会照常被读进来、再合并进共享文件。
+       多数情况下这没问题（记录 id 是稳定的，谁的版本号高谁赢），但一旦老缓存里存着
+       共享文件里已经没有的记录（别人删掉的、或者当初本机测试留下的），它们会被当成
+       "本机独有的新内容"重新推上去。有了这个戳，开机时就能发现"缓存不是这一版写的"，
+       进而在数据页给管理员一个明确的提示和"以共享文件为准"的入口。 */
+    db.settings.localAppVersion = APP_VERSION;
     const flush = () => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); return true; } catch (e) { return false; } };
     if (!flush()) { showSnack('保存失败：本地存储可能已满，请到「数据」页导出备份', { priority: true }); return false; }
     if (_fileHandle) {
@@ -1620,30 +1802,93 @@ function stampMeta(rec) {
   return rec;
 }
 
-/* 变更日志：记录"谁在什么时候把什么字段从A改成了B"，供工作台「最近动态」用。
+/* 变更日志：记录"谁在什么时候把什么字段从A改成了B"，供工作台「最近动态」和日志页用。
    只在值真的变了才记一条，数组封顶避免无限增长；这不是完整审计系统——
-   不追踪谁读过、不做冲突历史，只覆盖任务和里程碑这两类会出现在最近动态里的编辑。 */
-const CHANGELOG_LIMIT = 300;
-function pushLog(taskId, summary) {
-  if (!summary) return;
-  DB.changelog.push({ id: uid('log'), at: new Date().toISOString(), by: DB.settings.me || '未署名', taskId, summary });
+   不追踪谁读过、不做冲突历史，只覆盖任务和里程碑这两类编辑，外加登录事件。
+
+   条数上限从 300 提到 800 是为了日志页：300 条在十来个人同时用的时候撑不住几天，
+   管理员翻"上周谁改了什么"会直接翻空。每条约 150 字节，800 条也就 120KB 上下，
+   相对共享文件本身的体量可以接受。 */
+const CHANGELOG_LIMIT = 800;
+function trimChangelog() {
   if (DB.changelog.length > CHANGELOG_LIMIT) DB.changelog.splice(0, DB.changelog.length - CHANGELOG_LIMIT);
 }
-// 比较任务编辑前后的字段差异，拼成人话描述；keys 缺省时比较全部非虚拟字段
-function diffTask(before, after, keys) {
-  const ks = keys || schema('task').fields.filter(f => !f.virtual).map(f => f.key);
+// 日志条目的类型。老数据没有 kind 字段（登录记录是后加的），一律按"变更"算，不能当成未知类型丢掉
+function logKind(e) { return (e && e.kind) || 'edit'; }
+/* 任务的变更记录。taskId 这个字段名是历史遗留（一开始只有任务会被记），
+   现在工作/职责也要记了，统一走 pushChangeLog；这个函数保留下来是因为调用点很多，
+   而且工作台「最近动态」正是按 taskId 过滤的，改名反而要动一大片。 */
+function pushLog(taskId, summary) { pushChangeLog('task', taskId, summary); }
+/* 通用变更记录：任务 / 工作 / 职责都走这里。
+   entity + refId 是新加的，日志页靠它们显示"改的是哪一条"；
+   taskId 只在实体确实是任务时才填——工作台「最近动态」按 taskId 过滤，
+   如果工作/职责的记录也占着这个字段，那个面板会去 byId('task', 工作id) 查，
+   查不到就显示成"（任务已不存在）"，等于把最近动态污染成一堆无效条目。 */
+function pushChangeLog(entity, refId, summary) {
+  if (!summary) return;
+  DB.changelog.push({
+    id: uid('log'), at: new Date().toISOString(), by: DB.settings.me || '未署名',
+    kind: 'edit', entity, refId, taskId: entity === 'task' ? refId : '', summary,
+  });
+  trimChangelog();
+}
+// 老记录没有 entity 字段（那时候只记任务），一律按任务算
+function logEntity(e) { return (e && e.entity) || 'task'; }
+function logRefId(e) { return (e && (e.refId || e.taskId)) || ''; }
+/* 登录事件也塞进 changelog，而不是另开一个数组：它天然要按 id 合并、要封顶、要随共享文件同步，
+   这几件事 changelog 全都现成有了（见 mergeChangelog / hasLocalContribution），
+   另起一套就得把这些规则再抄一遍，还得记得在同步 payload、撤销快照、清空数据等七八个地方都带上它。
+   taskId 刻意留空——工作台「最近动态」是按 taskId 过滤的（见 renderDashboard），
+   登录记录因此不会混进那个面板，只在日志页出现。 */
+function pushLoginLog(name, how) {
+  DB.changelog.push({ id: uid('log'), at: new Date().toISOString(), by: name || '未署名', kind: 'login', taskId: '', summary: how || '登录' });
+  trimChangelog();
+}
+/* 账号 / 角色 / 权限矩阵的变更记录。除了给人看，它还是一份"授权凭证"：
+   合并时靠它判断一次角色提升是不是真的有人批准过（见 roleUpgradeAuthorized）。
+   所以 target / roleTo 这两个结构化字段不能省——光有给人看的 summary，程序没法校验。
+   调用点必须在 Repo.persist 之前，让记录和角色改动同批写进共享文件；
+   分两次写的话，别人可能先收到改动、后收到凭证，中间那一轮会被误判成越权。 */
+function pushAdminLog(summary, extra) {
+  if (!summary) return;
+  DB.changelog.push(Object.assign({
+    id: uid('log'), at: new Date().toISOString(), by: DB.settings.me || '未署名',
+    kind: ADMIN_LOG_KIND, taskId: '', summary,
+  }, extra || {}));
+  trimChangelog();
+}
+// 检测到的异常。同样进 changelog，于是它会随共享文件同步给所有人——想瞒也瞒不住
+function pushAlertLog(summary, extra) {
+  if (!summary) return;
+  DB.changelog.push(Object.assign({
+    id: uid('log'), at: new Date().toISOString(), by: DB.settings.me || '未署名',
+    kind: ALERT_LOG_KIND, taskId: '', summary,
+  }, extra || {}));
+  trimChangelog();
+}
+function roleLabel(v) { return (ROLES.find(r => r.v === v) || {}).label || v || '（未知角色）'; }
+/* 比较一条记录编辑前后的字段差异，拼成人话描述；keys 缺省时比较全部非虚拟字段。
+   原来这个函数写死了 'task'，所以工作页、职责页上的任何修改都不进日志——
+   管理员翻日志只看得到任务的改动，工作和职责改了什么完全没有痕迹。
+   现在按 entity 参数走，三类记录共用同一套差异描述。 */
+function diffRecord(entity, before, after, keys) {
+  const ks = keys || schema(entity).fields.filter(f => !f.virtual).map(f => f.key);
   const parts = [];
   ks.forEach(k => {
-    const f = fieldDef('task', k);
+    const f = fieldDef(entity, k);
     if (!f) return;
     const a = JSON.stringify(before[k] == null ? '' : before[k]);
     const b = JSON.stringify(after[k] == null ? '' : after[k]);
     if (a === b) return;
-    const fromTxt = displayText('task', before, f) || '空';
-    const toTxt = displayText('task', after, f) || '空';
+    const fromTxt = displayText(entity, before, f) || '空';
+    const toTxt = displayText(entity, after, f) || '空';
     parts.push(`${f.label}：${fromTxt}→${toTxt}`);
   });
   return parts.join('；');
+}
+// 老名字保留：调用点很多，而且"任务"这一类的调用读起来更直白
+function diffTask(before, after, keys) {
+  return diffRecord('task', before, after, keys);
 }
 
 /* ★ 可迁移性设计 4：软删除保留墓碑，合并多人数据时不会"复活"已删记录 */
@@ -1685,6 +1930,30 @@ function removeHard(entity, id) {
   const i = list.findIndex(r => r[pk] === id);
   if (i !== -1) list.splice(i, 1);
   recordPurge(entity, id);
+}
+
+/* ★ 删任务必须连它名下的里程碑一起删 ★
+   以前删任务只动任务本身，里程碑原封不动留着，于是产生了一批"没有任务的里程碑"：
+   数量照样算进数据页的「里程碑」统计、照样进甘特图和各种图表，但界面上再也点不到它们
+   （所属任务已经不在列表里了）。数据体检也发现不了这一类——它判断"孤儿里程碑"用的是
+   byId 查不到所属任务，而软删除的任务仍然查得到，正好从缝里漏过去。 */
+function cascadeSoftDeleteTask(id) {
+  softDelete('task', id);
+  DB.milestones.filter(m => m.task === id && !m.deleted_at).forEach(m => softDelete('milestone', m.id));
+}
+/* 恢复任务时把它名下已删除的里程碑一并恢复。
+   已知取舍：如果之前单独删过其中某几条里程碑，这次会跟着一起回来。
+   之所以还是这么做——"恢复一条任务，打开一看里程碑全空了"更让人措手不及，
+   而多回来的那几条在任务详情里再删一次就行，不会造成任何数据损失。 */
+function cascadeRestoreTask(id) {
+  const t = undelete('task', id);
+  DB.milestones.filter(m => m.task === id && m.deleted_at).forEach(m => undelete('milestone', m.id));
+  return t;
+}
+// 彻底删除同理：里程碑也要连墓碑一起彻底删掉，否则它们会永远留在库里，而且再也没有任何入口能碰到
+function cascadeRemoveHardTask(id) {
+  DB.milestones.filter(m => m.task === id).forEach(m => removeHard('milestone', m.id));
+  removeHard('task', id);
 }
 
 /* 人员池：所有 person / persons 字段的取值汇总 */
@@ -2108,31 +2377,144 @@ function sortValue(entity, rec, key) {
    7. 撤销：整库快照
    ============================================================= */
 const UNDO_LIMIT = 20;
+/* ★ 撤销快照的有效期 ★
+   撤销的实现是"把记录改回旧内容"，它没法只作用于自己那一份——数据是全处共用的一份。
+   隔的时间越久，同事在这批记录上继续往前做的工作就越多，一次 Ctrl+Z 顺手把别人的成果
+   一起抹掉的概率也越高。10 分钟足够覆盖"手抖点错了马上撤回"这个真实用途；
+   超过这个范围的回退应该是人和人商量着改，而不是由一个快捷键悄悄完成。 */
+const UNDO_MAX_AGE_MS = 10 * 60 * 1000;
 let undoStack = [];
 function snapshot() {
-  undoStack.push(JSON.stringify({
-    duties: DB.duties, works: DB.works, milestones: DB.milestones, tasks: DB.tasks, changelog: DB.changelog,
-    users: DB.users, permissionMatrix: DB.permissionMatrix,
-    // 墓碑必须一起存：撤销"彻底删除"时如果只把记录放回数组、墓碑还留着，
-    // 下一次合并会照着墓碑再把它筛掉一遍，撤销就成了假的
-    purged: DB.purged || [],
-  }));
+  undoStack.push({
+    // 快照时刻有两个用途：判有没有过期；以及判某条记录是不是"我拍完快照之后才被别人动过"
+    at: new Date().toISOString(),
+    // 取值方式必须跟 stampMeta 写进 updated_by 的那一套完全一致（含"未署名"这个兜底），
+    // 否则后面拿它跟 updated_by 比对会永远不相等，等于把每条记录都当成别人改的
+    by: DB.settings.me || '未署名',
+    data: JSON.stringify({
+      duties: DB.duties, works: DB.works, milestones: DB.milestones, tasks: DB.tasks, changelog: DB.changelog,
+      users: DB.users, permissionMatrix: DB.permissionMatrix,
+      // 墓碑必须一起存：撤销"彻底删除"时如果只把记录放回数组、墓碑还留着，
+      // 下一次合并会照着墓碑再把它筛掉一遍，撤销就成了假的
+      purged: DB.purged || [],
+    }),
+  });
   if (undoStack.length > UNDO_LIMIT) undoStack.shift();
+}
+/* 这条记录在我拍下快照之后，有没有被"别人"改过。
+   两个条件缺一不可：改动时间晚于快照时刻（说明确实发生在这段窗口里），
+   且最后修改人不是当初做这次操作的人（说明不是我自己后续又存了一次）。
+   只要成立，这条记录就整条保持现状、不参与回退——宁可少撤一点，也不能把同事的改动吞掉。 */
+function touchedByOthersSince(rec, ctx) {
+  if (!rec) return false;
+  return (rec.updated_at || '') > ctx.at && (rec.updated_by || '') !== ctx.by;
+}
+/* ★ 撤销必须表现成"一次新的修改"，不能只是把内存里的数据拨回旧版本 ★
+   合并规则是"版本号(rev)高的赢"。如果直接把快照里那份旧记录塞回 DB，它的版本号比共享文件里
+   那条低——而共享文件里那条恰恰是刚才那次操作自己推上去的——于是紧接着的 Repo.persist 一读一合并，
+   立刻又被盖回来了。也就是说撤销在同一个函数里就被自己撤销掉了，用户看到的是"Ctrl+Z 完全没反应"。
+   这不是最近才坏的：只要连着共享文件夹，撤销就一直是假的，只有单机不连的时候才真能用。
+
+   所以逐条比对快照和当前状态，把撤销落成一次正常的向前编辑：
+   · 内容真的变了的 → 用快照里的内容，但版本号取"两边较大者 +1"，这样它一定盖得过文件里那条；
+   · 没变过的 → 原样留着，不白白顶版本号（否则每次撤销都会把整个文件重写一遍）；
+   · 被撤销的那个动作新建出来的记录 → 补一条软删除（同样顶高版本号），
+     直接从数组里抠掉是没用的，它会从共享文件里原样飘回来。
+   彻底删除的撤销也能一并解决：墓碑是按"墓碑时间晚于记录最后修改时间"才生效的（见 applyPurged），
+   我们把记录的 updated_at 刷成现在，就自然盖过了那条墓碑。 */
+// pk 直接传进来，不从 schema 查：账号（users）没有对应的 schema 定义，
+// 它在合并时也是直接按 'name' 走的（见 mergeSyncPayload），这里保持一致
+function undoRestoreList(pk, snapList, curList, ctx) {
+  const now = new Date().toISOString();
+  const by = DB.settings.me || '未署名';
+  const curMap = new Map((curList || []).map(r => [r[pk], r]));
+  const skip = who => { if (ctx) ctx.skipped.push(who || '同事'); };
+  const out = (snapList || []).map(r => {
+    const cur = curMap.get(r[pk]);
+    if (!cur) return Object.assign({}, r);
+    if (JSON.stringify(r) === JSON.stringify(cur)) return cur;   // 这条压根没被那次操作动过
+    /* ★ 同事在这条记录上接着改过 → 整条保持现状，不回退 ★
+       这里的比对是整条记录级别的，没法分辨"标题是我改的、牵头人是他改的"——
+       快照里只有"我动手之前"那一份，没有"我动完手那一刻"那一份，缺了这个中间态就无从归属到字段。
+       所以取保守解：只要这条记录在窗口里被别人碰过，就整条不动。
+       代价是我自己那部分改动也撤不掉了，但反过来（把同事的改动一起抹掉、他还毫不知情）要严重得多。 */
+    if (ctx && touchedByOthersSince(cur, ctx)) { skip(cur.updated_by); return cur; }
+    return Object.assign({}, r, {
+      rev: Math.max(r.rev || 0, cur.rev || 0) + 1, updated_at: now, updated_by: by,
+    });
+  });
+  const snapIds = new Set((snapList || []).map(r => r[pk]));
+  (curList || []).forEach(cur => {
+    if (snapIds.has(cur[pk])) return;
+    if (cur.deleted_at) { out.push(cur); return; }
+    /* 快照里没有、现在有——有两种可能：被撤销的那次操作新建的，或者同事在这段时间里新建、
+       刚同步进来的。光看"快照里没有"分不出这两者，必须再看最后修改人是不是我：
+       不是我 → 那是别人的东西，跟这次撤销毫无关系，删了就是事故。 */
+    if (ctx && (cur.updated_by || '') !== ctx.by) { skip(cur.updated_by); out.push(cur); return; }
+    // 确认是被撤销的那次操作新建的 → 撤销就该把它删掉
+    out.push(Object.assign({}, cur, {
+      deleted_at: now, rev: (cur.rev || 0) + 1, updated_at: now, updated_by: by,
+    }));
+  });
+  return out;
 }
 async function undoLast() {
   const s = undoStack.pop();
   if (!s) { showSnack('没有可撤销的操作了'); return; }
-  const d = JSON.parse(s);
-  DB.duties = d.duties; DB.works = d.works; DB.milestones = d.milestones; DB.tasks = d.tasks;
-  DB.changelog = d.changelog || [];
-  DB.users = d.users || DB.users;
-  DB.permissionMatrix = d.permissionMatrix !== undefined ? d.permissionMatrix : DB.permissionMatrix;
-  DB.purged = d.purged || [];   // 连墓碑一起回退，撤销彻底删除才是真的撤销（见 snapshot）
+  /* 过期就整栈作废，不只是丢掉这一条：比它更早的快照只会更旧，留着也是等着被拒绝，
+     一次清干净还能顺手让顶栏那个"撤销"按钮收起来（showSnack 里按栈长决定显隐），
+     免得给用户一个点了必然失败的按钮 */
+  if (Date.now() - Date.parse(s.at) > UNDO_MAX_AGE_MS) {
+    undoStack.length = 0;
+    showSnack(`这次操作已经过去 ${Math.round(UNDO_MAX_AGE_MS / 60000)} 分钟以上，期间同事可能已经在这个基础上继续做了，不再提供撤销`, { priority: true });
+    return;
+  }
+  const d = JSON.parse(s.data);
+  // skipped 收集"因为别人动过而没敢回退"的那些，最后要如实告诉用户，不能默默跳过
+  const ctx = { at: s.at, by: s.by, skipped: [] };
+  DB.duties = undoRestoreList('code', d.duties, DB.duties, ctx);
+  DB.works = undoRestoreList('id', d.works, DB.works, ctx);
+  DB.milestones = undoRestoreList('id', d.milestones, DB.milestones, ctx);
+  DB.tasks = undoRestoreList('id', d.tasks, DB.tasks, ctx);
+  /* 变更日志不能整个拨回快照那一份：这段窗口里同步进来的、同事产生的动态也在里面，
+     整体覆盖等于把别人的动态记录一起抹掉（工作台"最近动态"会凭空少几条）。
+     只去掉"快照里没有、且是我自己产生"的那些——也就是被撤销的这次操作留下的痕迹。 */
+  const snapLogIds = new Set((d.changelog || []).map(e => e.id));
+  DB.changelog = (d.changelog || [])
+    .concat((DB.changelog || []).filter(e => !snapLogIds.has(e.id) && (e.by || '') !== ctx.by))
+    .sort((a, b) => (a.at || '').localeCompare(b.at || ''))
+    .slice(-CHANGELOG_LIMIT);
+  // 账号也按同一套规则回退（主键是姓名），否则"撤销删除账号"同样会被文件里那份盖回来
+  if (d.users) DB.users = undoRestoreList('name', d.users, DB.users, ctx);
+  if (d.permissionMatrix !== undefined) {
+    const cur = DB.permissionMatrix;
+    // 权限矩阵是整个对象比版本，同理要顶过文件里那一份；但同事刚改过就一律不碰
+    if (cur && touchedByOthersSince(cur, ctx)) {
+      ctx.skipped.push(cur.updated_by || '同事');
+    } else {
+      DB.permissionMatrix = (d.permissionMatrix && cur && JSON.stringify(d.permissionMatrix) !== JSON.stringify(cur))
+        ? Object.assign({}, d.permissionMatrix, {
+            rev: Math.max(d.permissionMatrix.rev || 0, cur.rev || 0) + 1,
+            updated_at: new Date().toISOString(), updated_by: DB.settings.me || '未署名',
+          })
+        : d.permissionMatrix;
+    }
+  }
+  /* 墓碑同理：快照那一份 + 这段窗口里别人新增的墓碑。整个拨回快照的话，
+     同事"彻底删除"掉的记录会在下一次合并时原样复活 */
+  const snapPurgedKeys = new Set((d.purged || []).map(p => p.entity + ' ' + p.id));
+  DB.purged = (d.purged || []).concat((DB.purged || []).filter(p =>
+    !snapPurgedKeys.has(p.entity + ' ' + p.id) && (p.by || '') !== ctx.by));
   rebuildIndex();
   await Repo.persist(DB);
-  hideSnack();
   if ($('#modal-overlay').classList.contains('show')) closeModal();
   renderShell(); renderPage();
+  if (ctx.skipped.length) {
+    const who = uniq(ctx.skipped.filter(Boolean));
+    showSnack(`已撤销；其中 ${ctx.skipped.length} 处因为 ${who.join('、')} 随后也改过，保留了他们的版本没有回退`, { priority: true });
+  } else {
+    hideSnack();
+  }
 }
 
 /* =============================================================
@@ -2234,9 +2616,15 @@ const UI = {
     expanded: new Set(),   // 树形筛选中展开的职责编号
     sel: new Set(),        // 批量操作选中的任务 id
     lastSelIdx: -1,        // Shift 范围选择的锚点
+    /* 最左边那列多选框默认不显示——平时看任务列表根本用不到，白占一列还容易误点。
+       但批量改状态/牵头人/删除这些功能只能靠勾选来指定对象，整列删掉等于把它们一起废了，
+       所以改成按需打开：工具栏那个「批量」按钮点一下才把这列亮出来，退出批量模式就收回去。 */
+    batchMode: false,
   },
   works:  { filters: {}, search: '', sortKey: 'code', sortDir: 1, widths: {}, cols: schema('work').fields.map(f => f.key) },
   duties: { filters: {}, search: '', sortKey: 'code', sortDir: 1, widths: {}, cols: schema('duty').fields.map(f => f.key) },
+  // 日志页：默认落在"今天"，翻页状态不持久化——每次进这一页都从最新看起才是常态
+  logs:   { range: 'today', kind: 'all', who: '', page: 1 },
 };
 
 /* 列显示/列宽/列顺序属于个人偏好，随 settings 一起持久化 */
@@ -2301,8 +2689,11 @@ window.addEventListener('hashchange', () => {
    10. 外壳：导航 / 侧栏 / 工具栏
    ============================================================= */
 function renderShell() {
+  // 日志页上挂个红点：安全告警不能只躺在页面里等人主动去看，得在导航栏上就能看见
+  const alertN = roleAtLeast('admin') ? securityAlertCount() : 0;
   $('#nav').innerHTML = PAGES.filter(canSeePage).map(p =>
-    `<div class="nav-item${currentPage === p.key ? ' active' : ''}" data-act="goto" data-page="${p.key}">${esc(p.label)}</div>`).join('');
+    `<div class="nav-item${currentPage === p.key ? ' active' : ''}" data-act="goto" data-page="${p.key}">${esc(p.label)}`
+    + `${p.key === 'logs' && alertN ? `<span class="nav-badge">${alertN}</span>` : ''}</div>`).join('');
 
   const years = uniq(DB.works.map(w => w.year).filter(Boolean)).sort((a, b) => b - a);
   if (DB.settings.year && !years.includes(DB.settings.year)) years.unshift(DB.settings.year);
@@ -2488,6 +2879,8 @@ function renderToolbar() {
     const searchChip = st.search ? `<span class="filter-chip" data-act="clear-search" data-page="tasks">搜索:${esc(st.search)} ×</span>` : '';
     tb.innerHTML = `<span id="view-label">${esc(TASK_VIEW_MAP[st.view].label)}</span>${chips}${searchChip}` +
       `<button class="btn primary" data-act="task-new">+ 新建任务</button>` +
+      // 多选框那一列默认收着，点这里才亮出来（见 UI.tasks.batchMode 的注释）
+      `<button class="btn${st.batchMode ? ' primary' : ''}" data-act="batch-mode-toggle" title="${st.batchMode ? '退出批量操作，收起最左边的多选框列' : '批量改状态/牵头人/删除等，需要先勾选任务'}">☑ 批量</button>` +
       `<button class="btn" data-act="col-config" title="选择显示哪些列">▦ 列</button>` +
       `<input id="search-input" type="text" placeholder="/ 搜索…" value="${esc(st.search)}">`;
   } else if (currentPage === 'works' || currentPage === 'duties') {
@@ -2535,6 +2928,7 @@ function renderPage() {
     case 'charts':    renderCharts();    break;
     case 'report':    renderReport();    break;
     case 'data':      renderData();      break;
+    case 'logs':      renderLogs();      break;
     case 'permissions': renderPermissions(); break;
   }
   renderSidebar();   // 非任务/工作/职责页会在内部自行隐藏侧栏
@@ -2588,9 +2982,12 @@ function renderCellValue(entity, rec, f, editable) {
     case 'num': {
       if (f.key === 'progress') {
         const n = Math.max(0, Math.min(100, Number(rec[f.key]) || 0));
-        // 有检查点时进度是自动算出来的，不给双击编辑
+        /* 有检查点时进度是按里程碑完成比例自动算的，直接改这个数没有意义（下次一算又被覆盖）。
+           以前的做法是干脆不给双击——但用户双击了没反应，只会以为界面卡了，也不知道该去哪儿改。
+           现在照样可以双击，只是 openEditor 会把它转到任务详情弹窗去（见那里的 progress 分支），
+           在那儿勾里程碑才是真正能改动进度的地方。没有检查点的任务保持原样，双击直接改数字。 */
         const locked = entity === 'task' && hasCheckpoints(rec);
-        const pAttr = locked ? ' title="由检查点自动计算"' : editAttr;
+        const pAttr = locked ? editAttr + ' title="进度由里程碑完成情况自动计算，双击去任务详情里勾里程碑"' : editAttr;
         // 跟工作页"任务进度"格子下面挂"逾期 N"是一个道理：这条任务下面有没有里程碑拖期了，
         // 得在进度格子里就能看出来，不用点进详情才发现
         const overdueMs = entity === 'task'
@@ -2647,7 +3044,10 @@ let _taskRows = [];
 function renderTasks() {
   const st = UI.tasks;
   renderHead('#tasks-head', 'task', st.cols, st, {
-    lead: [{ key: 'sel', label: st.sel.size && st.sel.size === _taskRows.length ? '☑' : '☐', act: 'sel-all', title: '全选 / 取消全选' }],
+    // 只有批量模式才有最左边那列多选框，平时整列都不渲染
+    lead: st.batchMode
+      ? [{ key: 'sel', label: st.sel.size && st.sel.size === _taskRows.length ? '☑' : '☐', act: 'sel-all', title: '全选 / 取消全选' }]
+      : [],
     tail: [{ key: 'action', label: '✕' }],
   });
   _taskRows = query('task', {
@@ -2691,7 +3091,7 @@ function renderBatchBar() {
 function renderTaskViewport() {
   const wrap = $('#tasks-scroll');
   const total = _taskRows.length;
-  const colCount = UI.tasks.cols.length + 2;   // 选择列 + 操作列
+  const colCount = UI.tasks.cols.length + 1 + (UI.tasks.batchMode ? 1 : 0);   // 操作列 + （批量模式下才有的）选择列
   const theadH = ($('#page-tasks thead') || {}).offsetHeight || 0;
   const top = Math.max(0, wrap.scrollTop - theadH);
   const start = Math.max(0, Math.floor(top / ROW_H) - VS_BUFFER);
@@ -2707,12 +3107,18 @@ function renderTaskRow(t) {
   const selected = UI.tasks.sel.has(t.id);
   const cls = [t.status === 'done' ? 'done-row' : '', t.status === 'hold' ? 'hold-row' : '',
                del ? 'deleted-row' : '', selected ? 'sel-row' : ''].filter(Boolean).join(' ');
-  const sel = `<td class="col-sel"><input type="checkbox" class="cb-sel" data-act="sel-row" data-id="${t.id}"${selected ? ' checked' : ''}></td>`;
+  // 非批量模式下整列都不输出（连 <td> 都没有），表头那边也一样，两边列数才对得上
+  const sel = UI.tasks.batchMode
+    ? `<td class="col-sel"><input type="checkbox" class="cb-sel" data-act="sel-row" data-id="${t.id}"${selected ? ' checked' : ''}></td>` : '';
   // 状态字段现在可以直接点开下拉选择"已完成"，不再需要单独一列一键打勾；已删除视图的恢复按钮挪到操作列里，
   // 跟"彻底删除"放一起，不再单独占一整列
   const tail = del
     ? `<td class="cell-center"><button class="action-btn restore" data-act="task-restore" data-id="${t.id}" title="恢复">↩</button><button class="action-btn del" data-act="task-purge" data-id="${t.id}" title="彻底删除">🗑</button></td>`
-    : `<td class="cell-center"><button class="action-btn ms" data-act="task-detail" data-id="${t.id}" title="详情（全部字段）">☰</button><button class="action-btn copy" data-act="task-dup" data-id="${t.id}" title="复制">⧉</button><button class="action-btn del" data-act="task-del" data-id="${t.id}" title="删除">×</button></td>`;
+    // 操作列只留删除。原来还有"详情☰"和"复制⧉"两个按钮：
+    // 详情是多余的——点任务编号那一格就是打开详情（见 renderCellValue 里 code 列的处理），
+    // 有里程碑的任务双击进度格也会打开它，一列里塞三个图标反而容易点错；
+    // 复制功能整个撤掉了，理由见 ACTIONS 里"复制任务"那段说明
+    : `<td class="cell-center"><button class="action-btn del" data-act="task-del" data-id="${t.id}" title="删除">×</button></td>`;
   const cells = UI.tasks.cols.map(k => renderCellValue('task', t, fieldDef('task', k), !del)).join('');
   return `<tr data-id="${t.id}" class="${cls}">${sel}${cells}${tail}</tr>`;
 }
@@ -4230,11 +4636,11 @@ function accountsPanelHTML() {
     <table class="dtable"><thead><tr><th style="text-align:left">姓名</th><th>角色</th><th>登录状态</th><th>连接状态</th><th>最近连接</th><th>程序版本</th><th></th></tr></thead><tbody>
       ${users.map(u => {
         const editable = canManageAccount(u);
-        const roleLabel = (ROLES.find(r => r.v === u.role) || {}).label || u.role;
+        const curRoleLabel = roleLabel(u.role);   // 同名的全局函数已经有了，局部变量换个名字免得遮蔽它
         return `<tr><td style="text-align:left">${esc(u.name)}</td><td>${editable
           ? `<select class="role-select" data-act="account-role-change" data-name="${esc(u.name)}">${assignableRoles().map(r =>
               `<option value="${r.v}"${u.role === r.v ? ' selected' : ''}>${esc(r.label)}</option>`).join('')}</select>`
-          : esc(roleLabel)}</td>
+          : esc(curRoleLabel)}</td>
           <td class="cell-center">${u.hash ? '已设置 PIN' : '<span class="hint">待首次登录设置</span>'}</td>
           <td class="cell-center">${connectionStatusHTML(u)}</td>
           <td class="cell-center">${u.lastSeenAt ? esc(fmtLocalDateTime(u.lastSeenAt)) + `（${relTime(u.lastSeenAt)}）` : '<span class="hint">—</span>'}</td>
@@ -4249,6 +4655,15 @@ function accountsPanelHTML() {
     请让他按住 Ctrl 点刷新，或者把所有标签页关掉重新打开；旧版本会被自动禁止写入共享文件，只能查看。
     PIN 由本人第一次登录时自己设置，管理员这里看不到、也改不了别人的 PIN。
     删除账号不会删掉这个人之前负责/参与过的任务、工作记录，只是这个账号本身没法再登录了；删除前会先确认，删完也可以 Ctrl+Z 撤销。</div>
+    ${hasPermission('manage_director_accounts') ? `
+    <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
+      <div style="font-size:12.5px;font-weight:700;color:var(--text2);margin-bottom:6px">账号与角色的导入 / 导出</div>
+      <button class="btn" data-act="export-accounts">导出账号与角色（JSON）</button>
+      <button class="btn" data-act="import-accounts" style="margin-left:8px">从文件导入…</button>
+      <div class="hint" style="margin-top:6px">导出的内容包括：全部账号（姓名、角色、PIN 校验信息）和这张权限矩阵。
+      导入采用<b>合并</b>方式，按姓名对应：同名账号谁的版本更新就用谁的，文件里独有的账号会新增进来，<b>不会删掉现有账号</b>。
+      <br><span style="color:var(--overdue)">⚠ 导出的文件里含有 PIN 的校验信息（不是明文，但仍属敏感数据），请当作口令文件保管，不要随手外发。</span></div>
+    </div>` : ''}
   </div></div>`;
 }
 function permissionMatrixPanelHTML() {
@@ -4278,6 +4693,194 @@ function permissionMatrixPanelHTML() {
     其余角色的权限完全由你在这里配置，实时生效，且会随共享文件同步给所有人。</div>
   </div></div>`;
 }
+/* =============================================================
+   日志页：把 changelog 摊开给管理员看（登录 + 变更）
+   ============================================================= */
+const LOG_PAGE_SIZE = 50;
+const LOG_RANGES = [
+  { key: 'today',     label: '今天' },
+  { key: 'yesterday', label: '昨天' },
+  { key: 'week',      label: '本周' },
+  { key: 'month',     label: '本月' },
+  { key: 'all',       label: '全部' },
+];
+const LOG_KINDS = [
+  { key: 'all',   label: '全部' },
+  { key: 'login', label: '登录' },
+  { key: 'edit',  label: '数据变更' },
+  { key: ADMIN_LOG_KIND, label: '账号与权限' },
+  { key: ALERT_LOG_KIND, label: '⚠ 安全告警' },
+];
+const LOG_KIND_LABEL = { login: '登录', edit: '变更', [ADMIN_LOG_KIND]: '账号权限', [ALERT_LOG_KIND]: '⚠ 告警' };
+/* 还没被处理掉的越权告警。
+   判定"已处理"的方式是：这条告警之后，针对同一个人又出现过一条正规的账号变更记录——
+   不管管理员是把角色改回去了、还是确认无误正式给他提了权，都会留下这么一条。
+   这样不用额外存"已读"状态（存了还得考虑怎么在多台设备之间同步），
+   而且它天生是跟着共享文件走的：谁处理的、什么时候处理的，全处都看得到。 */
+function unresolvedRoleAlerts() {
+  const logs = DB.changelog || [];
+  return logs.filter(e => e && e.kind === ALERT_LOG_KIND && e.target)
+    /* 时间用 >= 而不是 >：管理员点「确认」时，那条正规记录跟这条告警很可能落在同一毫秒
+       （告警本来就是这一次合并里刚记下的），用严格大于会让告警永远消不掉，红点一直挂着。
+       反方向的误判——同一毫秒里先有正规变更、后有告警——要发生得两件事精确撞在一起，
+       而且真出问题的话下一轮合并会重新报警，代价小得多。 */
+    .filter(a => !logs.some(e => e && e.kind === ADMIN_LOG_KIND && e.target === a.target && (e.at || '') >= (a.at || '')))
+    .sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+}
+// 导航栏「日志」上那个红点该不该亮：越权告警 + 大批量删除留底，都算待处理
+function securityAlertCount() { return unresolvedRoleAlerts().length + (loadMergeAlert() ? 1 : 0); }
+/* 时间分类的边界，返回 [from, to) 两个 ISO 时刻，直接拿去跟条目的 at 比大小。
+   两边都是 UTC 的 ISO 串，比较的是绝对时刻，本地时区怎么设都不影响结果。
+   "昨天"刻意做成一段闭区间（昨天零点到今天零点），而不是"从昨天到现在"——
+   用户点"昨天"想看的就是昨天那一天，不是最近两天。
+   now 从外面传进来而不是函数里取：不这样测试没法固定"今天"是哪天。 */
+function logRangeBounds(range, now) {
+  const base = new Date(now);
+  const midnight = offsetDays => {
+    const x = new Date(base);
+    x.setHours(0, 0, 0, 0);
+    x.setDate(x.getDate() + offsetDays);
+    return x.toISOString();
+  };
+  switch (range) {
+    case 'today':     return { from: midnight(0), to: null };
+    case 'yesterday': return { from: midnight(-1), to: midnight(0) };
+    // 一周从周一算起（getDay 里周日是 0，先挪成"周一=0"再回退）
+    case 'week':      return { from: midnight(-((base.getDay() + 6) % 7)), to: null };
+    case 'month':     return { from: new Date(base.getFullYear(), base.getMonth(), 1).toISOString(), to: null };
+    default:          return { from: null, to: null };   // 全部
+  }
+}
+// 按时间段 / 类型 / 人员筛选，并且按时间从近到远排好（页面就是这个顺序展示的）
+function filterLogs(list, opts) {
+  const o = opts || {};
+  const { from, to } = logRangeBounds(o.range || 'all', o.now || Date.now());
+  return (list || []).filter(e => {
+    if (o.kind && o.kind !== 'all' && logKind(e) !== o.kind) return false;
+    if (o.who && (e.by || '') !== o.who) return false;
+    const at = e.at || '';
+    if (from && at < from) return false;
+    if (to && at >= to) return false;
+    return true;
+  }).sort((a, b) => (b.at || '').localeCompare(a.at || ''));
+}
+/* 安全告警条：越权提权、以及"这次同步删掉了一大片"的留底，都在日志页顶上摊开，并且给出可以直接点的处置动作。
+   刻意不做成一个只能"知道了"的提示——没有处置入口的告警，几次之后就没人看了。 */
+function securityAlertPanelHTML() {
+  const roleAlerts = unresolvedRoleAlerts();
+  const merge = loadMergeAlert();
+  if (!roleAlerts.length && !merge) return '';
+  const rows = roleAlerts.map(a => {
+    const cur = DB.users.find(u => u.name === a.target && !u.deleted_at);
+    return `<div class="sec-item">
+      <div class="sec-txt">${esc(a.summary)}
+        <div class="hint">发现时间：${esc(fmtLocalDateTime(a.at))}　当前本机认定的角色：<b>${esc(cur ? roleLabel(cur.role) : '（账号已不存在）')}</b></div></div>
+      ${cur ? `<button class="btn danger" data-act="seal-role" data-name="${esc(a.target)}">确认为「${esc(roleLabel(cur.role))}」并写回共享文件</button>` : ''}
+    </div>`;
+  }).join('');
+  const mergeRow = merge ? `<div class="sec-item">
+    <div class="sec-txt">${esc(fmtLocalDateTime(merge.at))} 的一次同步删除了 <b>${merge.damage.total}</b> 条记录：
+      任务 ${merge.damage.tasks}、里程碑 ${merge.damage.milestones}、工作 ${merge.damage.works}、职责 ${merge.damage.duties}、账号 ${merge.damage.users}。
+      <div class="hint">合并前的数据已在本机留了一份底。如果这是正常的批量整理，点"确认无误"消掉这条；
+      如果是误删或者文件出了问题，点"回滚"把这些记录恢复回来（恢复会同步给所有人）。</div></div>
+    <div style="white-space:nowrap">
+      <button class="btn danger" data-act="merge-damage-rollback">回滚这次删除</button>
+      <button class="btn" data-act="merge-damage-dismiss" style="margin-left:6px">确认无误</button>
+    </div></div>` : '';
+  return `<div class="panel sec-panel"><div class="panel-h">⚠ 安全告警（${roleAlerts.length + (merge ? 1 : 0)}）</div>
+    <div class="panel-b">${rows}${mergeRow}</div></div>`;
+}
+async function restoreMergeDamage() {
+  const a = loadMergeAlert();
+  if (!a || !a.payload) { showSnack('留底已经不在了，没法回滚'); return; }
+  const p = a.payload;
+  /* 这里刻意用不带 ctx 的 undoRestoreList——也就是不做"同事动过就跳过"的保护。
+     那个保护是给 Ctrl+Z 用的：撤销是个随手的动作，不该越界去动别人的东西。
+     这里不一样，是管理员看着告警明确决定"把这批删除撤回来"，
+     真正的意图就是覆盖掉造成这次删除的那些改动，跳过反而办不成事。 */
+  DB.duties = undoRestoreList('code', p.duties, DB.duties);
+  DB.works = undoRestoreList('id', p.works, DB.works);
+  DB.milestones = undoRestoreList('id', p.milestones, DB.milestones);
+  DB.tasks = undoRestoreList('id', p.tasks, DB.tasks);
+  if (p.users) DB.users = undoRestoreList('name', p.users, DB.users);
+  pushAdminLog(`回滚了 ${fmtLocalDateTime(a.at)} 那次异常同步，恢复了被删掉的 ${a.damage.total} 条记录`);
+  clearMergeAlert();
+  rebuildIndex();
+  await Repo.persist(DB);
+  renderShell(); renderPage();
+  showSnack(`已回滚，恢复了 ${a.damage.total} 条记录`, { priority: true });
+}
+
+function renderLogs() {
+  if (!roleAtLeast('admin')) { goto('dashboard'); return; }
+  const st = UI.logs;
+  const now = Date.now();
+  const all = filterLogs(DB.changelog, { range: st.range, kind: st.kind, who: st.who, now });
+  const pages = Math.max(1, Math.ceil(all.length / LOG_PAGE_SIZE));
+  // 换筛选条件之后页码可能已经越界（比如原来在第 5 页，切到"今天"只剩 1 页），这里夹回合法范围
+  st.page = Math.min(Math.max(1, st.page), pages);
+  const rows = all.slice((st.page - 1) * LOG_PAGE_SIZE, st.page * LOG_PAGE_SIZE);
+
+  // 时间段按钮上带条数：不用点进去就知道哪天有动静，省得一段段试
+  const rangeBtns = LOG_RANGES.map(r => {
+    const n = filterLogs(DB.changelog, { range: r.key, kind: st.kind, who: st.who, now }).length;
+    return `<span class="s${st.range === r.key ? ' on' : ''}" data-act="logs-range" data-range="${r.key}">${esc(r.label)} ${n}</span>`;
+  }).join('');
+  const kindBtns = LOG_KINDS.map(k =>
+    `<span class="s${st.kind === k.key ? ' on' : ''}" data-act="logs-kind" data-kind="${k.key}">${esc(k.label)}</span>`).join('');
+  // 人员下拉的名单 = 现有账号 ∪ 日志里出现过的人名（离职删号之后，他过去的记录还得查得到）
+  const people = uniq([...DB.users.filter(u => !u.deleted_at).map(u => u.name), ...DB.changelog.map(e => e.by || '')])
+    .filter(Boolean).sort((a, b) => a.localeCompare(b, 'zh'));
+
+  const rowsHTML = rows.length ? rows.map(e => {
+    const kind = logKind(e);
+    const ent = logEntity(e), ref = logRefId(e);
+    // 变更条目挂着一条具体记录。任务能直接跳过去看；工作/职责跳到各自的页面并定位到那一条
+    const rec = (kind === 'edit' && ref) ? byId(ent, ref) : null;
+    const jump = rec ? (ent === 'task'
+      ? ` class="log-row" data-act="focus-task" data-id="${esc(ref)}"`
+      : ` class="log-row" data-act="focus-record" data-entity="${ent}" data-id="${esc(ref)}"`) : '';
+    const name = rec ? (ent === 'task' ? rec.title : `${rec.code || ''} ${rec.name || ''}`.trim()) : '';
+    const label = { task: '任务', work: '工作', duty: '职责' }[ent] || '';
+    return `<tr${jump}>
+      <td class="log-time">${esc(fmtLocalDateTime(e.at))}<span class="hint"> ${esc(relTime(e.at))}</span></td>
+      <td>${esc(e.by || '未署名')}</td>
+      <td class="cell-center"><span class="log-tag log-tag-${kind}">${esc(LOG_KIND_LABEL[kind] || '变更')}</span></td>
+      <td style="text-align:left">${rec
+        ? `<span class="hint">${esc(label)}</span> <b>${esc(name)}</b>${rec.deleted_at ? '（已删除）' : ''}　`
+        : (kind === 'edit' && ref ? `<span class="hint">（${esc(label)}已不存在）</span>　` : '')}${esc(e.summary || '')}</td>
+    </tr>`;
+  }).join('') : `<tr><td colspan="4" class="hint" style="padding:18px;text-align:center">这个范围内没有记录</td></tr>`;
+
+  $('#page-logs').innerHTML = `<div class="pad">
+    ${securityAlertPanelHTML()}
+    <div class="panel"><div class="panel-h"><span>📜 操作日志</span><span class="seg-ctrl">${rangeBtns}</span></div>
+      <div class="panel-b">
+        <div class="log-filters">
+          <span class="seg-ctrl">${kindBtns}</span>
+          <select id="logs-who" data-act="logs-who">
+            <option value="">全部人员</option>
+            ${people.map(p => `<option value="${esc(p)}"${st.who === p ? ' selected' : ''}>${esc(p)}</option>`).join('')}
+          </select>
+          <span class="hint">共 ${all.length} 条${all.length > LOG_PAGE_SIZE ? `，每页 ${LOG_PAGE_SIZE} 条` : ''}</span>
+        </div>
+        <table class="dtable log-table"><thead><tr>
+          <th style="text-align:left;width:190px">时间</th><th style="width:90px">人员</th><th style="width:64px">类型</th><th style="text-align:left">内容</th>
+        </tr></thead><tbody>${rowsHTML}</tbody></table>
+        ${pages > 1 ? `<div class="log-pager">
+          <button class="btn" data-act="logs-page" data-step="-1"${st.page <= 1 ? ' disabled' : ''}>← 上一页</button>
+          <span class="hint">第 ${st.page} / ${pages} 页</span>
+          <button class="btn" data-act="logs-page" data-step="1"${st.page >= pages ? ' disabled' : ''}>下一页 →</button>
+        </div>` : ''}
+        <div class="hint" style="margin-top:10px">这里记的是<b>登录</b>和<b>任务/里程碑的数据变更</b>，跟着共享文件一起同步，所以能看到全处同事的操作，不只是这台机器上的。
+        点变更记录那一行可以直接跳到对应任务。
+        <br>日志总共只保留最近 ${CHANGELOG_LIMIT} 条，超出的会自动丢掉最旧的——它是给日常排查用的，不是长期审计档案；要长期留存请在数据页导出备份。
+        <br>另外它记不到"谁看过什么"：没有服务器，页面上的浏览行为不会留下任何痕迹。</div>
+      </div></div>
+  </div>`;
+  $('#status-left').textContent = `操作日志 · ${all.length} 条`;
+}
+
 function renderPermissions() {
   if (!roleAtLeast('admin')) { goto('dashboard'); return; }
   $('#page-permissions').innerHTML = `<div class="pad">
@@ -4297,6 +4900,34 @@ function renderPermissions() {
   </div>`;
   $('#status-left').textContent = '权限管理';
 }
+/* ★ 换版本之后本机还留着旧缓存的提示 ★
+   这份 html 是一人一份拷贝、手工分发的，换新版就是换一个文件；
+   但浏览器里那份 localStorage 的 key 是固定的，新旧版本读写的是同一份缓存。
+   于是"我换了新版"这件事，对本机缓存来说什么都没发生——旧数据原样留着，
+   开机照样读进来、照样往共享文件里合。绝大多数时候没事（记录 id 稳定，版本号高的赢），
+   但只要旧缓存里存着共享文件里已经没有的记录，它们就会被当成"本机独有的新内容"重新推上去，
+   表现出来就是"删掉的东西又回来了""数据莫名其妙变多了"。
+
+   这里只做提示和提供出口，不自动清：本机缓存也可能正是唯一一份还没推上去的改动，
+   二话不说清掉是会真丢数据的。 */
+function localCachePanelHTML() {
+  if (!_localCacheStale) return '';
+  const from = _localCacheAppVersion ? `由 <code>${esc(_localCacheAppVersion)}</code> 写入` : '版本未知（这次改动之前留下的）';
+  return `<div class="panel sec-panel"><div class="panel-h">⚠ 本机缓存不是当前这一版写的</div><div class="panel-b">
+    <div class="sec-item">
+      <div class="sec-txt">这台机器上的浏览器缓存${from}，当前程序版本是 <code>${esc(APP_VERSION)}</code>。
+        <div class="hint">换新版 html 不会清掉浏览器里的旧数据，两者用的是同一份缓存。
+        通常没问题，但如果旧缓存里存着共享文件里已经没有的记录（别人删掉的、或者以前测试留下的），
+        它们会被当成"本机独有的新内容"重新推上共享文件——看起来就像删掉的东西又回来了、数据莫名变多。
+        <br><b>建议：</b>先确认这台机器上没有还没同步出去的改动（顶栏同步状态显示正常即可），
+        再点右边按钮，用共享文件里的内容整个替换本机缓存。</div></div>
+      ${roleAtLeast('admin') ? `<div style="white-space:nowrap">
+        <button class="btn danger" data-act="reset-local-cache">以共享文件为准，重置本机缓存</button>
+        <button class="btn" data-act="dismiss-cache-warn" style="margin-left:6px">我确认没问题</button>
+      </div>` : '<span class="hint">请联系管理员处理</span>'}
+    </div></div></div>`;
+}
+
 function renderData() {
   const counts = {
     职责: DB.duties.filter(d => !d.deleted_at).length,
@@ -4319,6 +4950,7 @@ function renderData() {
   const me = myUser();
 
   $('#page-data').innerHTML = `<div class="pad">
+    ${localCachePanelHTML()}
     <div class="panel"><div class="panel-h">数据概况</div><div class="panel-b hint">
       ${Object.entries(counts).map(([k, v]) => `${k}：<b>${v}</b>`).join(' &nbsp;·&nbsp; ')}<br>
       本地存储占用：约 <b>${(size / 1024).toFixed(0)} KB</b>（localStorage 上限通常 5 MB）<br>
@@ -4518,6 +5150,13 @@ const ACTIONS = {
     renderTasks();
   },
   'sel-clear': () => { UI.tasks.sel.clear(); renderTasks(); },
+  // 进出批量模式：退出时把已勾选的清干净，免得下次进来还留着上次的选择
+  'batch-mode-toggle': () => {
+    const st = UI.tasks;
+    st.batchMode = !st.batchMode;
+    if (!st.batchMode) { st.sel.clear(); st.lastSelIdx = -1; }
+    renderShell(); renderPage();
+  },
   batch: d => openBatchEdit(d.field),
   'batch-delete': () => {
     const ids = [...UI.tasks.sel];
@@ -4532,7 +5171,7 @@ const ACTIONS = {
       await Repo.bulk(() => {
         ids.forEach(id => {
           const t = byId('task', id);
-          if (t && canEditRecord('task', t)) softDelete('task', id); else skipped++;
+          if (t && canEditRecord('task', t)) cascadeSoftDeleteTask(id); else skipped++;
         });
       });
       UI.tasks.sel.clear();
@@ -4547,7 +5186,7 @@ const ACTIONS = {
     const ids = [...UI.tasks.sel];
     confirmModal('彻底删除', `彻底删除选中的 ${ids.length} 条任务？（Ctrl+Z 仍可撤销）`, '彻底删除', async () => {
       snapshot();
-      await Repo.bulk(() => { ids.forEach(id => removeHard('task', id)); });
+      await Repo.bulk(() => { ids.forEach(id => cascadeRemoveHardTask(id)); });
       UI.tasks.sel.clear();
       renderShell(); renderPage();
       showSnack(`已彻底删除 ${ids.length} 条`);
@@ -4601,24 +5240,19 @@ const ACTIONS = {
       showSnack(`为了防止误操作，只能改自己负责/参与的${d.entity === 'task' ? '任务' : '工作'}`); return;
     }
     snapshot();
-    const before = d.entity === 'task' ? clone(r) : null;
+    // 以前这里只在 entity==='task' 时才记快照/日志，工作和职责的改动一律不留痕迹
+    const before = clone(r);
     const vals = f.options.map(o => o.v);
     r[d.field] = vals[(vals.indexOf(String(r[d.field])) + 1) % vals.length];
-    if (before) pushLog(d.id, diffTask(before, r, [d.field]));
+    pushChangeLog(d.entity, d.id, diffRecord(d.entity, before, r, [d.field]));
     await Repo.upsert(d.entity, r);
     afterEdit(d.entity, d.id, d.field);
   },
-  'task-dup': async d => {
-    const t = byId('task', d.id); if (!t) return;
-    if (!canEditRecord('task', t)) { showSnack('为了防止误操作，只能编辑自己负责/参与的任务'); return; }
-    snapshot();
-    const c = clone(t);
-    c.id = uid('t'); c.status = 'todo'; c.actual_date = ''; c.progress = 0;
-    delete c.created_at; delete c.rev; delete c.deleted_at;
-    await Repo.upsert('task', c);
-    renderTasks(); renderSidebar();
-    showSnack(`已复制：${c.title}`);
-  },
+  /* 这里原来有个「复制任务」的动作，已整体移除。
+     它复制出来的任务跟原任务标题、所属工作、牵头人全都一样，只有 id 不同——
+     在列表里根本分不出哪条是哪条，而且它只复制任务本身、不复制里程碑，
+     复制出来的那条永远是个空壳，最后还是要一条条手工补。
+     新建任务本来就有完整的详情弹窗可以填，没必要留这条容易制造混乱的近路。 */
   'task-del': d => {
     const t = byId('task', d.id); if (!t) return;
     if (!canEditRecord('task', t)) { showSnack('为了防止误操作，只能编辑自己负责/参与的任务'); return; }
@@ -4628,21 +5262,34 @@ const ACTIONS = {
       ? `将删除任务「${t.title}」。删除后需要有权限的同事帮你恢复，你自己无法恢复或再编辑，确定要删除吗？`
       : `将删除任务「${t.title}」，可在「已删除」视图中恢复。`;
     confirmModal('确认删除', msg, '删除', async () => {
-      snapshot(); softDelete('task', d.id); await Repo.upsert('task', t);
+      snapshot(); cascadeSoftDeleteTask(d.id);
+      /* 删除本身要有独立的一条日志。以前完全不记，日志里唯一能看出"这条被删了"的痕迹，
+         是它更早那些修改记录后面被标上「（已删除）」——那是渲染时顺带加的说明，
+         不是一条真正的记录：既看不出是谁删的、什么时候删的，删完之后再也没有新记录，
+         在按时间倒序的日志里根本翻不到。 */
+      pushChangeLog('task', d.id, `删除了任务「${t.title}」`);
+      await Repo.upsert('task', t);
       renderTasks(); renderSidebar(); showSnack('已删除');
     }, true);
   },
   'task-restore': async d => {
     if (!requirePermission('edit_others_task')) return;
-    const t = undelete('task', d.id); if (!t) return;
-    snapshot(); await Repo.upsert('task', t);
+    const t = cascadeRestoreTask(d.id); if (!t) return;
+    snapshot();
+    pushChangeLog('task', d.id, `恢复了任务「${t.title}」`);
+    await Repo.upsert('task', t);
     renderTasks(); renderSidebar(); showSnack('已恢复');
   },
   'task-purge': d => {
     if (!requirePermission('edit_others_task')) return;
     const t = byId('task', d.id); if (!t) return;
     confirmModal('彻底删除', `彻底删除「${t.title}」？（Ctrl+Z 仍可撤销）`, '彻底删除', async () => {
-      snapshot(); await Repo.removeHard('task', d.id);
+      snapshot();
+      const title = t.title;
+      await Repo.bulk(() => {
+        cascadeRemoveHardTask(d.id);
+        pushChangeLog('task', d.id, `彻底删除了任务「${title}」（连同它的里程碑）`);
+      });
       renderTasks(); renderSidebar(); showSnack('已彻底删除');
     }, true);
   },
@@ -4656,7 +5303,9 @@ const ACTIONS = {
     const w = byId('work', d.id); if (!w) return;
     const n = DB.tasks.filter(t => t.work === w.id && !t.deleted_at).length;
     confirmModal('停用工作', `停用「${w.code} ${w.name}」？${n ? `该工作下有 ${n} 条任务，不会被删除，但会变为"未归属"。` : ''}`, '停用', async () => {
-      snapshot(); softDelete('work', d.id); await Repo.upsert('work', w);
+      snapshot(); softDelete('work', d.id);
+      pushChangeLog('work', d.id, `停用了工作「${w.code} ${w.name}」${n ? `（其下 ${n} 条任务变为未归属）` : ''}`);
+      await Repo.upsert('work', w);
       renderShell(); renderPage(); showSnack('已停用');
     }, true);
   },
@@ -4666,7 +5315,9 @@ const ACTIONS = {
     const dt = byId('duty', d.code); if (!dt) return;
     const n = visibleWorks().filter(w => w.duty === dt.code).length;
     confirmModal('删除职责', `删除「${dt.code} ${dt.name}」？${n ? `其下有 ${n} 项工作，不会被删除，但会变为"未归属职责"。` : ''}（Ctrl+Z 可撤销）`, '删除', async () => {
-      snapshot(); softDelete('duty', d.code); await Repo.upsert('duty', dt);
+      snapshot(); softDelete('duty', d.code);
+      pushChangeLog('duty', d.code, `删除了职责「${dt.code} ${dt.name}」${n ? `（其下 ${n} 项工作变为未归属）` : ''}`);
+      await Repo.upsert('duty', dt);
       renderPage(); showSnack('已删除');
     }, true);
   },
@@ -4730,11 +5381,17 @@ const ACTIONS = {
     }
     const applyChange = async () => {
       snapshot();
+      const from = u.role;
       u.role = val;
       stampMeta(u);
+      /* 这条记录既是给人看的审计日志，也是这次改动的"授权凭证"：
+         别人的机器合并时要靠 target/roleTo 来确认这次提升有人批准过（见 roleUpgradeAuthorized）。
+         必须写在 Repo.persist 之前，跟角色改动同一批推出去 */
+      pushAdminLog(`把 ${d.name} 的角色从「${roleLabel(from)}」改为「${roleLabel(val)}」`,
+        { target: d.name, roleFrom: from, roleTo: val });
       await Repo.persist(DB);
       renderShell(); renderPage();
-      showSnack(`已把 ${d.name} 的角色改为 ${(ROLES.find(r => r.v === val) || {}).label}`);
+      showSnack(`已把 ${d.name} 的角色改为 ${roleLabel(val)}`);
     };
     if (d.name === DB.settings.me) {
       // 改自己的角色会立即影响自己当下能看到、能操作的内容（比如可能因此看不到权限页），
@@ -4758,9 +5415,11 @@ const ACTIONS = {
     stampMeta(user);
     snapshot();
     DB.users.push(user);
+    // 新建账号同样要留凭证：直接建一个管理员账号，和把已有账号提成管理员是等价的动作
+    pushAdminLog(`新建账号 ${name}，角色「${roleLabel(role)}」`, { target: name, roleTo: role });
     await Repo.persist(DB);
     renderPage();
-    showSnack(`已创建账号：${name}（${(ROLES.find(r => r.v === role) || {}).label}），对方首次登录时自己设置 PIN`);
+    showSnack(`已创建账号：${name}（${roleLabel(role)}），对方首次登录时自己设置 PIN`);
   },
   'admin-delete-user': d => {
     const u = DB.users.find(x => x.name === d.name && !x.deleted_at);
@@ -4777,6 +5436,7 @@ const ACTIONS = {
         snapshot();
         u.deleted_at = new Date().toISOString();
         stampMeta(u);
+        pushAdminLog(`删除账号 ${d.name}（原角色「${roleLabel(u.role)}」）`, { target: d.name });
         await Repo.persist(DB);
         renderPage();
         showSnack(`已删除账号：${d.name}`);
@@ -4801,11 +5461,13 @@ const ACTIONS = {
     stampMeta(next);
     snapshot();
     DB.permissionMatrix = next;
+    // 原来这里有个叫 roleLabel 的局部变量，现在全局有了同名函数（见 roleLabel 定义），改名避开遮蔽
+    const rLabel = roleLabel(d.role);
+    const permLabel = (PERMISSIONS.find(p => p.key === d.key) || {}).label;
+    pushAdminLog(`权限矩阵：${el.checked ? '开启' : '关闭'}了「${rLabel}」的「${permLabel}」`);
     await Repo.persist(DB);
     renderShell(); renderPage();
-    const roleLabel = (ROLES.find(r => r.v === d.role) || {}).label;
-    const permLabel = (PERMISSIONS.find(p => p.key === d.key) || {}).label;
-    showSnack(`已${el.checked ? '开启' : '关闭'}「${roleLabel}」的「${permLabel}」权限`);
+    showSnack(`已${el.checked ? '开启' : '关闭'}「${rLabel}」的「${permLabel}」权限`);
   },
   // 身份门禁里的"连接共享文件夹"：全新设备本机一个账号都没有，顶栏那个连接入口被门禁盖住了点不到，
   // 只能在门禁里给一个。这里直接调 connectSharedFile，不走 confirmConnectWithHint 的提示弹窗——
@@ -4830,6 +5492,7 @@ const ACTIONS = {
     const pin = $('#login-pin').value;
     if (!user || !(await verifyPin(pin, user))) { renderLoginVerify(d.name, 'PIN 不对，请重试'); return; }
     DB.settings.me = d.name;
+    pushLoginLog(d.name, '输入 PIN 登录');
     await Repo.persist(DB);
     hideLoginGate();
     renderShell(); renderPage();
@@ -4848,6 +5511,7 @@ const ACTIONS = {
     DB.settings.me = d.name;   // 先设好，stampMeta 记 updated_by 才准
     Object.assign(user, { salt, hash, iterations });
     stampMeta(user);
+    pushLoginLog(d.name, '首次设置 PIN 并登录');
     await Repo.persist(DB);
     hideLoginGate();
     renderShell(); renderPage();
@@ -4879,11 +5543,85 @@ const ACTIONS = {
     DB.settings.me = name;   // 先设好，stampMeta 记 updated_by 才准
     stampMeta(user);
     DB.users.push(user);
+    pushLoginLog(name, `创建账号并登录${isFirstAdmin ? '（管理员）' : ''}`);
     await Repo.persist(DB);
     hideLoginGate();
     renderShell(); renderPage();
     showSnack(`已创建账号：${name}${isFirstAdmin ? '（管理员）' : ''}${personalReminderMsg()}`);
     await maybeAutoConnectSharedFolder();
+  },
+  // 日志页：换筛选条件一律把页码打回第 1 页，否则会停在一个新结果集里根本不存在的页码上
+  'logs-range': d => { UI.logs.range = d.range; UI.logs.page = 1; renderLogs(); },
+  'logs-kind': d => { UI.logs.kind = d.kind; UI.logs.page = 1; renderLogs(); },
+  'logs-page': d => { UI.logs.page += Number(d.step) || 0; renderLogs(); },   // 越界由 renderLogs 自己夹回来
+  'logs-who': (d, el) => { UI.logs.who = el.value; UI.logs.page = 1; renderLogs(); },
+  // 日志里点一条工作/职责的记录，跳到对应页面并把它搜出来（任务走 focus-task，那边还要处理视图切换）
+  'focus-record': d => {
+    const rec = byId(d.entity, d.id); if (!rec) return;
+    const page = d.entity === 'work' ? 'works' : 'duties';
+    UI[page].filters = {};
+    UI[page].search = rec.code || rec.name || '';
+    goto(page);
+  },
+  /* 处置越权告警：把本机认定的那个角色正式确认一次。
+     做的事情有两件——把这个角色以更高的版本号写回共享文件，盖掉文件里那份被人改过的；
+     同时留下一条正规的变更记录，这条记录既让告警变成"已处理"，
+     也让所有人的机器从此认可这个角色（合并时能查到凭证）。 */
+  'seal-role': d => {
+    if (!requireRole('admin')) return;
+    const u = DB.users.find(x => x.name === d.name && !x.deleted_at);
+    if (!u) { showSnack('这个账号已经不存在了'); return; }
+    confirmModal('确认角色',
+      `把「${d.name}」的角色正式确认为「${roleLabel(u.role)}」，并以更高的版本号写回共享文件，覆盖掉文件里那份被改动过的记录。`
+      + `如果你本来就打算给他这个角色，请改用账号管理里的角色下拉框，那才是正常的调整方式。确定吗？`,
+      '确认并写回', async () => {
+        snapshot();
+        stampMeta(u);   // 只顶版本号，角色值保持本机认定的这一份
+        pushAdminLog(`核实越权告警后，确认 ${d.name} 的角色为「${roleLabel(u.role)}」，并写回共享文件`,
+          { target: d.name, roleTo: u.role });
+        await Repo.persist(DB);
+        renderShell(); renderPage();
+        showSnack(`已确认 ${d.name} 的角色为 ${roleLabel(u.role)}`);
+      });
+  },
+  'merge-damage-rollback': () => {
+    if (!requireRole('admin')) return;
+    const a = loadMergeAlert();
+    if (!a) { renderPage(); return; }
+    confirmModal('回滚这次同步删除',
+      `将恢复 ${a.damage.total} 条被删除的记录（任务 ${a.damage.tasks}、里程碑 ${a.damage.milestones}、`
+      + `工作 ${a.damage.works}、职责 ${a.damage.duties}、账号 ${a.damage.users}）。`
+      + `恢复会同步给所有人；如果这些记录本来就该删，回滚之后需要重新删一次。确定回滚吗？`,
+      '确定回滚', restoreMergeDamage, true);
+  },
+  /* 用共享文件里的内容整个替换本机缓存。
+     做法是"清掉本机业务数据 → 拉一次共享文件"，而不是直接删 localStorage 再刷新：
+     后者会连同共享文件夹的连接信息、当前身份一起弄丢，用户还得重新连一遍、重新登录一次。 */
+  'reset-local-cache': () => {
+    if (!requireRole('admin')) return;
+    if (!_fileHandle) { showSnack('还没连上共享文件夹，重置会导致本机数据全部丢失，已帮你拦下'); return; }
+    confirmModal('以共享文件为准，重置本机缓存',
+      '将丢弃这台机器上的全部职责/工作/任务/里程碑数据，改用共享文件里的那一份。'
+      + '共享文件夹的连接、你的登录身份不受影响。'
+      + '<br><br><b>如果这台机器上还有没同步出去的改动，会一起丢掉，且无法撤销。</b>不确定的话，先到「备份」那一栏导出一份 JSON。',
+      '确定重置', async () => {
+        DB.duties = []; DB.works = []; DB.milestones = []; DB.tasks = [];
+        DB.changelog = []; DB.purged = [];
+        rebuildIndex();
+        const ok = await pullFromFile();
+        if (!ok) { showSnack('读取共享文件失败，本机数据已清空但没能拉回来，请检查网盘后点顶栏「立即同步」', { priority: true }); return; }
+        _localCacheStale = false;
+        await Repo.persist(DB);
+        renderShell(); renderPage();
+        showSnack('已用共享文件重置本机缓存', { priority: true });
+      }, true);
+  },
+  'dismiss-cache-warn': () => { _localCacheStale = false; renderPage(); showSnack('已隐藏该提示'); },
+  'merge-damage-dismiss': () => {
+    if (!requireRole('admin')) return;
+    clearMergeAlert();
+    renderShell(); renderPage();
+    showSnack('已消掉这条告警，本机留底也一并清除');
   },
   export: d => exportCSV(d.entity),
   'export-all': () => exportJSON(),
@@ -4980,6 +5718,11 @@ const ACTIONS = {
   'import-backup': () => {
     if (!requirePermission('bulk_ops')) return;
     _importEntity = '__backup__'; $('#file-input').accept = '.json'; $('#file-input').click();
+  },
+  'export-accounts': () => exportAccounts(),
+  'import-accounts': () => {
+    if (!requirePermission('manage_director_accounts')) return;
+    _importEntity = '__accounts__'; $('#file-input').accept = '.json'; $('#file-input').click();
   },
   'connect-shared': () => { if (requirePermission('system_admin')) confirmConnectWithHint(connectSharedFile); },
   'disconnect-shared': () => { if (requirePermission('system_admin')) disconnectSharedFile(); },
@@ -5167,7 +5910,8 @@ function afterEdit(entity, id, fieldKey) {
 // - perm-toggle 是 checkbox——click 时 el.checked 虽已是新值，但会跟 change 重复触发一次
 // - account-role-change 是 select——点开下拉框本身就会先发一个 click（这时用户还没选完！），
 //   之前就是因为点击分发器把这次"打开下拉框"的 click 也当成了"确认选择"，选都没选就提交了
-const CHANGE_ONLY_ACTS = ['account-role-change', 'perm-toggle', 'backup-toggle', 'backup-interval-change'];
+// - logs-who 同理是个 select，点开下拉那一下的 click 不该被当成"选好了"
+const CHANGE_ONLY_ACTS = ['account-role-change', 'perm-toggle', 'backup-toggle', 'backup-interval-change', 'logs-who'];
 document.addEventListener('click', e => {
   if (e.target.closest('.col-resize')) return;
   const el = e.target.closest('[data-act]');
@@ -5197,6 +5941,8 @@ document.addEventListener('change', e => {
   if (bt) ACTIONS['backup-toggle'](bt.dataset, bt, e);
   const bi = e.target.closest('[data-act="backup-interval-change"]');
   if (bi) ACTIONS['backup-interval-change'](bi.dataset, bi, e);
+  const lw = e.target.closest('[data-act="logs-who"]');
+  if (lw) ACTIONS['logs-who'](lw.dataset, lw, e);
   if (e.target.classList.contains('cp-chk')) updateCpProgressPreview();   // 勾选/取消里程碑完成状态，实时刷新进度预览
 });
 document.addEventListener('dblclick', e => {
@@ -5341,6 +6087,8 @@ function openEditor(entity, id, fieldKey, td) {
   }
   if (entity === 'task' && fieldKey === 'work') return openWorkPicker(entity, id, f, td);
   if (f.type === 'checkpoints') return openTaskDetail(id);
+  // 有里程碑的任务，进度是算出来的，直接改数字没意义——转到任务详情让用户勾里程碑
+  if (entity === 'task' && fieldKey === 'progress' && hasCheckpoints(rec)) return openTaskDetail(id);
   if (['single', 'multi', 'person', 'persons', 'enum', 'ref'].includes(f.type)) return openSelectPopup(entity, id, f, td);
   if (f.type === 'lines') return openLinesEditor(entity, id, fieldKey);
   if (f.type === 'date') return openDatePicker(entity, id, fieldKey, td);
@@ -5367,12 +6115,12 @@ function openInlineEdit(entity, id, f, td) {
       if (f.key === 'progress') val = Math.min(100, val);
     }
     snapshot();
-    const before = entity === 'task' ? clone(r) : null;
+    const before = clone(r);   // 工作/职责的编辑同样要留痕，不再只记任务
     r[f.key] = val;
     // 单独编辑进度这一格时，状态并没有被同时改动，属于"只碰了进度"的那条分支——
     // 该不该顺带跳出"未开始"/退出"已完成"，交给 reconcileStatusAndProgress 统一判断
-    if (before && f.key === 'progress') reconcileStatusAndProgress(r, before);
-    if (before) pushLog(id, diffTask(before, r, [f.key, 'status', 'actual_date']));
+    if (entity === 'task' && f.key === 'progress') reconcileStatusAndProgress(r, before);
+    pushChangeLog(entity, id, diffRecord(entity, before, r, [f.key, 'status', 'actual_date']));
     await Repo.upsert(entity, r);
     afterEdit(entity, id, f.key);
   };
@@ -5521,9 +6269,9 @@ async function spCommitSingle(val) {
 async function finishSpCommitSingle(entity, id, field, val) {
   const r = byId(entity, id); if (!r) return;
   snapshot();
-  const before = entity === 'task' ? clone(r) : null;
+  const before = clone(r);   // 工作/职责的下拉选择同样要留痕
   r[field] = val;
-  if (before) pushLog(id, diffTask(before, r, [field]));
+  pushChangeLog(entity, id, diffRecord(entity, before, r, [field]));
   await Repo.upsert(entity, r);
   afterEdit(entity, id, field);
 }
@@ -5587,9 +6335,9 @@ async function spCommitMulti() {
   closeSelectPopup();
   const r = byId(entity, id); if (!r) return;
   snapshot();
-  const before = entity === 'task' ? clone(r) : null;
+  const before = clone(r);   // 工作的参与人、职责的多选字段同样要留痕
   r[field] = vals;
-  if (before) pushLog(id, diffTask(before, r, [field]));
+  pushChangeLog(entity, id, diffRecord(entity, before, r, [field]));
   await Repo.upsert(entity, r);
   afterEdit(entity, id, field);
 }
@@ -5795,13 +6543,13 @@ async function dpCommit(date) {
   dpClose();
   const r = byId(entity, id); if (!r) return;
   snapshot();
-  const before = entity === 'task' ? clone(r) : null;
+  const before = clone(r);   // 工作/职责上的日期字段同样要留痕
   r[field] = date;
   if (entity === 'task' && field === 'actual_date' && date && r.status !== 'done') {
     r.status = 'done';
     if (!hasCheckpoints(r)) r.progress = 100;
   }
-  if (before) pushLog(id, diffTask(before, r, [field, 'status', 'progress']));
+  pushChangeLog(entity, id, diffRecord(entity, before, r, [field, 'status', 'progress']));
   await Repo.upsert(entity, r);
   afterEdit(entity, id, field);
 }
@@ -6405,6 +7153,54 @@ function healthCheck() {
   const orphanMs = DB.milestones.filter(m => !m.deleted_at && (!m.task || !byId('task', m.task)));
   if (orphanMs.length) issues.push({ k: 'orphanMs', n: orphanMs.length, msg: `${orphanMs.length} 个里程碑指向了不存在的任务`, fix: '删除这些里程碑' });
 
+  /* 所属任务已经被删掉、自己却还活着的里程碑。
+     上面那条 orphanMs 抓不到这一类：它判断的是 byId 查不到所属任务，而软删除的任务仍然查得到。
+     这批数据是"删任务不连带删里程碑"留下的历史遗留（现在删任务已经会连带删了，见 cascadeSoftDeleteTask）——
+     它们在界面上完全点不到，却照样算进数据页的里程碑总数、也照样进甘特图和统计，属于纯粹的脏数据。 */
+  const msOfDeletedTask = DB.milestones.filter(m => {
+    if (m.deleted_at || !m.task) return false;
+    const t = byId('task', m.task);
+    return !!(t && t.deleted_at);
+  });
+  if (msOfDeletedTask.length) issues.push({ k: 'msOfDeletedTask', n: msOfDeletedTask.length,
+    msg: `${msOfDeletedTask.length} 个里程碑的所属任务已被删除，但它们自己还留着（界面上点不到，却仍算进统计）`,
+    fix: '把这些里程碑一并删除' });
+
+  /* ★ 重复的任务 / 工作 ★
+     出现过一次"所有任务和工作都被复制成多条"的事故。最可能的来源是同一份线下表格被导入了两次：
+     以前宽表导入在覆盖模式下只按「任务项编号」认领已有任务，而那一列经常是空的，
+     一空就当成新任务建一条（这条已经修了，见 applyCSVImport 附近的宽表导入）；
+     工作的 CSV 增量导入同理，每导一次就新增一批。
+     修归修，已经产生的重复数据还留在共享文件里，得有地方能查出来、能一键清掉，
+     所以在这里加一条体检项。
+     判定"同一条"的口径刻意保守，只认几乎不可能重名的组合：
+     任务 = 同一项工作下的同名任务；工作 = 同一年度下的同编号工作。
+     清理时保留创建时间最早的那条（后建的才是复制品），其余软删除——
+     软删除而不是抹掉，是为了万一判断错了还能在「已删除」视图里找回来。 */
+  const dupTaskIds = [];
+  const taskSeen = new Map();
+  DB.tasks.filter(t => !t.deleted_at && t.work && t.title)
+    .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))
+    .forEach(t => {
+      const key = t.work + ' ' + t.title;
+      if (taskSeen.has(key)) dupTaskIds.push(t.id); else taskSeen.set(key, t.id);
+    });
+  if (dupTaskIds.length) issues.push({ k: 'dupTask', n: dupTaskIds.length,
+    msg: `${dupTaskIds.length} 条任务跟同一项工作下的另一条完全同名（多半是同一份表格导入了两次）`,
+    fix: '保留最早创建的那条，其余删除' });
+
+  const dupWorkIds = [];
+  const workSeen = new Map();
+  DB.works.filter(w => !w.deleted_at && w.code)
+    .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))
+    .forEach(w => {
+      const key = w.code + ' ' + (w.year || '');
+      if (workSeen.has(key)) dupWorkIds.push(w.id); else workSeen.set(key, w.id);
+    });
+  if (dupWorkIds.length) issues.push({ k: 'dupWork', n: dupWorkIds.length,
+    msg: `${dupWorkIds.length} 项工作跟同年度的另一项编号完全相同（多半是同一份表格导入了两次）`,
+    fix: '保留最早创建的那项，其余删除' });
+
   const badDuty = DB.works.filter(w => !w.deleted_at && (!w.duty || !byId('duty', w.duty)));
   if (badDuty.length) issues.push({ k: 'badDuty', n: badDuty.length, msg: `${badDuty.length} 项工作指向了不存在的职责`, fix: null });
 
@@ -6479,7 +7275,8 @@ function healthCheck() {
     msg: `${progressMismatch.length} 条任务的进度和状态对不上（比如进度过半了状态还是未开始、或者标了已完成进度却没到 100%）`,
     fix: '按当前进度自动纠正状态' });
 
-  return { issues, orphanTasks, orphanMs, msLateMap, noDateHasMsMap, dupMsIds, progressMismatch };
+  return { issues, orphanTasks, orphanMs, msLateMap, noDateHasMsMap, dupMsIds, progressMismatch, msOfDeletedTask,
+    dupTaskIds, dupWorkIds };
 }
 
 async function fixHealth(kind) {
@@ -6488,6 +7285,16 @@ async function fixHealth(kind) {
   await Repo.bulk(() => {
     if (kind === 'orphanTask') r.orphanTasks.forEach(t => { t.work = ''; stampMeta(t); });
     if (kind === 'orphanMs') r.orphanMs.forEach(m => { m.deleted_at = new Date().toISOString(); stampMeta(m); });
+    if (kind === 'msOfDeletedTask') r.msOfDeletedTask.forEach(m => { m.deleted_at = new Date().toISOString(); stampMeta(m); });
+    // 重复的任务连它自己的里程碑一起删掉，否则会留下一堆 msOfDeletedTask 那类的孤儿里程碑
+    if (kind === 'dupTask') {
+      r.dupTaskIds.forEach(id => cascadeSoftDeleteTask(id));
+      pushChangeLog('task', '', `数据体检：清理了 ${r.dupTaskIds.length} 条重复任务（保留最早创建的那条）`);
+    }
+    if (kind === 'dupWork') {
+      r.dupWorkIds.forEach(id => softDelete('work', id));
+      pushChangeLog('work', '', `数据体检：清理了 ${r.dupWorkIds.length} 项重复工作（保留最早创建的那项）`);
+    }
     if (kind === 'msLateThanTask') r.msLateMap.forEach((newDate, taskId) => {
       const t = byId('task', taskId);
       if (t) { t.plan_date = newDate; stampMeta(t); }
@@ -6610,6 +7417,7 @@ function openWorkForm() {
         year: yr,
         status: 'doing',
       });
+      pushChangeLog('work', w.id, `新建工作「${w.code} ${w.name}」`);
       await Repo.upsert('work', w);
       closeModal(); renderShell(); renderPage();
       showSnack(`已创建工作 ${w.code}`);
@@ -6629,6 +7437,7 @@ function openDutyForm() {
       if (!name) { showSnack('核心职责不能为空'); return; }
       if (byId('duty', c)) { showSnack('该编号已存在'); return; }
       snapshot();
+      pushChangeLog('duty', c, `新建职责「${c} ${name}」`);
       await Repo.upsert('duty', blank('duty', { code: c, category: $('#df-cat').value, name }));
       closeModal(); renderPage(); showSnack('已创建');
     });
@@ -6765,6 +7574,86 @@ async function exportJSON() {
   await Repo.persist(DB);
   if (currentPage === 'data') renderPage();
   showSnack('已导出 JSON 全量备份');
+}
+
+/* ---- 账号与角色的导入 / 导出 ----
+   跟"全量备份"分开做一份单独的：换台机器重新搭一套、或者把一份名单发给另一个处室复用时，
+   只想搬账号和权限配置，不想把全处的任务数据一起搬过去。
+
+   ★ 导出内容里含 PIN 的校验信息（salt/hash/iterations）★
+   不是明文口令（PBKDF2 派生值，反推不出原 PIN），但它足以离线暴力猜测弱 PIN，
+   所以本质上仍然是一份口令文件。带上它是为了让导入方不用所有人重设 PIN；
+   代价就是这个文件必须当口令文件保管——界面上那段说明里已经明确写了这一点。 */
+const ACCOUNTS_EXPORT_KIND = 'todoapp-accounts';
+function accountsExportPayload() {
+  return {
+    kind: ACCOUNTS_EXPORT_KIND,
+    exportedAt: new Date().toISOString(),
+    exportedBy: DB.settings.me || '未署名',
+    app: APP_VERSION,
+    users: DB.users || [],
+    permissionMatrix: DB.permissionMatrix || null,
+  };
+}
+async function exportAccounts() {
+  if (!requirePermission('manage_director_accounts')) return;
+  download(`账号与角色_${stamp()}.json`, JSON.stringify(accountsExportPayload(), null, 1), 'application/json');
+  showSnack(`已导出 ${(DB.users || []).filter(u => !u.deleted_at).length} 个账号及权限配置`);
+}
+// 认一份账号导出文件；不认就返回错误原因（给用户看的整句话），认得就返回解析结果
+function parseAccountsFile(text) {
+  let d = null;
+  try { d = JSON.parse(text); } catch (e) { return { err: '这个文件不是合法的 JSON' }; }
+  if (!d || typeof d !== 'object') return { err: '这个文件内容不是本系统导出的账号文件' };
+  // 兼容直接拿"全量备份"来导的情况：那份里也有 users/permissionMatrix，取出来一样能用
+  if (d.kind !== ACCOUNTS_EXPORT_KIND && !Array.isArray(d.users)) {
+    return { err: '这个文件里没有账号数据，不是账号导出文件、也不是本系统的全量备份' };
+  }
+  if (!Array.isArray(d.users)) return { err: '文件里的账号列表格式不对' };
+  const users = d.users.filter(u => u && typeof u.name === 'string' && u.name.trim());
+  if (!users.length) return { err: '文件里一个有效账号都没有' };
+  return { users, permissionMatrix: d.permissionMatrix || null, exportedBy: d.exportedBy || '', exportedAt: d.exportedAt || '' };
+}
+/* 导入统一走"合并"，规则跟多人同步时那套完全一致（按姓名对应、版本号高的赢）：
+   · 同名账号 → 谁的版本更新用谁的
+   · 文件里独有的账号 → 新增进来
+   · 本机独有的账号 → 原样保留，绝不因为"文件里没有"就删掉
+   最后这条是刻意的：导入一份别处的名单，不应该把本机现有的人误删。真要删某个账号，
+   在上面那张表里单独点删除，那才是一次明确的删除动作。 */
+function importAccounts(text) {
+  const r = parseAccountsFile(text);
+  if (r.err) { showSnack('导入失败：' + r.err); return; }
+  const before = new Set((DB.users || []).map(u => u.name));
+  const added = r.users.filter(u => !before.has(u.name)).length;
+  const updated = r.users.length - added;
+  const matrixNote = r.permissionMatrix ? '，并覆盖/合并权限矩阵（按版本号取新的那份）' : '';
+  confirmModal('导入账号与角色',
+    `文件里共有 ${r.users.length} 个账号：新增 ${added} 个、与现有同名的 ${updated} 个（同名的按版本号取更新的那份）${matrixNote}。`
+    + `本机现有但文件里没有的账号会原样保留，不会被删除。确定导入吗？`,
+    '导入', async () => {
+      snapshot();
+      const me = DB.settings.me || '未署名';
+      await Repo.bulk(() => {
+        DB.users = mergeUserPresence(mergeByPk('name', DB.users || [], r.users), DB.users || [], r.users);
+        /* ★ 文件里带进来的新账号要改记成"我导入的" ★
+           撤销靠 updated_by 来分辨"这条是我这次操作弄出来的、还是同事的东西同步进来的"
+           （见 undoRestoreList），而导入进来的记录带的是导出方那台机器写的 updated_by。
+           不改的话，撤销会把它们当成同事的东西一律留下，"导入可以撤销"这句话就成了空头承诺。
+           只动 updated_by、不碰 rev/updated_at：合并时比的是后两者，改了会打乱"同名账号谁的版本更新"的判断；
+           而且只处理本机原本没有的那些名字，同名更新的那些仍然完整保留文件里的版本信息。 */
+        DB.users.forEach(u => { if (!before.has(u.name)) u.updated_by = me; });
+        if (r.permissionMatrix) DB.permissionMatrix = mergePermissionMatrix(DB.permissionMatrix, r.permissionMatrix);
+        /* 导入是一次性给一批账号定角色，等价于批量提权，所以每个受影响的账号都要单独留一条凭证——
+           只记一条"导入了 N 个账号"的汇总是不够的：别人的机器校验的是"某人被提成某角色有没有人批准过"，
+           它按 target/roleTo 逐条找，找不到就会把这次导入判成越权改动挡下来 */
+        r.users.forEach(u => {
+          if (!u || !u.name) return;
+          pushAdminLog(`从文件导入账号 ${u.name}，角色「${roleLabel(u.role)}」`, { target: u.name, roleTo: u.role });
+        });
+      });
+      renderShell(); renderPage();
+      showSnack(`已导入：新增 ${added} 个账号，更新 ${updated} 个（Ctrl+Z 可撤销）`);
+    });
 }
 
 /* ---- 共享文件连接：把「哪个文件」记在 IndexedDB 里，下次开页面能悄悄接回去，不用每次都重新选 ---- */
@@ -7297,7 +8186,17 @@ async function applyWideImport(mode, text) {
       const owner = get(cols, '任务项牵头人');
       const assignees = splitMulti(get(cols, '任务项参与人'));
 
-      let task = mode === 'merge' && code ? DB.tasks.find(t => !t.deleted_at && t.code === code) : null;
+      /* ★ 覆盖模式下认领已有任务的规则 ★
+         原来只按「任务项编号」找。但线下整理的表里这一列经常是空的（新任务本来就还没有编号），
+         一空就走到 else 分支新建一条——于是同一份表导第二次，编号为空的那些任务会被整批再建一遍，
+         看起来就是"所有任务都被复制了"。这正是这次事故最可能的来源。
+         补一条兜底：编号为空时，按「同一项工作下的同名任务」认领。名字和所属工作都一样，
+         在这个系统里就是同一条任务，不该再新建。 */
+      let task = null;
+      if (mode === 'merge') {
+        if (code) task = DB.tasks.find(t => !t.deleted_at && t.code === code);
+        if (!task && title) task = DB.tasks.find(t => !t.deleted_at && t.work === work.id && t.title === title);
+      }
       if (task) {
         task.work = work.id;
         if (title) task.title = title;
@@ -7339,6 +8238,13 @@ $('#file-input').addEventListener('change', evt => {
   if (entity === '__backup__') {                 // JSON 全量恢复走另一条路径
     const r = new FileReader();
     r.onload = e => importBackup(e.target.result);
+    r.readAsText(file, 'UTF-8');
+    evt.target.value = '';
+    return;
+  }
+  if (entity === '__accounts__') {               // 只导账号与角色，不碰任务数据
+    const r = new FileReader();
+    r.onload = e => importAccounts(e.target.result);
     r.readAsText(file, 'UTF-8');
     evt.target.value = '';
     return;
@@ -7568,6 +8474,12 @@ async function boot() {
   }
   const saved = await Repo.load();
   if (saved && saved.duties) {
+    /* 这份本机缓存是不是别的版本的 html 写的（见 Repo.persist 里的 localAppVersion）。
+       只记下来，不擅自清空——本机缓存有可能正是唯一一份还没推上去的改动，
+       二话不说清掉是会真丢数据的。判断和处置交给管理员，在数据页给入口。
+       没有这个字段的是这次改动之前写的老缓存，同样算"来路不明"。 */
+    _localCacheAppVersion = (saved.settings && saved.settings.localAppVersion) || '';
+    _localCacheStale = _localCacheAppVersion !== APP_VERSION;
     DB = Object.assign(DB, saved);
     DB.settings = Object.assign({ me: '', role: 'manager', year: new Date().getFullYear() }, saved.settings || {});
     ['duty', 'work', 'milestone', 'task'].forEach(e => coll(e).forEach(r => normalize(e, r)));

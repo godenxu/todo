@@ -50,8 +50,11 @@ async function main() {
   ok('按 id 去重（l2 不重复）', mergedLog.filter(e => e.id === 'l2').length === 1);
   ok('双方独有的都保留（l1/l3）', mergedLog.some(e => e.id === 'l1') && mergedLog.some(e => e.id === 'l3'));
   ok('按时间重新排序', mergedLog.map(e => e.id).join(',') === 'l1,l3,l2');
-  const bigLocal = Array.from({ length: 320 }, (_, i) => ({ id: 'a' + i, at: `2026-01-01T00:00:${String(i % 60).padStart(2, '0')}.000Z` }));
-  ok('超过 300 条会被裁掉旧的，只留最近 300 条', S.mergeChangelog(bigLocal, []).length === 300);
+  // 上限跟着 CHANGELOG_LIMIT 走，不再写死 300：日志页上线时把它从 300 提到了 800
+  const overflow = S.CHANGELOG_LIMIT + 20;
+  const bigLocal = Array.from({ length: overflow }, (_, i) => ({ id: 'a' + i, at: `2026-01-01T00:00:${String(i % 60).padStart(2, '0')}.000Z` }));
+  ok(`超过 ${S.CHANGELOG_LIMIT} 条会被裁掉旧的，只留最近 ${S.CHANGELOG_LIMIT} 条`,
+    S.mergeChangelog(bigLocal, []).length === S.CHANGELOG_LIMIT);
 
   section('纯合并函数：syncPayload 不包含 settings');
   const payload = S.syncPayload(S.DB);

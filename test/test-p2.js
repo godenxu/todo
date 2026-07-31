@@ -272,7 +272,10 @@ async function main() {
   const afterCpTask = S.byId('task', cpTask.id);
   ok('任务进度按完成比例自动算（1/2=50%）', afterCpTask.progress === 50, afterCpTask.progress);
   const cell = S.renderCellValue('task', afterCpTask, S.fieldDef('task', 'progress'), true);
-  ok('有检查点后进度单元格不再可双击编辑', !cell.includes('data-dblact="edit"'));
+  // P50 之后改了：有检查点时照样能双击，只是 openEditor 会把它转到任务详情弹窗
+  // （原来是干脆不给双击，用户点了没反应只会以为界面卡了，也不知道该去哪儿改）
+  ok('有检查点时进度单元格可以双击（转去任务详情勾里程碑）', cell.includes('data-dblact="edit"'), cell);
+  ok('并且用悬停提示说明了为什么不能直接改数字', cell.includes('自动计算'), cell);
 
   section('偏好持久化');
   S.UI.tasks.widths.title = 321;
