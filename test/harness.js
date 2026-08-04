@@ -162,8 +162,27 @@ const exportTail = `
   buildReportData, renderReport, buildReportText, personalReminderMsg, startOfWeek, endOfWeek,
   periodRange, REPORT_PERIODS, exportReportImage, dutyTreeRowsHTML, statCard, hBar,
   get reportPeriod(){return reportPeriod}, setReportPeriod(p){ reportPeriod = p; },
+  get reportOffset(){return reportOffset}, setReportOffset(v){ reportOffset = v; },
+  periodLabelFor,
   get reportExpanded(){return reportExpanded},
   get dashExpanded(){return dashExpanded},
+  PRIORITY_CYCLE_NEXT, taskItem,
+  get healthExpanded(){return _healthExpanded}, setHealthExpanded(s){ _healthExpanded = s; },
+  startAutoBackupTimer, backupTick, get backupTimer(){return _backupTimer}, get backupInFlight(){return _backupInFlight},
+  setBackupTimer(v){ _backupTimer = v; },
+  get lastBackupAuthWarnAt(){return _lastBackupAuthWarnAt}, setLastBackupAuthWarnAt(v){ _lastBackupAuthWarnAt = v; },
+  // P55：报告页区域+模块编排
+  REPORT_MODULES, REPORT_MODULE_MAP, DEFAULT_REPORT_SECTIONS, reportPresets, activeReportPreset,
+  reportSections, saveReportConfig, reportConfigPanelHTML, reportPresetIn,
+  get reportConfigOpen(){return reportConfigOpen}, setReportConfigOpen(v){ reportConfigOpen = v; },
+  promptModal,
+  /* showSnack 有个"优先级提示 1.5 秒内压住普通提示"的机制（见 _snackPriorityUntil）。
+     整个测试文件跑完往往还不到 1.5 秒，于是前面某个用例触发过一次优先级提示之后，
+     后面所有验证普通提示文案的断言都会读到空字符串——排查起来非常费劲。
+     导出一个复位口子，用例在断言提示文案之前先把这个窗口清掉。 */
+  setSnackPriorityUntil(v){ _snackPriorityUntil = v; },
+  // P55：合并熔断的新鲜度基准线 + 体检彻底删除
+  mergeDamageSince, MERGE_DAMAGE_MAX_WINDOW_MS, MERGE_DAMAGE_LIMIT, purgeHealth, PURGED_LIMIT, recordPurge,
 };`;
 
 vm.createContext(sandbox);

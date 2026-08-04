@@ -68,19 +68,28 @@ async function main() {
   ok('不再是"生成本周简报"这个纯文本按钮了', !reportHtml.includes('data-act="report-copy"'));
   ok('改成了打印/导出PDF按钮', reportHtml.includes('data-act="report-print"'));
   ok('也有导出为图片按钮', reportHtml.includes('data-act="report-image"'));
-  ok('有总览统计', reportHtml.includes('未完成任务'));
-  ok('有本周已完成任务小节', reportHtml.includes('本周已完成任务'));
-  ok('有本周已交付里程碑小节', reportHtml.includes('本周已交付里程碑'));
-  const idxDone = reportHtml.indexOf('本周已完成任务');
-  const idxAttention = reportHtml.indexOf('需要关注');
-  ok('成果小节排在"需要关注"之前', idxDone > -1 && idxAttention > -1 && idxDone < idxAttention);
+  /* P55 之后报告页的分段不再是写死的，而是由「报告编排」（区域 + 模块）决定，默认编排就是
+     处里汇报要念的四段：当期工作目标 / 当期工作状态 / 需要关注的工作 / 人员工作情况。
+     「本期已完成任务」「本期已交付里程碑」这两块从写死的默认版式里挪走了，变成可选模块——
+     数据本身（doneInRange / deliveredInRange）一点没动，管理员在编排里勾上就回来。
+     所以这里改成验证"默认四段都在、顺序对"，外加"那两个模块勾上之后确实渲染得出来"。 */
+  ok('默认编排四段都渲染出来了',
+    ['当期处室工作目标', '当期处室工作状态', '当期需要关注的工作', '人员工作情况'].every(t => reportHtml.includes(t)));
+  const idxGoal = reportHtml.indexOf('当期处室工作目标');
+  const idxAttention = reportHtml.indexOf('当期需要关注的工作');
+  const idxPeople = reportHtml.indexOf('人员工作情况');
+  ok('顺序是"目标→关注→人员"，跟汇报顺序一致', idxGoal > -1 && idxGoal < idxAttention && idxAttention < idxPeople);
   const d = S.buildReportData('week');
   ok('buildReportData 字段齐全', ['tasks', 'works', 'today', 'period', 'periodLabel', 'rangeStart', 'rangeEnd', 'open', 'overdue', 'doneInRange', 'dutyStat', 'workStat', 'deliveredInRange', 'msAttention'].every(k => k in d));
   ok('本周完成的任务被算进 doneInRange', d.doneInRange.some(t => t.id === 'p14_done_this_week'));
   ok('本周交付的里程碑被算进 deliveredInRange', d.deliveredInRange.some(m => m.id === 'p14_delivered_this_week'));
-  ok('页面上直接看得到本周完成的任务标题', reportHtml.includes('P14本周完成的任务'));
-  ok('页面上直接看得到本周交付的交付物名字', reportHtml.includes('P14本周交付物'));
-  ok('总览这行不再单独列出"逾期"这个数字（逾期挪到后面关注小节了）', !/未完成任务[\s\S]{0,80}逾期/.test(reportHtml));
+  // 把这两个可选模块加进第一个区域，验证它们的渲染逻辑本身没坏（只是不在默认编排里而已）
+  await S.saveReportConfig(cfg => { S.reportPresetIn(cfg).sections[0].modules.push('doneTasks', 'deliveredMs'); });
+  const withDone = q('#page-report').innerHTML;
+  ok('勾上"本期已完成任务"模块后，页面上看得到本周完成的任务标题', withDone.includes('P14本周完成的任务'));
+  ok('勾上"本期已交付里程碑"模块后，页面上看得到交付物名字', withDone.includes('P14本周交付物'));
+  S.DB.reportConfig = null;
+  S.renderReport();
 
   section('报告页：打印/导出图片按钮不会崩溃（真实截图/PDF渲染只能在浏览器里手动验证）');
   S.ACTIONS['report-print']();
@@ -88,19 +97,22 @@ async function main() {
   await S.ACTIONS['report-image']();
   ok('点导出图片没有抛异常，优雅降级出了提示', !!q('#snack-msg').textContent);
 
-  section('报告页：文本版本（buildReportText，仍供导出图片/打印之外的内部逻辑复用）顺序也是先成果后关注');
+  // P55：纯文本版本改成跟页面走同一份编排，不再另外维护一套写死的顺序
+  section('报告页：文本版本（buildReportText）跟页面用同一份编排、同一批模块');
   const reportText = S.buildReportText();
   ok('文本里包含统计周期说明', reportText.includes('统计周期：本周'));
-  ok('文本里包含总览小节', reportText.includes('【本期总览】'));
-  const textIdxDone = reportText.indexOf('本周已完成任务');
-  const textIdxAttention = reportText.indexOf('需要关注');
-  ok('纯文本版本里成果小节也排在关注小节之前', textIdxDone > -1 && textIdxAttention > -1 && textIdxDone < textIdxAttention);
+  ok('文本里也是默认那四段', ['当期处室工作目标', '当期处室工作状态', '当期需要关注的工作', '人员工作情况'].every(t => reportText.includes(t)));
+  const textIdxGoal = reportText.indexOf('当期处室工作目标');
+  const textIdxAttention = reportText.indexOf('当期需要关注的工作');
+  ok('纯文本版本的段落顺序跟页面一致', textIdxGoal > -1 && textIdxAttention > -1 && textIdxGoal < textIdxAttention);
 
-  section('报告页：统计周期可以切换（本周/本月/本季/本年）');
+  section('报告页：统计周期可以切换（按周/按月/按季/按年）');
   ok('REPORT_PERIODS 有四个选项', S.REPORT_PERIODS.map(p => p.key).join(',') === 'week,month,quarter,year');
   S.ACTIONS['report-period']({ period: 'month' });
   ok('切到本月后 reportPeriod 变了', S.reportPeriod === 'month');
-  ok('页面上按钮也高亮切到本月了', q('#page-report').innerHTML.includes('data-period="month"') && /data-period="month">本月<\/span>/.test(q('#page-report').innerHTML));
+  // P54 之后按钮文字改成中性的"按月"（不再是"本月"）——粒度按钮不再暗示"当前"，
+  // 是不是当前这一期改由 periodLabel 动态描述（本月/上月/下2月……）
+  ok('页面上按钮也高亮切到按月了', q('#page-report').innerHTML.includes('data-period="month"') && /data-period="month">按月<\/span>/.test(q('#page-report').innerHTML));
   const dMonth = S.buildReportData('month');
   const dQuarter = S.buildReportData('quarter');
   const dYear = S.buildReportData('year');

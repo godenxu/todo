@@ -136,8 +136,17 @@ async function main() {
     om2.task = 't_不存在';
     hc = S.healthCheck();
     ok('检出指向不存在任务的里程碑', hc.issues.some(i => i.k === 'orphanMs'));
-    await S.fixHealth('orphanMs'); await tick();
-    ok('修复后该里程碑被软删除', !!S.byId('milestone', msId).deleted_at);
+    /* P55 之后"无主里程碑"的清理方式从软删除改成了彻底删除，理由见 healthCheck 里那段注释：
+       它的所属任务记录已经完全不存在，界面上永远打不开也恢复不了，盖个 deleted_at
+       只是把"计入统计的垃圾"变成"不计入统计的垃圾"，共享文件一个字节都没小。
+       彻底删除走 purgeHealth，而且刻意要求先连上共享文件夹（避免本机数据不全时误判）。 */
+    S.setFileHandle({ name: 'fake-share.json' });
+    await S.purgeHealth('orphanMs'); await tick();
+    S.ACTIONS['modal-ok'](); await tick();
+    ok('彻底删除后该里程碑不在 DB 里了', !S.byId('milestone', msId));
+    ok('留下了墓碑（否则还没同步的机器会把它原样推回来）',
+      (S.DB.purged || []).some(p => p.entity === 'milestone' && p.id === msId));
+    S.setFileHandle(null);
     await S.undoLast(); await tick();
     ok('修复可撤销', !S.byId('milestone', msId).deleted_at);
     S.byId('milestone', msId).task = origTask;

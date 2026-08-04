@@ -78,7 +78,10 @@ async function main() {
   ok('部门领导排在处室领导之上、管理员之下', S.ROLE_RANK.director < S.ROLE_RANK.gm && S.ROLE_RANK.gm < S.ROLE_RANK.admin);
   const gmDefault = S.DEFAULT_PERMISSION_MATRIX.gm;
   ok('部门领导默认能看任务/工作/职责/图表页 + 他人任务详情', gmDefault.view_tasks && gmDefault.view_works && gmDefault.view_duties && gmDefault.view_charts && gmDefault.view_others_detail);
-  ok('数据页已经不由矩阵控制了（改成硬编码仅管理员），矩阵里不该再有这一项', !('view_data' in gmDefault));
+  // P54 之后数据页改回矩阵控制（view_data 权限），但部门领导的默认值仍然是 false，
+  // 效果跟以前的硬编码一样看不到，区别只是现在管理员可以主动放开
+  ok('部门领导默认看不了数据/日志/权限三页（矩阵里这三项默认 false）',
+    gmDefault.view_data === false && gmDefault.view_logs === false && gmDefault.view_permissions === false);
   ok('部门领导默认没有任何编辑/管理类权限', !gmDefault.edit_others_task && !gmDefault.manage_duty_work && !gmDefault.bulk_ops && !gmDefault.manage_staff_accounts && !gmDefault.manage_director_accounts && !gmDefault.system_admin);
 
   section('新增"部门领导"角色：实际生效——能看不能改，数据页/权限页都进不去');

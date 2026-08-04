@@ -28,28 +28,30 @@ async function main() {
     S.DB.shareConfig = bakShareConfig;
   };
 
-  // 数据页现在跟权限页一样，是硬编码的管理员专属（adminOnly），不再走权限矩阵——
-  // 这样就堵死了"某台设备同步下来一份老矩阵、把数据页给某个角色打开了"的口子
-  section('数据页硬编码只对管理员开放，任何角色/任何矩阵配置都改不了');
+  /* P54 之前数据页是硬编码的管理员专属（adminOnly），不走权限矩阵；P54 改成了
+     view_data 权限矩阵项，默认仍然只有管理员能看（效果跟以前一样），但管理员现在
+     可以主动放开给别的角色（比如让部门领导能看数据页做监督）。
+     这里连带验证一下"看得见页面≠能操作"这条防线还在——权限矩阵本身不guard，
+     但页面里那些真正有破坏力的按钮各自还挂着 system_admin 等独立权限检查。 */
+  section('数据页默认只对管理员开放，但现在可以由管理员在矩阵里主动放开');
   const dataPage = S.PAGES.find(p => p.key === 'data');
-  ok('数据页标记为 adminOnly', dataPage.adminOnly === true);
-  ok('数据页不再挂任何 viewPermission', !dataPage.viewPermission);
+  ok('数据页挂的是 view_data 这项查看权限', dataPage.viewPermission === 'view_data');
   S.DB.users.push({ name: 'P17测试员工', role: 'staff', salt: '', hash: '', iterations: 0 });
   S.DB.permissionMatrix = null;
   S.DB.settings.me = 'P17测试员工';
-  ok('实际生效：员工看不到数据页', !S.canSeePage(dataPage));
-  // 就算管理员手滑往矩阵里塞一个 view_data:true，也不会让数据页冒出来（矩阵已经管不着这一页了）
+  ok('默认情况下：员工看不到数据页', !S.canSeePage(dataPage));
+  // 跟以前"矩阵管不着"不同，现在矩阵里显式打开 view_data 就是真的能看见了——这是这次改动故意要的效果
   S.DB.permissionMatrix = { staff: { view_data: true } };
-  ok('矩阵里强行写 view_data:true 也没用，员工照样看不到数据页', !S.canSeePage(dataPage));
+  ok('★管理员在矩阵里主动放开 view_data 之后，员工确实能看见数据页了', S.canSeePage(dataPage));
   S.DB.permissionMatrix = null;
   S.setPage('dashboard');
   S.renderPage(); S.renderShell();
-  ok('员工导航栏里没有"数据"入口', !q('#nav').innerHTML.includes('data-page="data"'));
+  ok('默认情况下，员工导航栏里没有"数据"入口', !q('#nav').innerHTML.includes('data-page="data"'));
   S.goto('data');
-  ok('员工直接跳数据页会被弹回工作台', S.currentPage === 'dashboard', S.currentPage);
+  ok('默认情况下，员工直接跳数据页会被弹回工作台', S.currentPage === 'dashboard', S.currentPage);
   S.DB.settings.me = '测试管理员';
-  ok('管理员能看数据页', S.canSeePage(dataPage));
-  ok('管理员也能看权限页', S.canSeePage(S.PAGES.find(p => p.key === 'permissions')));
+  ok('管理员恒能看数据页（hasPermission 对管理员恒真，不读矩阵）', S.canSeePage(dataPage));
+  ok('管理员也恒能看权限页', S.canSeePage(S.PAGES.find(p => p.key === 'permissions')));
 
   section('任务详情弹窗加宽');
   const anyTask = S.DB.tasks.find(t => !t.deleted_at);

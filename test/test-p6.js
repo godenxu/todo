@@ -58,7 +58,7 @@ async function main() {
 
   section('纯合并函数：syncPayload 不包含 settings');
   const payload = S.syncPayload(S.DB);
-  ok('只有业务字段，没有 settings', Object.keys(payload).sort().join(',') === 'changelog,duties,milestones,permissionMatrix,purged,shareConfig,tasks,users,works');
+  ok('只有业务字段，没有 settings', Object.keys(payload).sort().join(',') === 'changelog,duties,milestones,permissionMatrix,purged,reportConfig,shareConfig,tasks,users,works');
   ok('settings（使用者/列宽等）确实被排除在外', !('settings' in payload));
 
   /* ★ 这一段的预期在 P48 变了 ★

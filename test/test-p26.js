@@ -82,7 +82,7 @@ async function main() {
   ok('带上了这次写入的一次性标记 writeId', fp.writeId === 'w_test');
   ok('带上了写入者和 html 版本，方便出问题时排查', fp.lastWriteBy === S.DB.settings.me && fp.lastWriteApp === S.APP_VERSION);
   ok('syncPayload 本身不含这些字段（它们不该被合并、也不该被灌回内存 DB）',
-    Object.keys(S.syncPayload(S.DB)).sort().join(',') === 'changelog,duties,milestones,permissionMatrix,purged,shareConfig,tasks,users,works');
+    Object.keys(S.syncPayload(S.DB)).sort().join(',') === 'changelog,duties,milestones,permissionMatrix,purged,reportConfig,shareConfig,tasks,users,works');
 
   section('checkDataVersion：文件版本不比我新 → 放行');
   S.setVersionBlocked(false);

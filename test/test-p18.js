@@ -58,9 +58,14 @@ async function main() {
   ok('同一行里其它已经手动配置过的键不受影响（staff.edit_others_task 还在）', S.DB.permissionMatrix.staff.edit_others_task === false);
   ok('同一行里其它已经手动配置过的键不受影响（comanager.manage_duty_work 还在）', S.DB.permissionMatrix.comanager.manage_duty_work === true);
   ok('gm 本来就是 false，不受影响', S.DB.permissionMatrix.gm.view_data === false);
-  // view_data 现在已经彻底不是权限项了（数据页改成硬编码 adminOnly），
-  // 所以"清掉之后"的正确表现是这个键压根不存在，而不是回落成 false
-  ok('迁移后矩阵里查不到 view_data 这一项了', S.getPermissionMatrix().staff.view_data === undefined && S.getPermissionMatrix().comanager.view_data === undefined);
+  /* P54 之后 view_data 又变回一个真实的权限矩阵项了（数据页从硬编码 adminOnly 改成走
+     view_data 权限，默认值改成了 false，而不是像这条迁移写这段代码时那样彻底移出矩阵）。
+     所以现在"清掉存量数据里那个过时的 true"之后，正确的表现是合并结果落回新默认值 false，
+     不是查不到这个键——这条迁移要清的是"被冻结在旧快照里的值"，不是要连键本身也抹掉，
+     这也是为什么下面第 68 行"管理员重新手动打开"还能验证成立：这个键从来没被 PERMISSIONS
+     除名过，迁移永远只清脏值，不影响它是不是一个合法的、可以正常读写的权限项。 */
+  ok('迁移后合并结果落回新默认值 false（不是查不到这个键）',
+    S.getPermissionMatrix().staff.view_data === false && S.getPermissionMatrix().comanager.view_data === false);
   ok('打上了一次性标记', S.DB.permissionMatrix._viewDataMigratedV1 === true);
   const changed2 = S.migrateViewDataDefault();
   ok('第二次跑（已经迁移过），直接跳过，不报告改动', changed2 === false);

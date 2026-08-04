@@ -25,16 +25,22 @@ async function main() {
   const groups = [...new Set(S.PERMISSIONS.map(p => p.group))];
   ok('分成 4 组：查看/操作/账号/系统', groups.sort().join(',') === ['查看', '操作', '账号', '系统'].sort().join(','), groups);
   const viewPerms = S.PERMISSIONS.filter(p => p.group === '查看').map(p => p.key).sort();
-  // 数据页已经不在权限矩阵里了（改成跟权限页一样硬编码只有管理员能看），所以查看组是 6 项不是 7 项
-  ok('查看组包含 6 项', viewPerms.length === 6, viewPerms);
+  /* P54 之后数据/日志/权限三页从硬编码 adminOnly 改成了 view_data/view_logs/view_permissions
+     三项可配置权限（默认仍然只有管理员能看，效果不变，只是变得可以由管理员主动放开）——
+     查看组因此从 6 项变成 9 项，不再是"数据页不在矩阵里"。 */
+  ok('查看组包含 9 项', viewPerms.length === 9, viewPerms);
   ok('查看组具体项正确', viewPerms.join(',') ===
-     ['view_tasks', 'view_works', 'view_duties', 'view_charts', 'view_report', 'view_others_detail'].sort().join(','));
-  ok('view_data 已经从权限矩阵里彻底移除（不再是可配置项）', !S.PERMISSIONS.some(p => p.key === 'view_data'));
+     ['view_tasks', 'view_works', 'view_duties', 'view_charts', 'view_report', 'view_others_detail',
+      'view_data', 'view_logs', 'view_permissions'].sort().join(','));
+  ok('view_data 现在是权限矩阵里的一个真实、可配置的项', S.PERMISSIONS.some(p => p.key === 'view_data'));
 
-  section('DEFAULT_PERMISSION_MATRIX：查看类默认对三个角色都开放（不因为升级突然挡住老用户）');
+  section('DEFAULT_PERMISSION_MATRIX：老的六项查看权限默认对三个角色都开放（不因为升级突然挡住老用户）；新三项默认关闭');
+  const oldViewPerms = ['view_tasks', 'view_works', 'view_duties', 'view_charts', 'view_report', 'view_others_detail'];
+  const newViewPerms = ['view_data', 'view_logs', 'view_permissions'];
   ['staff', 'comanager', 'director'].forEach(role => {
-    ok(`${role} 默认查看权限都是 true`, viewPerms.every(k => S.DEFAULT_PERMISSION_MATRIX[role][k] === true), role);
-    ok(`${role} 的矩阵里不再有 view_data 这一项`, !('view_data' in S.DEFAULT_PERMISSION_MATRIX[role]), role);
+    ok(`${role} 老的六项查看权限默认都是 true`, oldViewPerms.every(k => S.DEFAULT_PERMISSION_MATRIX[role][k] === true), role);
+    ok(`${role} 数据/日志/权限三项默认都是 false（等同于以前的硬编码管理员专属）`,
+      newViewPerms.every(k => S.DEFAULT_PERMISSION_MATRIX[role][k] === false), role);
   });
 
   section('canSeePage：工作台没有查看权限门槛，永远可见');

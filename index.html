@@ -339,6 +339,18 @@ td.cell-center { text-align: center; }
   border-radius: 8px; background: #b3261e; color: #fff; font-size: 10.5px; text-align: center; vertical-align: middle; }
 .log-pager { display: flex; align-items: center; justify-content: center; gap: 12px; margin-top: 10px; }
 .log-pager .btn[disabled] { opacity: .45; cursor: default; }
+/* ===== 报告页：区域(section) + 模块(module) 编排 ===== */
+/* 区域标题横贯整行，把下面几个模块面板视觉上收成汇报稿的一个段落 */
+.rep-region { margin-bottom: 18px; }
+.rep-region-title { font-size: 13.5px; font-weight: 700; color: var(--text); padding: 2px 0 6px;
+  border-bottom: 2px solid var(--accent); margin-bottom: 8px; }
+/* 配置面板里的一个区域块 */
+.rep-sec { border: 1px solid var(--border); border-radius: 4px; padding: 8px 10px; margin-bottom: 8px; background: var(--bg); }
+.rep-sec-h { display: flex; align-items: center; gap: 10px; font-size: 12.5px; margin-bottom: 6px; }
+.rep-mods { display: flex; flex-wrap: wrap; gap: 4px 14px; }
+.rep-mod { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--text2); cursor: pointer; white-space: nowrap; }
+.rep-mod input { accent-color: var(--accent); cursor: pointer; }
+@media print { .rep-region-title { border-bottom-color: #888; } }
 .perm-matrix th { text-align: center; }
 .perm-matrix td.cell-center input[type="checkbox"] { width: 15px; height: 15px; cursor: pointer; accent-color: var(--accent); }
 .perm-matrix td.cell-center input[type="checkbox"]:disabled { cursor: not-allowed; opacity: .6; }
@@ -386,6 +398,13 @@ td.cell-center { text-align: center; }
 .mini-list .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mini-list .p { flex-shrink: 0; color: var(--text3); font-size: 11px; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .empty-mini { color: var(--text3); font-size: 12px; padding: 6px 0; }
+/* ===== 数据体检明细 ===== */
+.health-row { border-bottom: 1px dashed var(--border); }
+.health-row:last-child { border-bottom: none; }
+.health-detail { margin: 0 0 6px 20px; padding: 4px 8px; background: var(--bg); border-radius: 4px; max-height: 180px; overflow-y: auto; }
+.health-detail-item { font-size: 11.5px; color: var(--text2); padding: 2px 0; }
+.health-detail-item.clickable { cursor: pointer; }
+.health-detail-item.clickable:hover { color: var(--accent); text-decoration: underline; }
 
 /* ===== 弹窗 ===== */
 #modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 3000; align-items: center; justify-content: center; }
@@ -641,7 +660,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260731014708';
+const APP_VERSION = 'v20260804005609';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -689,6 +708,11 @@ const PRIORITIES = [
   { v: '2', label: '中', color: '#e67e22', cls: 'pri-2' },
   { v: '3', label: '低', color: '#4a7fa5', cls: 'pri-3' },
 ];
+/* 优先级单击循环的顺序：中→高→低→中，不是选项数组本身的排列顺序（高→中→低→高）。
+   这是用户明确要的顺序，跟"点着看更急"的直觉一致：平时大多数任务是"中"，点一下升到"高"最常用，
+   不小心点两下落到"低"也比落回"中"更容易察觉是点多了。单独给个映射表，
+   不去改 PRIORITIES 数组本身的顺序——那个顺序还要给下拉框、筛选面板、图表用，动它影响面太大。 */
+const PRIORITY_CYCLE_NEXT = { '2': '1', '1': '3', '3': '2' };
 const ROLES = [
   { v: 'staff',     label: '员工' },
   { v: 'comanager', label: '组长' },
@@ -702,7 +726,17 @@ const ROLE_RANK = { staff: 0, comanager: 1, director: 2, gm: 3, admin: 4 };
    不放进矩阵存储、也不接受配置——这是唯一不可配置的一条，否则管理员一不小心就能把自己锁死）。 */
 /* 权限项分"查看/操作/账号/系统"四组，矩阵表里按组分段展示，不是一份摊平的长列表。
    查看类默认对所有角色开放（跟改造前"谁都能看"的老行为一致，升级不会突然把老用户挡在外面）；
-   只有管理员主动去权限页里关掉，才会真的收紧。 */
+   只有管理员主动去权限页里关掉，才会真的收紧。
+
+   ★ 例外：view_data / view_logs / view_permissions 这三项默认对所有角色关闭 ★
+   数据页装着连接/断开共享文件、清空全部数据这些操作的入口，权限页装着账号与角色管理、
+   权限矩阵本身——虽然点进去之后每个具体操作各自还要再过一遍自己的权限检查（system_admin/
+   manage_director_accounts 等，见对应 ACTIONS），并不会因为看得见页面就能乱动，
+   但这两页本身暴露的信息量（全处账号名单、谁是什么角色、内部运维配置）不适合默认对所有人可见。
+   日志页同理，里面是"谁在什么时候登录、改了什么"的全处记录。
+   所以这三项默认关闭、只有管理员默认能看，跟这次改造之前的硬编码行为完全一致——
+   管理员要是想让某个信得过的角色（比如部门领导）也能看数据页做个监督，
+   自己来权限页手动打开就行。 */
 const PERMISSIONS = [
   { key: 'view_tasks', label: '查看任务页', group: '查看' },
   { key: 'view_works', label: '查看工作页', group: '查看' },
@@ -710,9 +744,15 @@ const PERMISSIONS = [
   { key: 'view_charts', label: '查看图表页', group: '查看' },
   { key: 'view_report', label: '查看报告页', group: '查看' },
   { key: 'view_others_detail', label: '查看他人负责/参与的任务详情（关闭后仍能在列表里看到该任务，但打不开详情弹窗）', group: '查看' },
+  { key: 'view_data', label: '查看数据页（数据概况、备份配置、数据体检、共享文件连接管理；默认关闭）', group: '查看' },
+  { key: 'view_logs', label: '查看日志页（全处的登录与数据变更记录；默认关闭）', group: '查看' },
+  { key: 'view_permissions', label: '查看权限页（全处账号名单、角色、权限矩阵本身；默认关闭）', group: '查看' },
   { key: 'edit_others_task', label: '编辑他人负责/参与的任务、工作', group: '操作' },
   { key: 'manage_duty_work', label: '新建/编辑/删除职责与工作', group: '操作' },
   { key: 'bulk_ops', label: 'CSV 批量导入、年度复制、数据体检修复、批量指派未归属任务', group: '操作' },
+  // 报告页的区域/模块编排是全处共用的（随共享文件同步），改一下所有人看到的简报都变了，
+  // 所以默认只有管理员能动；别人照样能看报告、能翻期、能打印导出，只是改不了编排
+  { key: 'config_report', label: '配置报告页的区域与模块编排（对全处生效；默认关闭）', group: '操作' },
   { key: 'manage_staff_accounts', label: '管理"员工/组长"账号与角色', group: '账号' },
   { key: 'manage_director_accounts', label: '管理"处室领导/部门领导/管理员"账号与角色', group: '账号' },
   { key: 'system_admin', label: '连接/断开共享文件、清空全部数据', group: '系统' },
@@ -720,21 +760,25 @@ const PERMISSIONS = [
 const DEFAULT_PERMISSION_MATRIX = {
   staff: {
     view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_others_detail: true,
-    edit_others_task: false, manage_duty_work: false, bulk_ops: false, manage_staff_accounts: false, manage_director_accounts: false, system_admin: false,
+    view_data: false, view_logs: false, view_permissions: false,
+    edit_others_task: false, manage_duty_work: false, bulk_ops: false, config_report: false, manage_staff_accounts: false, manage_director_accounts: false, system_admin: false,
   },
   comanager: {
     view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_others_detail: true,
-    edit_others_task: true, manage_duty_work: true, bulk_ops: true, manage_staff_accounts: false, manage_director_accounts: false, system_admin: false,
+    view_data: false, view_logs: false, view_permissions: false,
+    edit_others_task: true, manage_duty_work: true, bulk_ops: true, config_report: false, manage_staff_accounts: false, manage_director_accounts: false, system_admin: false,
   },
   director: {
     view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_others_detail: true,
-    edit_others_task: true, manage_duty_work: true, bulk_ops: true, manage_staff_accounts: true, manage_director_accounts: false, system_admin: false,
+    view_data: false, view_logs: false, view_permissions: false,
+    edit_others_task: true, manage_duty_work: true, bulk_ops: true, config_report: false, manage_staff_accounts: true, manage_director_accounts: false, system_admin: false,
   },
-  // 数据页和权限页不在这张矩阵里——它们写死只有管理员能看，见 PAGES 的 adminOnly。
-  // 部门领导：只看不改——其余页面和他人任务详情都能看，但没有任何编辑/管理类权限
+  // 部门领导：只看不改——其余页面和他人任务详情都能看，但没有任何编辑/管理类权限；
+  // 数据/日志/权限这三页跟别的角色一样默认关闭，管理员要放开自己来开
   gm: {
     view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_others_detail: true,
-    edit_others_task: false, manage_duty_work: false, bulk_ops: false, manage_staff_accounts: false, manage_director_accounts: false, system_admin: false,
+    view_data: false, view_logs: false, view_permissions: false,
+    edit_others_task: false, manage_duty_work: false, bulk_ops: false, config_report: false, manage_staff_accounts: false, manage_director_accounts: false, system_admin: false,
   },
 };
 
@@ -1155,10 +1199,16 @@ const TASK_VIEWS = [
 const TASK_VIEW_MAP = Object.fromEntries(TASK_VIEWS.map(v => [v.key, v]));
 
 // 工作台永远可见，当作人人都能落脚的安全页；其余页面能不能看，交给权限矩阵里对应的查看权限决定。
-// "数据"页和"权限"页是硬编码的管理员专属，不进权限矩阵、不接受任何配置：
-// 这两页装的是连接/断开共享文件、重置全部数据、导入备份、账号与角色这些能一把毁掉全处数据的操作，
-// 只要它们可配置，就存在"某台设备同步下来一份老矩阵、把它给某个角色打开了"的口子（曾经真出过这个问题），
-// 索性写死——认证过的管理员才看得见，其他人连入口都没有。
+/* "数据"页和"权限"页（连同日志页）原来是硬编码的管理员专属，不进权限矩阵、不接受任何配置——
+   当时的顾虑是：这几页装的是连接/断开共享文件、清空全部数据、账号与角色管理这些敏感操作的入口，
+   一旦可配置，就存在"某台设备同步下来一份老矩阵、把它给某个角色打开了"的口子。
+   现在改成走 view_data/view_logs/view_permissions 三项查看权限、默认对所有非管理员角色关闭
+   （见 DEFAULT_PERMISSION_MATRIX），效果上跟以前的硬编码完全一样，只是管理员可以主动放开。
+   之所以现在能放心开这个口子：这三页里真正有破坏力的操作——连接/断开共享文件、清空数据、
+   改角色、删账号、改权限矩阵本身——每一个在自己的 ACTIONS 处理函数里都还要再单独过一遍
+   system_admin / manage_director_accounts 等权限检查，不是"进得去页面就等于能操作"，
+   这里放开的只是"看不看得见"，见 renderData/renderLogs/renderPermissions 顶部的检查、
+   以及各自页面里每个按钮各自的 requirePermission 调用。 */
 const PAGES = [
   { key: 'dashboard', label: '工作台' },
   { key: 'tasks',     label: '任务', viewPermission: 'view_tasks' },
@@ -1166,14 +1216,11 @@ const PAGES = [
   { key: 'duties',    label: '职责', viewPermission: 'view_duties' },
   { key: 'charts',    label: '图表', viewPermission: 'view_charts' },
   { key: 'report',    label: '报告', viewPermission: 'view_report' },
-  { key: 'data',      label: '数据', adminOnly: true },
-  // 日志页跟数据页/权限页归为同一类：它把"谁什么时候登录过、谁改了什么"摊开给人看，
-  // 是排查用的管理视角，同样硬编码成管理员专属，不进权限矩阵
-  { key: 'logs',      label: '日志', adminOnly: true },
-  { key: 'permissions', label: '权限', adminOnly: true },
+  { key: 'data',      label: '数据', viewPermission: 'view_data' },
+  { key: 'logs',      label: '日志', viewPermission: 'view_logs' },
+  { key: 'permissions', label: '权限', viewPermission: 'view_permissions' },
 ];
 function canSeePage(p) {
-  if (p.adminOnly) return roleAtLeast('admin');
   if (p.viewPermission) return hasPermission(p.viewPermission);
   return true;
 }
@@ -1185,6 +1232,9 @@ const STORAGE_KEY = 'todo_v4';
 
 let DB = {
   duties: [], works: [], milestones: [], tasks: [], changelog: [], users: [], permissionMatrix: null, shareConfig: null,
+  // 报告页的区域/模块编排，跟权限矩阵一样是"整体对象"，见 reportSections()。老数据里没有这个字段，
+  // 为 null 时一律回落到内置的默认编排，所以旧版本写出来的共享文件照样能用
+  reportConfig: null,
   purged: [],   // 彻底删除的墓碑，见 recordPurge()
   settings: { me: '', year: new Date().getFullYear() },
 };
@@ -1235,7 +1285,13 @@ function mergeEntityList(entity, localList, remoteList) { return mergeByPk(schem
    软删除靠 deleted_at + rev 就够了：删除动作本身是一次"更新"，rev 更高，合并时压得住对方手上的旧版本。
    但彻底删除是把记录从数组里抠掉，合并规则里"我有你没有的记录就收进来"是双向的，
    于是这条记录会从任何一台还没同步的设备上原样飘回来，等于删不掉。所以彻底删除必须单独留一条墓碑。 */
-const PURGED_LIMIT = 500;
+/* 上限从 500 提到 4000。原因是"批量清理"这类操作会一次生成几百上千个墓碑
+   （比如数据体检里一次清掉全部无主里程碑），500 条的时候，同一次操作产生的墓碑
+   就足以把自己最早的那批挤掉——被挤掉的记录会从任何一台还没同步的机器上原样飘回来，
+   于是清理完第二天又冒出来一批，谁也搞不清是怎么回事。
+   一条墓碑约 80 字节，4000 条也就 300KB 上下；而它换掉的是成百上千条完整记录，
+   净下来共享文件是小了不是大了。 */
+const PURGED_LIMIT = 4000;
 function mergePurged(local, remote) {
   const map = new Map();
   [...(local || []), ...(remote || [])].forEach(p => {
@@ -1271,6 +1327,7 @@ function syncPayload(db) {
   return {
     duties: db.duties, works: db.works, milestones: db.milestones, tasks: db.tasks,
     changelog: db.changelog, users: db.users, permissionMatrix: db.permissionMatrix, shareConfig: db.shareConfig,
+    reportConfig: db.reportConfig || null,
     purged: db.purged || [],
   };
 }
@@ -1363,6 +1420,7 @@ function hasLocalContribution(local, remote) {
   // 权限矩阵/共享文件夹配置是整个对象比版本，跟 mergePermissionMatrix 的规则保持一致
   if (local.permissionMatrix && (!remote.permissionMatrix || newerRecord(local.permissionMatrix, remote.permissionMatrix))) return true;
   if (local.shareConfig && (!remote.shareConfig || newerRecord(local.shareConfig, remote.shareConfig))) return true;
+  if (local.reportConfig && (!remote.reportConfig || newerRecord(local.reportConfig, remote.reportConfig))) return true;
   return false;
 }
 /* =============================================================
@@ -1446,6 +1504,7 @@ function mergeSyncPayload(local, remote) {
     users: guard.users,
     permissionMatrix: mergePermissionMatrix(local.permissionMatrix, remote.permissionMatrix),
     shareConfig: mergePermissionMatrix(local.shareConfig, remote.shareConfig),
+    reportConfig: mergePermissionMatrix(local.reportConfig, remote.reportConfig),
     purged,
   };
 }
@@ -1459,19 +1518,57 @@ function mergeSyncPayload(local, remote) {
    动不动就卡住同步只会让人乱点，反而更危险。 */
 const MERGE_DAMAGE_LIMIT = 15;
 const MERGE_ALERT_KEY = 'todo_v4_merge_alert';
-// 合并前还活着、合并后变成已删除（或整条消失）的记录有多少条
-function mergeDamageReport(localPayload, mergedPayload) {
-  const gone = (pk, before, after) => {
+/* ★ 熔断只看"新鲜的"删除 ★（这一段是踩过坑之后加的，改之前请读完）
+
+   原来的判断是：合并前本机还活着、合并后变成已删除的记录，超过 15 条就报警。
+   听上去合理，实际误报得非常厉害，真实事故是这样的——
+   处里换了新版本之后，有 4 位同事第一次打开就撞上"这批改动删除了 XXX 条记录"的红色告警。
+   他们谁都没删过东西，别人也没有。
+
+   原因在于这个比较的基准选错了：它拿的是【本机浏览器缓存】。这几位同事的缓存停留在很久以前
+   （中间那段时间他们没打开过页面，或者一直用的是另一台机器），共享文件里这几个月正常的删除
+   ——有人删了过期任务、管理员清理过重复数据——对他们的缓存来说全都是"合并后才消失的"。
+   一次追平就把几个月的删除攒在一起报了出来。这不是事故，恰恰是同步在正常工作。
+
+   区分方法：真正的事故（误点批量删除、导入了残缺的表、文件损坏）一定是一次爆发，
+   删除时间就是刚刚；而追平进来的历史删除，deleted_at 分散在过去几周几个月。
+   所以只统计"删除时间晚于基准线"的那些：
+   · 基准线优先取本机上次跟共享文件对上账的时间（settings.lastSyncAt）——
+     天天在用的人这个窗口只有几分钟，任何爆发都逃不掉，历史删除一条都不会误算；
+   · 但基准线最多往回追 24 小时（MERGE_DAMAGE_MAX_WINDOW_MS）。久违重连的人
+     lastSyncAt 可能是三个月前，不封顶的话又退回原来那个误报。
+   代价是：如果一场事故发生后 24 小时内没有任何人在线，之后再连上的人不会收到告警。
+   这个取舍是划算的——真出事时处里必然有人当天就在用，而误报的代价（所有人被吓一跳、
+   还可能真去点回滚，把别人的正常改动滚掉）比漏报大得多。 */
+const MERGE_DAMAGE_MAX_WINDOW_MS = 24 * 60 * 60 * 1000;
+// 算出这次合并的"新鲜"基准线：本机上次对账时间与 24 小时前，取更晚的那个
+function mergeDamageSince(db, nowMs) {
+  const now = nowMs || Date.now();
+  const cap = new Date(now - MERGE_DAMAGE_MAX_WINDOW_MS).toISOString();
+  const last = (db && db.settings && db.settings.lastSyncAt) || '';
+  return last > cap ? last : cap;
+}
+// 合并前还活着、合并后变成已删除（或整条消失）的记录有多少条——只算 since 之后发生的删除
+function mergeDamageReport(localPayload, mergedPayload, since) {
+  since = since || '';
+  // 整条从数组里消失 = 被彻底删除，它的时间只能去墓碑里查（见 recordPurge）；
+  // 查不到墓碑属于说不清来路的消失，宁可报出来让人看一眼，不静悄悄放过
+  const purgeAt = new Map((mergedPayload.purged || []).map(p => [p.entity + ' ' + p.id, p.at || '']));
+  const fresh = at => !since || (at || '') >= since;
+  const gone = (entity, pk, before, after) => {
     const m = new Map((after || []).map(r => [r[pk], r]));
-    return (before || []).filter(r => !r.deleted_at)
-      .filter(r => { const o = m.get(r[pk]); return !o || !!o.deleted_at; }).length;
+    return (before || []).filter(r => !r.deleted_at).filter(r => {
+      const o = m.get(r[pk]), key = entity + ' ' + r[pk];
+      if (!o) return purgeAt.has(key) ? fresh(purgeAt.get(key)) : true;
+      return !!o.deleted_at && fresh(o.deleted_at);
+    }).length;
   };
   const r = {
-    tasks: gone('id', localPayload.tasks, mergedPayload.tasks),
-    milestones: gone('id', localPayload.milestones, mergedPayload.milestones),
-    works: gone('id', localPayload.works, mergedPayload.works),
-    duties: gone('code', localPayload.duties, mergedPayload.duties),
-    users: gone('name', localPayload.users, mergedPayload.users),
+    tasks: gone('task', 'id', localPayload.tasks, mergedPayload.tasks),
+    milestones: gone('milestone', 'id', localPayload.milestones, mergedPayload.milestones),
+    works: gone('work', 'id', localPayload.works, mergedPayload.works),
+    duties: gone('duty', 'code', localPayload.duties, mergedPayload.duties),
+    users: gone('user', 'name', localPayload.users, mergedPayload.users),
   };
   r.total = r.tasks + r.milestones + r.works + r.duties + r.users;
   return r;
@@ -1480,7 +1577,9 @@ function mergeDamageReport(localPayload, mergedPayload) {
    只挂在其中一条上的话，另一条就成了绕过检测的后门（历史上这类"只改了一半"的问题出过好几次）。
    必须在 Object.assign(db, merged) 之前拿到 localPayload，它是"合并前"的那份基准。 */
 function noteMergeAlerts(localPayload, merged) {
-  const damage = mergeDamageReport(localPayload, merged);
+  // 基准线要在 Object.assign 之前取的那份 settings 上算——settings 不进合并，
+  // 这里从 DB 上读没问题，但语义上它代表"本机上次对账时间"，跟 localPayload 是同一时刻的东西
+  const damage = mergeDamageReport(localPayload, merged, mergeDamageSince(DB));
   if (damage.total > MERGE_DAMAGE_LIMIT) {
     armMergeDamageAlert(localPayload, damage);
     pushAlertLog(`同步进来的这批改动删除了 ${damage.total} 条记录（任务 ${damage.tasks}、里程碑 ${damage.milestones}、工作 ${damage.works}、职责 ${damage.duties}、账号 ${damage.users}），已在本机留底，可回滚`);
@@ -1525,6 +1624,7 @@ let _needPermissionRestore = false;   // 连过、句柄也还在，只是刷新
    它存在的意义：区分"本来就是单机用"和"应该同步但这会儿没连上"。后者必须报警，前者不该打扰。 */
 let _everConnected = false;
 let _lastUnsyncedWarnAt = 0;   // "改动没同步"的提示做节流，不然连着改十条就弹十次
+let _lastBackupAuthWarnAt = 0;   // 自动备份因为授权失效而跳过时的提示节流（见 runBackup）
 const IDB_NAME = 'todoapp_fsa', IDB_STORE = 'handles', IDB_KEY = 'sharedFile';
 const IDB_BACKUP_KEY = 'backupDir';   // 管理员定期备份的目标文件夹句柄，跟共享文件夹分开存
 function idbOpen() {
@@ -1583,7 +1683,7 @@ async function idbClearHandle() {
 }
 
 function emptyRemotePayload() {
-  return { duties: [], works: [], milestones: [], tasks: [], changelog: [], users: [], permissionMatrix: null, shareConfig: null, purged: [] };
+  return { duties: [], works: [], milestones: [], tasks: [], changelog: [], users: [], permissionMatrix: null, shareConfig: null, reportConfig: null, purged: [] };
 }
 /* 读共享文件当前内容。返回 null 表示"这个文件的内容没法用"（不是合法 JSON，或者不是本应用的数据格式），
    调用方遇到 null 一律放弃本次写入——宁可这次不同步，也不能拿一份看不懂的文件当"空数据"覆盖掉。
@@ -2689,8 +2789,10 @@ window.addEventListener('hashchange', () => {
    10. 外壳：导航 / 侧栏 / 工具栏
    ============================================================= */
 function renderShell() {
-  // 日志页上挂个红点：安全告警不能只躺在页面里等人主动去看，得在导航栏上就能看见
-  const alertN = roleAtLeast('admin') ? securityAlertCount() : 0;
+  // 日志页上挂个红点：安全告警不能只躺在页面里等人主动去看，得在导航栏上就能看见。
+  // 跟 view_logs 权限对齐，不再单独写死管理员——管理员本来就恒为真，这里只是让"被放开了
+  // 日志查看权限的角色"同样看得到红点，不会出现"进得去日志页、却看不到告警提醒"的怪状态
+  const alertN = hasPermission('view_logs') ? securityAlertCount() : 0;
   $('#nav').innerHTML = PAGES.filter(canSeePage).map(p =>
     `<div class="nav-item${currentPage === p.key ? ' active' : ''}" data-act="goto" data-page="${p.key}">${esc(p.label)}`
     + `${p.key === 'logs' && alertN ? `<span class="nav-badge">${alertN}</span>` : ''}</div>`).join('');
@@ -2781,7 +2883,10 @@ function facetBlock(entity, f, rows, filters, act) {
 
 function renderSidebar() {
   const sb = $('#sidebar');
-  const foot = `<div class="sb-copyright">&#174; 科技规划处&nbsp;徐捷<br><span style="opacity:.7">存储：${esc(Repo.name)}</span><br><span style="opacity:.55">${esc(APP_VERSION)}</span></div>`;
+  /* 左下角只留两样：著作权信息 + 版本号。
+     中间原来还有一行"存储：IndexedDB"，那是实现细节，对使用者没有任何意义，去掉；
+     版本号必须留着——排查"谁还在用旧版本"就是靠这个（见 appVersionCellHTML）。 */
+  const foot = `<div class="sb-copyright">&#174; 科技规划处&nbsp;徐捷<br><span style="opacity:.55">${esc(APP_VERSION)}</span></div>`;
   let html = '';
 
   if (currentPage === 'tasks') {
@@ -4311,31 +4416,55 @@ function bindTrendHover(wrapId, labelA, labelB) {
    本周/本月/本季/本年；导出支持打印成 PDF、或一键存成图片，不再是纯文本
    ============================================================= */
 let reportPeriod = 'week';
+/* 原来按钮上写的是"本周/本月/本季/本年"，隐含了"这四个按钮永远指向当前这一期"的假设。
+   加了前后翻期之后这个假设不再成立——按钮真正切换的是"看的粒度是周/月/季/年"，
+   跟"看的是哪一期"是两件事，所以按钮文字改成中性的"按周/按月/按季/按年"，
+   具体是不是本期、是往前还是往后翻了几期，交给下面 periodLabelFor 生成的动态文案和
+   面板里直接摆出来的起止日期去说清楚。 */
 const REPORT_PERIODS = [
-  { key: 'week',    label: '本周' },
-  { key: 'month',   label: '本月' },
-  { key: 'quarter', label: '本季' },
-  { key: 'year',    label: '本年' },
+  { key: 'week',    label: '按周' },
+  { key: 'month',   label: '按月' },
+  { key: 'quarter', label: '按季' },
+  { key: 'year',    label: '按年' },
 ];
+// 在当前粒度下，相对于"现在"翻了几期：0 = 本期，负数往前，正数往后。切换粒度时会归零（见 report-period）
+let reportOffset = 0;
 let reportExpanded = new Set();   // 报告页里展开了哪些职责（要看它下面的工作明细）
-function periodRange(period) {
-  const d = new Date();
+// period + offset → 起止日期。offset 用整期整期地挪（挪一周/一整个月/一整个季度/一整年），
+// 不是简单地挪 N 天——月份天数不一样、季度更是三个月一挪，只有基于"年/月/周数"做整数偏移
+// 再交给 Date 构造函数才不会挪出偏差（Date 对超范围的月份/日期会自动进位，这里刚好借力）
+function periodRange(period, offset) {
+  offset = offset || 0;
+  const now = new Date();
   if (period === 'month') {
-    return { start: fmtLocal(new Date(d.getFullYear(), d.getMonth(), 1)), end: fmtLocal(new Date(d.getFullYear(), d.getMonth() + 1, 0)) };
+    const m = now.getMonth() + offset;
+    return { start: fmtLocal(new Date(now.getFullYear(), m, 1)), end: fmtLocal(new Date(now.getFullYear(), m + 1, 0)) };
   }
   if (period === 'quarter') {
-    const q = Math.floor(d.getMonth() / 3);
-    return { start: fmtLocal(new Date(d.getFullYear(), q * 3, 1)), end: fmtLocal(new Date(d.getFullYear(), q * 3 + 3, 0)) };
+    const q = Math.floor(now.getMonth() / 3) + offset;
+    return { start: fmtLocal(new Date(now.getFullYear(), q * 3, 1)), end: fmtLocal(new Date(now.getFullYear(), q * 3 + 3, 0)) };
   }
   if (period === 'year') {
-    return { start: fmtLocal(new Date(d.getFullYear(), 0, 1)), end: fmtLocal(new Date(d.getFullYear(), 11, 31)) };
+    const y = now.getFullYear() + offset;
+    return { start: fmtLocal(new Date(y, 0, 1)), end: fmtLocal(new Date(y, 11, 31)) };
   }
-  return { start: startOfWeek(), end: endOfWeek() };   // 默认：本周
+  // 周：先按老办法算出本周一，再整周平移
+  const day = now.getDay(), diffToMon = day === 0 ? 6 : day - 1;
+  const monday = new Date(now); monday.setDate(now.getDate() - diffToMon + offset * 7);
+  const sunday = new Date(monday); sunday.setDate(monday.getDate() + 6);
+  return { start: fmtLocal(monday), end: fmtLocal(sunday) };
 }
-function buildReportData(period) {
+// 本期/上N期/下N期——中文习惯"上周"不说"上1周"，N≥2 才带数字
+function periodLabelFor(period, offset) {
+  const unit = { week: '周', month: '月', quarter: '季', year: '年' }[period] || '周';
+  if (!offset) return '本' + unit;
+  const n = Math.abs(offset);
+  return (offset < 0 ? '上' : '下') + (n === 1 ? '' : n) + unit;
+}
+function buildReportData(period, offset) {
   period = period || 'week';
-  const periodLabel = (REPORT_PERIODS.find(p => p.key === period) || REPORT_PERIODS[0]).label;
-  const { start: rangeStart, end: rangeEnd } = periodRange(period);
+  const periodLabel = periodLabelFor(period, offset || 0);
+  const { start: rangeStart, end: rangeEnd } = periodRange(period, offset);
   const tasks = visibleTasks().filter(t => !t.deleted_at);
   const works = visibleWorks();
   const today = todayStr();
@@ -4354,119 +4483,400 @@ function buildReportData(period) {
   // 本期及逾期、还没交付的里程碑：留到"需要关注"里
   const msAttention = DB.milestones.filter(m => !m.deleted_at && taskIds.has(m.task) && m.done !== '1' && m.plan_date && m.plan_date <= rangeEnd)
     .sort((a, b) => a.plan_date.localeCompare(b.plan_date));
-  return { tasks, works, today, period, periodLabel, rangeStart, rangeEnd, open, overdue, doneInRange, dutyStat, workStat, deliveredInRange, msAttention };
+
+  /* ---- 以下是"当期"口径的汇总，给报告页那几个按汇报顺序编排的模块用 ----
+     "当期涉及"刻意包含三类，缺一份汇报就说不圆：
+     · 计划完成日落在本期的——本期该干的；
+     · 实际完成日落在本期的——本期干完的（哪怕它原计划是上期的）；
+     · 还没完成、且计划完成日早于本期的——从上期欠下来带进本期的。
+     只按计划日筛的话，欠账任务会凭空消失，"当期需推进"这个数字就会明显偏小。 */
+  const inRange = dt => !!dt && dt >= rangeStart && dt <= rangeEnd;
+  const msAll = DB.milestones.filter(m => !m.deleted_at && taskIds.has(m.task));
+  const periodTasks = tasks.filter(t => inRange(t.plan_date) || inRange(t.actual_date)
+    || (isOpen(t) && t.plan_date && t.plan_date < rangeStart));
+  const periodMs = msAll.filter(m => inRange(m.plan_date) || inRange(m.actual_date)
+    || (m.done !== '1' && m.plan_date && m.plan_date < rangeStart));
+  const periodOpen = periodTasks.filter(isOpen);
+  const planTasks = tasks.filter(t => inRange(t.plan_date));   // 本期计划完成的任务
+  const planMs = msAll.filter(m => inRange(m.plan_date));      // 本期计划完成的里程碑
+  // 当期涉及到几项职责、几项工作：从当期任务往上追溯，不是数全处一共有多少
+  const dutyCodes = new Set(), workIds = new Set();
+  periodTasks.forEach(t => {
+    const w = t.work ? byId('work', t.work) : null;
+    if (!w) return;
+    workIds.add(w.id);
+    if (w.duty) dutyCodes.add(w.duty);
+  });
+  /* 状态分布的口径跟工作台"人员负荷"完全一致：逾期单独成一类、优先判定，
+     不再重复计进"进行中/未开始"。四类加起来正好等于当期任务总数，汇报时不会对不上账。 */
+  const statusStat = { done: 0, doing: 0, todo: 0, late: 0 };
+  periodTasks.forEach(t => {
+    if (isOverdue(t)) statusStat.late++;
+    else if (t.status === 'done') statusStat.done++;
+    else if (t.status === 'doing') statusStat.doing++;
+    else statusStat.todo++;   // 未开始 + 挂起
+  });
+  const spi = computeSPI(periodTasks);
+  const byPlanDate = (a, b) => (a.plan_date || '').localeCompare(b.plan_date || '');
+  const highPriTasks = periodOpen.filter(t => t.priority === '1').sort(byPlanDate);
+  const overdueMs = msAll.filter(m => m.done !== '1' && m.plan_date && m.plan_date < today).sort(byPlanDate);
+  // "即将到期"= 今天起到本期结束之间要交的、还没完成的。不用"未来 N 天"是为了跟所选周期对齐——
+  // 按月汇报时想知道的就是"这个月剩下还有什么要交"，固定 7 天会把月底的东西漏在报告外面
+  const soonTasks = periodOpen.filter(t => t.plan_date && t.plan_date >= today && t.plan_date <= rangeEnd).sort(byPlanDate);
+  const soonMs = msAll.filter(m => m.done !== '1' && m.plan_date && m.plan_date >= today && m.plan_date <= rangeEnd).sort(byPlanDate);
+  // 人员工作情况：口径跟工作台人员负荷一致（牵头 ∪ 参与，同一条任务两边都算）
+  const loadMap = new Map();
+  periodTasks.forEach(t => {
+    const people = personUnion('task', t);
+    (people.length ? people : ['（未指派）']).forEach(who => {
+      if (!loadMap.has(who)) loadMap.set(who, { done: 0, doing: 0, todo: 0, late: 0 });
+      const e = loadMap.get(who);
+      if (isOverdue(t)) e.late++;
+      else if (t.status === 'done') e.done++;
+      else if (t.status === 'doing') e.doing++;
+      else e.todo++;
+    });
+  });
+  const peopleStat = [...loadMap.entries()].map(([nm, v]) => ({ nm, ...v, total: v.done + v.doing + v.todo + v.late }))
+    .sort((a, b) => {
+      if (a.nm === '（未指派）') return 1;
+      if (b.nm === '（未指派）') return -1;
+      return a.nm.localeCompare(b.nm, 'zh');
+    });
+
+  return { tasks, works, today, period, periodLabel, rangeStart, rangeEnd, open, overdue, doneInRange, dutyStat, workStat, deliveredInRange, msAttention,
+    periodTasks, periodMs, periodOpen, planTasks, planMs, dutyCodes, workIds, statusStat, spi,
+    highPriTasks, overdueMs, soonTasks, soonMs, peopleStat };
 }
-// 职责推进条：可以点箭头展开，看这个职责下面各工作各自的推进情况
-function renderReport() {
-  const d = buildReportData(reportPeriod);
+/* =============================================================
+   17c. 报告页的「区域 + 模块」编排
 
-  const doneRows = d.doneInRange.length ? `<div class="mini-list">${d.doneInRange.map(t => `
+   为什么做成可配置的：这一页的用途是照着念稿子汇报，而不同场合要念的东西不一样
+   （周例会关心逾期和下周要交的，季度总结关心整体进度和人员分工）。以前是一份写死的
+   固定版式，每次汇报都要在页面上翻来翻去找需要的那几块。
+
+   两个要素，刻意分得很清楚：
+   · 区域(section)：用户自己定义的标题 + 一个区块，纯粹是"讲稿的第几部分"，系统不认识它的含义；
+   · 模块(module)：系统已有的那些数据块，用户只能从下面这个注册表里挑，不能凭空造。
+   编排整体存一份（DB.reportConfig，随共享文件同步给全处），可以存多套"存档"随时切换。
+
+   每个模块要提供三种呈现，缺一不可——三个出口（页面 / 纯文本 / 导出图片）必须永远一致，
+   不能出现"页面上看得到、导出的图里没有"这种事：
+   · html(d)   → 页面上的面板正文
+   · text(d, push) → 纯文本简报的若干行
+   · canvas(d, api) → 导出图片时用 canvas 原语画出来（api 见 exportReportImage 里的 layout） */
+/* 报告里的状态图例。跟通用的 statusLegend 差一个字："未开始"而不是"未开始/挂起"——
+   报告是给领导念的，挂起属于内部流程细节，摊在汇报材料里只会引出多余的追问；
+   统计口径上挂起本来也是跟未开始合并计数的，所以只影响这一行文字怎么写。 */
+const REPORT_STATUS_LEGEND = `<div class="legend">
+  <span><i style="background:var(--c-done)"></i>已完成</span>
+  <span><i style="background:var(--c-doing)"></i>进行中</span>
+  <span><i style="background:var(--c-late)"></i>逾期</span>
+  <span><i style="background:var(--c-todo)"></i>未开始</span></div>`;
+const REPORT_MODULES = [
+  { key: 'periodScope', label: '当期涉及范围', desc: '当期一共涉及多少职责、工作、任务、里程碑',
+    html: d => `<div class="cards">
+        ${statCard('涉及职责', d.dutyCodes.size)}
+        ${statCard('涉及工作', d.workIds.size)}
+        ${statCard('涉及任务', d.periodTasks.length)}
+        ${statCard('涉及里程碑', d.periodMs.length)}
+      </div>
+      <div class="chart-note">"涉及"= 计划完成日落在本期 + 本期实际完成 + 上期欠下来还没完成的，三者合起来去重。</div>`,
+    text: (d, push) => push(`职责 ${d.dutyCodes.size} 项 · 工作 ${d.workIds.size} 项 · 任务 ${d.periodTasks.length} 条 · 里程碑 ${d.periodMs.length} 个`),
+    canvas: (d, a) => a.line(`职责 ${d.dutyCodes.size} 项　·　工作 ${d.workIds.size} 项　·　任务 ${d.periodTasks.length} 条　·　里程碑 ${d.periodMs.length} 个`) },
+
+  { key: 'periodPlan', label: '当期工作计划量', desc: '需推进多少任务、计划完成多少任务和里程碑',
+    html: d => `<div class="cards">
+        ${statCard('需推进任务', d.periodOpen.length)}
+        ${statCard('计划完成任务', d.planTasks.length)}
+        ${statCard('计划完成里程碑', d.planMs.length)}
+      </div>
+      <div class="chart-note">"需推进"= 当期涉及的任务里还没完成的；"计划完成"= 计划完成日就落在本期之内的。</div>`,
+    text: (d, push) => push(`需推进任务 ${d.periodOpen.length} 条 · 计划完成任务 ${d.planTasks.length} 条 · 计划完成里程碑 ${d.planMs.length} 个`),
+    canvas: (d, a) => a.line(`需推进任务 ${d.periodOpen.length} 条　·　计划完成任务 ${d.planTasks.length} 条　·　计划完成里程碑 ${d.planMs.length} 个`) },
+
+  { key: 'periodStatus', label: '当期完成进度（含 SPI）', desc: '已完成/进行中/未开始/逾期各几条，加整体 SPI',
+    html: d => `<div class="cards">
+        ${statCard('SPI', d.spi === null ? '—' : d.spi.toFixed(2), d.spi === null ? '' : (d.spi >= 1 ? 'ok' : 'warn'))}
+        ${statCard('已完成', d.statusStat.done, 'ok')}
+        ${statCard('进行中', d.statusStat.doing)}
+        ${statCard('未开始', d.statusStat.todo)}
+        ${statCard('逾期', d.statusStat.late, d.statusStat.late ? 'warn' : '')}
+      </div>
+      <div class="chart-note">四类互斥、加起来正好是当期任务总数（逾期优先判定，不重复计进"进行中/未开始"）。
+      SPI = 实际进度 ÷ 计划进度，是围绕 1 的比值不是百分比：大于 1 快于计划，小于 1 落后于计划；没有计划完成时间的任务不参与。</div>`,
+    text: (d, push) => push(`SPI ${d.spi === null ? '—' : d.spi.toFixed(2)} · 已完成 ${d.statusStat.done} · 进行中 ${d.statusStat.doing} · 未开始 ${d.statusStat.todo} · 逾期 ${d.statusStat.late}`),
+    canvas: (d, a) => a.line(`SPI ${d.spi === null ? '—' : d.spi.toFixed(2)}　·　已完成 ${d.statusStat.done}　·　进行中 ${d.statusStat.doing}　·　未开始 ${d.statusStat.todo}　·　逾期 ${d.statusStat.late}`) },
+
+  { key: 'highPriority', label: '高优先级未完成任务', desc: '当期涉及的任务里优先级为"高"且还没完成的',
+    html: d => reportTaskRows(d.highPriTasks, '当期没有高优先级的未完成任务 👍'),
+    text: (d, push) => reportTaskText(d.highPriTasks, push),
+    canvas: (d, a) => a.taskRows(d.highPriTasks, '（无）') },
+
+  { key: 'overdueTasks', label: '逾期任务', desc: '已经过了计划完成时间还没完成的任务',
+    html: d => reportTaskRows(d.overdue, '没有逾期任务 👍', 'due-overdue'),
+    text: (d, push) => reportTaskText(d.overdue, push),
+    canvas: (d, a) => a.taskRows(d.overdue, '没有逾期任务', true) },
+
+  { key: 'overdueMs', label: '逾期里程碑', desc: '已经过了计划日期还没交付的里程碑',
+    html: d => reportMsRows(d.overdueMs, '没有逾期里程碑 👍', d.today),
+    text: (d, push) => reportMsText(d.overdueMs, push),
+    canvas: (d, a) => a.msRows(d.overdueMs, '没有逾期里程碑', true) },
+
+  { key: 'soonTasks', label: '即将到期任务', desc: '今天起到本期结束之间要完成、还没完成的任务',
+    html: d => reportTaskRows(d.soonTasks, '本期剩下的时间里没有待到期的任务'),
+    text: (d, push) => reportTaskText(d.soonTasks, push),
+    canvas: (d, a) => a.taskRows(d.soonTasks, '（无）') },
+
+  { key: 'soonMs', label: '即将到期里程碑', desc: '今天起到本期结束之间要交付、还没交付的里程碑',
+    html: d => reportMsRows(d.soonMs, '本期剩下的时间里没有待交付的里程碑', d.today),
+    text: (d, push) => reportMsText(d.soonMs, push),
+    canvas: (d, a) => a.msRows(d.soonMs, '（无）') },
+
+  { key: 'people', label: '人员工作情况', desc: '每位同事在当期的任务数量与状态分布',
+    html: d => {
+      if (!d.peopleStat.length) return '<div class="empty-mini">当期没有可统计的任务</div>';
+      const max = Math.max(1, ...d.peopleStat.map(l => l.total));
+      return d.peopleStat.map(l => `
+        <div class="load-row" title="${esc(l.nm)}：已完成 ${l.done}，进行中 ${l.doing}，逾期 ${l.late}，未开始 ${l.todo}">
+          <span class="nm">${esc(l.nm)}</span>
+          <span class="track">${[
+            l.done > 0 ? `<span class="seg seg-done" style="width:${l.done / max * 100}%"></span>` : '',
+            l.doing > 0 ? `<span class="seg seg-doing" style="width:${l.doing / max * 100}%"></span>` : '',
+            l.late > 0 ? `<span class="seg seg-late" style="width:${l.late / max * 100}%"></span>` : '',
+            l.todo > 0 ? `<span class="seg seg-todo" style="width:${l.todo / max * 100}%"></span>` : '',
+          ].join('')}</span>
+          <span class="num">${l.done + l.doing + l.late + l.todo} 条</span></div>`).join('')
+        + REPORT_STATUS_LEGEND
+        + `<div class="chart-note">口径是"牵头 ∪ 参与"，同一条任务在牵头人和参与人名下都算一次，所以各人相加会大于任务总数；这只是任务条数，不代表工作量。</div>`;
+    },
+    text: (d, push) => {
+      if (!d.peopleStat.length) { push('- 无'); return; }
+      d.peopleStat.forEach(l => push(`- ${l.nm}：共 ${l.total} 条（已完成 ${l.done}、进行中 ${l.doing}、逾期 ${l.late}、未开始 ${l.todo}）`));
+    },
+    canvas: (d, a) => {
+      if (!d.peopleStat.length) { a.empty('（无）'); return; }
+      const max = Math.max(1, ...d.peopleStat.map(l => l.total));
+      d.peopleStat.forEach(l => a.bar(l.nm, { done: l.done, doing: l.doing, late: l.late, todo: l.todo, total: l.total, rate: l.total ? Math.round(l.done / l.total * 100) : 0 }, max, 0, false));
+    } },
+
+  { key: 'doneTasks', label: '本期已完成任务', desc: '实际完成日落在本期内的任务清单',
+    html: d => reportTaskRows(d.doneInRange, `${d.periodLabel}还没有完成的任务`, '', 'actual_date', 'var(--done)'),
+    text: (d, push) => d.doneInRange.length ? d.doneInRange.forEach(t => push(`- ${fmtDate(t.actual_date)}　${t.title}（${t.owner || '未指派'}）`)) : push('- 无'),
+    canvas: (d, a) => a.taskRows(d.doneInRange, '（无）', false, 'actual_date', 'done') },
+
+  { key: 'deliveredMs', label: '本期已交付里程碑', desc: '实际交付日落在本期内的里程碑清单',
+    html: d => reportMsRows(d.deliveredInRange, `${d.periodLabel}还没有交付的里程碑`, d.today, 'actual_date', 'var(--done)'),
+    text: (d, push) => d.deliveredInRange.length ? d.deliveredInRange.forEach(m => { const mt = byId('task', m.task); push(`- ${fmtDate(m.actual_date)}　${m.deliverable || '（未填写交付物）'}（${mt ? mt.title : ''}）`); }) : push('- 无'),
+    canvas: (d, a) => a.msRows(d.deliveredInRange, '（无）', false, 'actual_date', 'done') },
+
+  { key: 'dutyTree', label: '各职责/工作推进情况', desc: '按职责汇总的进度条，可展开看每项工作',
+    html: d => dutyTreeRowsHTML(d.dutyStat, d.workStat, reportExpanded, 'report-duty-toggle')
+      + REPORT_STATUS_LEGEND
+      + `<div class="no-print" style="margin-top:6px"><span class="toggle-view" data-act="report-expand-all">全部展开</span> <span class="toggle-view" data-act="report-collapse-all">全部折叠</span></div>`,
+    text: (d, push) => {
+      if (!d.dutyStat.length) { push('- 暂无数据'); return; }
+      d.dutyStat.forEach(x => {
+        push(`- ${x.name}：完成 ${x.done}/${x.total}（${x.rate}%），逾期 ${x.late} 条`);
+        d.workStat.filter(w => w.duty === x.code).forEach(w => push(`　　· ${w.name}：完成 ${w.done}/${w.total}（${w.rate}%），逾期 ${w.late} 条`));
+      });
+    },
+    canvas: (d, a) => {
+      const dutyMax = Math.max(1, ...d.dutyStat.map(x => x.total));
+      d.dutyStat.forEach(x => {
+        a.bar(x.name, x, dutyMax, 0, false);
+        const dutyWorks = d.workStat.filter(w => w.duty === x.code);
+        if (reportExpanded.has(x.code) && dutyWorks.length) {
+          const workMax = Math.max(1, ...dutyWorks.map(w => w.total));
+          dutyWorks.forEach(w => a.bar(w.name, w, workMax, 16, true));
+        }
+      });
+    } },
+];
+const REPORT_MODULE_MAP = Object.fromEntries(REPORT_MODULES.map(m => [m.key, m]));
+
+// 报告里"一条条列出来"的小清单。任务和里程碑各一个，样式跟改版前完全一致，只是抽出来给各模块复用
+const REPORT_LIST_LIMIT = 20;
+function reportTaskRows(list, emptyMsg, dateCls, dateKey, dateColor) {
+  if (!list.length) return `<div class="empty-mini">${esc(emptyMsg)}</div>`;
+  const shown = list.slice(0, REPORT_LIST_LIMIT);
+  return `<div class="mini-list">${shown.map(t => `
       <div class="li" data-act="focus-task" data-id="${t.id}" title="${esc(t.title)}">
-        <span class="d" style="color:var(--done)">${esc(fmtDate(t.actual_date))}</span>
+        <span class="d ${dateCls || ''}"${dateColor ? ` style="color:${dateColor}"` : ''}>${esc(fmtDate(t[dateKey || 'plan_date']))}</span>
         <span class="t">${esc(t.title)}</span>
-        <span class="p">${esc(workName(t.work))} · ${esc(t.owner || '未指派')}</span></div>`).join('')}</div>`
-    : `<div class="empty-mini">${esc(d.periodLabel)}还没有完成的任务</div>`;
-
-  const deliveredRows = d.deliveredInRange.length ? `<div class="mini-list">${d.deliveredInRange.map(m => {
-    const mt = byId('task', m.task);
+        <span class="p">${esc(workName(t.work))} · ${esc(t.owner || '未指派')}</span></div>`).join('')}
+    ${list.length > shown.length ? `<div class="empty-mini">还有 ${list.length - shown.length} 条…</div>` : ''}</div>`;
+}
+function reportMsRows(list, emptyMsg, today, dateKey, dateColor) {
+  if (!list.length) return `<div class="empty-mini">${esc(emptyMsg)}</div>`;
+  const shown = list.slice(0, REPORT_LIST_LIMIT);
+  return `<div class="mini-list">${shown.map(m => {
+    const mt = byId('task', m.task), dt = m[dateKey || 'plan_date'];
     return `<div class="li" data-act="cp-editor" data-id="${esc(m.task)}" title="${esc((m.deliverable || '') + ' · ' + (mt ? mt.title : ''))}">
-      <span class="d" style="color:var(--done)">${esc(fmtDate(m.actual_date))}</span>
+      <span class="d ${!dateKey && dt && dt < today ? 'due-overdue' : ''}"${dateColor ? ` style="color:${dateColor}"` : ''}>${esc(fmtDate(dt))}</span>
       <span class="t">${esc(m.deliverable || '（未填写交付物）')}</span>
       <span class="p">${esc(mt ? mt.title : '')}</span></div>`;
-  }).join('')}</div>` : `<div class="empty-mini">${esc(d.periodLabel)}还没有交付的里程碑</div>`;
+  }).join('')}
+    ${list.length > shown.length ? `<div class="empty-mini">还有 ${list.length - shown.length} 个…</div>` : ''}</div>`;
+}
+function reportTaskText(list, push) {
+  if (!list.length) { push('- 无'); return; }
+  list.forEach(t => push(`- ${fmtDate(t.plan_date)}　${t.title}（${t.owner || '未指派'}）`));
+}
+function reportMsText(list, push) {
+  if (!list.length) { push('- 无'); return; }
+  list.forEach(m => { const mt = byId('task', m.task); push(`- ${fmtDate(m.plan_date)}　${m.deliverable || '（未填写交付物）'}（${mt ? mt.title : ''}）`); });
+}
 
-  const dutyRows = dutyTreeRowsHTML(d.dutyStat, d.workStat, reportExpanded, 'report-duty-toggle');
+/* 默认编排：就是处里汇报时实际要念的那四段。
+   老数据（DB.reportConfig 为 null）和任何一套自定义存档被删光之后，都回落到这一份，
+   所以升级上来的用户什么都不用配就能直接用。 */
+const DEFAULT_REPORT_SECTIONS = [
+  { id: 'sec_goal',   title: '一、当期处室工作目标', modules: ['periodScope', 'periodPlan'] },
+  { id: 'sec_state',  title: '二、当期处室工作状态', modules: ['periodStatus', 'dutyTree'] },
+  { id: 'sec_focus',  title: '三、当期需要关注的工作', modules: ['highPriority', 'overdueTasks', 'overdueMs', 'soonTasks', 'soonMs'] },
+  { id: 'sec_people', title: '四、人员工作情况', modules: ['people'] },
+];
+const DEFAULT_PRESET_NAME = '默认编排';
+function reportPresets() {
+  const c = DB.reportConfig;
+  const list = (c && Array.isArray(c.presets)) ? c.presets.filter(p => p && p.id) : [];
+  return list.length ? list : [{ id: 'preset_default', name: DEFAULT_PRESET_NAME, sections: clone(DEFAULT_REPORT_SECTIONS) }];
+}
+function activeReportPreset() {
+  const list = reportPresets();
+  const id = DB.reportConfig && DB.reportConfig.activeId;
+  return list.find(p => p.id === id) || list[0];
+}
+// 渲染用的区域清单。这里顺手把认不出来的模块 key 滤掉——存档可能是更新的版本写的，
+// 里面引用了本机这份 html 还没有的模块，遇到就当它不存在，绝不让整页报告因此渲染不出来
+function reportSections() {
+  const p = activeReportPreset();
+  return (p.sections || []).filter(s => s && s.id).map(s => ({
+    id: s.id, title: s.title || '（未命名区域）',
+    modules: (s.modules || []).filter(k => REPORT_MODULE_MAP[k]),
+  }));
+}
+/* 保存编排。刻意不进撤销栈（不调 snapshot）：编排是配置不是数据，
+   Ctrl+Z 半路把它拨回去，人会完全搞不清自己刚才在改什么；
+   要退回原样有"恢复默认编排"这个明确的按钮。 */
+async function saveReportConfig(mutate) {
+  const cur = DB.reportConfig || {};
+  const next = {
+    presets: clone(reportPresets()),
+    activeId: activeReportPreset().id,
+    rev: (cur.rev || 0) + 1,
+    updated_at: new Date().toISOString(),
+    updated_by: DB.settings.me || '未署名',
+  };
+  mutate(next);
+  DB.reportConfig = next;
+  await Repo.persist(DB);
+  renderReport();
+}
+function reportPresetIn(cfg) { return cfg.presets.find(p => p.id === cfg.activeId) || cfg.presets[0]; }
 
-  const overdueRows = d.overdue.length
-    ? `<div class="mini-list">${d.overdue.slice(0, 15).map(t => `
-        <div class="li" data-act="focus-task" data-id="${t.id}" title="${esc(t.title)}">
-          <span class="d due-overdue">${esc(fmtDate(t.plan_date))}</span>
-          <span class="t">${esc(t.title)}</span>
-          <span class="p">${esc(workName(t.work))} · ${esc(t.owner || '未指派')}</span></div>`).join('')}
-       ${d.overdue.length > 15 ? `<div class="empty-mini">还有 ${d.overdue.length - 15} 条…</div>` : ''}</div>`
-    : `<div class="empty-mini">没有逾期任务 👍</div>`;
+let reportConfigOpen = false;   // 配置面板展开着没有（只影响本机，不进共享文件）
+// 配置面板：区域可增删改名、可上下移，每个区域里勾选要包含哪些模块；另外可以存多套编排随时切换
+function reportConfigPanelHTML() {
+  const cfg = DB.reportConfig;
+  const presets = reportPresets(), active = activeReportPreset(), sections = reportSections();
+  const presetOpts = presets.map(p => `<option value="${esc(p.id)}"${p.id === active.id ? ' selected' : ''}>${esc(p.name || '未命名')}</option>`).join('');
+  const secRows = sections.map((s, i) => `
+    <div class="rep-sec">
+      <div class="rep-sec-h">
+        <b>${esc(s.title)}</b>
+        <span style="flex:1"></span>
+        <span class="toggle-view" data-act="report-sec-rename" data-id="${esc(s.id)}">改名</span>
+        <span class="toggle-view" data-act="report-sec-move" data-id="${esc(s.id)}" data-step="-1"${i === 0 ? ' style="opacity:.3;pointer-events:none"' : ''}>上移</span>
+        <span class="toggle-view" data-act="report-sec-move" data-id="${esc(s.id)}" data-step="1"${i === sections.length - 1 ? ' style="opacity:.3;pointer-events:none"' : ''}>下移</span>
+        <span class="toggle-view" data-act="report-sec-del" data-id="${esc(s.id)}" style="color:var(--overdue)">删除</span>
+      </div>
+      <div class="rep-mods">${REPORT_MODULES.map(m => `
+        <label class="rep-mod" title="${esc(m.desc)}">
+          <input type="checkbox" data-act="report-mod-toggle" data-sec="${esc(s.id)}" data-mod="${m.key}"${s.modules.includes(m.key) ? ' checked' : ''}>
+          <span>${esc(m.label)}</span></label>`).join('')}</div>
+    </div>`).join('');
+  return `<div class="panel no-print"><div class="panel-h"><span>⚙ 报告编排</span>
+      <span class="toggle-view" data-act="report-config-toggle">${reportConfigOpen ? '收起' : '展开配置'}</span></div>
+    ${reportConfigOpen ? `<div class="panel-b">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <span class="hint">当前存档</span>
+        <select id="report-preset" data-act="report-preset-switch">${presetOpts}</select>
+        <button class="btn" data-act="report-preset-new">另存为新存档…</button>
+        <button class="btn" data-act="report-preset-rename">重命名</button>
+        <button class="btn" data-act="report-preset-del"${presets.length < 2 ? ' disabled title="至少要留一套编排"' : ''}>删除存档</button>
+        <button class="btn" data-act="report-config-reset" style="margin-left:auto">恢复默认编排</button>
+      </div>
+      ${secRows || '<div class="empty-mini">还没有任何区域，先添加一个</div>'}
+      <button class="btn primary" style="margin-top:8px" data-act="report-sec-add">＋ 添加区域</button>
+      <div class="chart-note">区域是你自己定义的汇报段落（标题 + 区块），模块是系统现有的数据块，勾上就出现在这个区域里，同一个模块可以放进多个区域。
+        编排随共享文件同步，改完全处看到的报告都会变；${cfg && cfg.updated_by ? `最后一次由 ${esc(cfg.updated_by)} 于 ${esc(fmtLocalDateTime(cfg.updated_at))} 修改。` : ''}</div>
+    </div>` : ''}</div>`;
+}
 
-  const msRows = d.msAttention.length ? `<div class="mini-list">${d.msAttention.map(m => {
-    const mt = byId('task', m.task);
-    return `<div class="li" data-act="cp-editor" data-id="${esc(m.task)}" title="${esc((m.deliverable || '') + ' · ' + (mt ? mt.title : ''))}">
-      <span class="d ${m.plan_date < d.today ? 'due-overdue' : ''}">${esc(fmtDate(m.plan_date))}</span>
-      <span class="t">${esc(m.deliverable || '（未填写交付物）')}</span>
-      <span class="p">${esc(mt ? mt.title : '')}</span></div>`;
-  }).join('')}</div>` : `<div class="empty-mini">近期没有未交付的里程碑 👍</div>`;
+function renderReport() {
+  const d = buildReportData(reportPeriod, reportOffset);
+  const sections = reportSections();
 
   const periodBtns = REPORT_PERIODS.map(p =>
     `<span class="s${reportPeriod === p.key ? ' on' : ''}" data-act="report-period" data-period="${p.key}">${esc(p.label)}</span>`).join('');
+  // 前后翻期：一次只挪一整期，跟粒度联动（按周就一周一周挪，按年就一年一年挪）。
+  // 粒度和翻期这两组按钮包在同一个容器里，让它们紧挨着——.panel-h 是 space-between，
+  // 直接摆两个兄弟节点的话会被拉到标题两边，中间隔一大片空白，看着像互不相干的两件事
+  const navBtns = `<span class="seg-ctrl" style="margin-left:8px">
+      <span class="s" data-act="report-period-nav" data-step="-1" title="往前一期">‹</span>
+      ${reportOffset ? `<span class="s" data-act="report-period-nav" data-step="0" title="回到当前这一期">回到本期</span>` : ''}
+      <span class="s" data-act="report-period-nav" data-step="1" title="往后一期">›</span>
+    </span>`;
+
+  const body = sections.map(s => {
+    const mods = s.modules.map(k => {
+      const m = REPORT_MODULE_MAP[k];
+      return `<div class="panel"><div class="panel-h"><span>${esc(m.label)}</span></div>
+        <div class="panel-b">${m.html(d)}</div></div>`;
+    }).join('');
+    return `<div class="rep-region">
+      <div class="rep-region-title">${esc(s.title)}</div>
+      ${mods || '<div class="panel"><div class="panel-b"><div class="empty-mini">这个区域还没有勾选任何模块</div></div></div>'}
+    </div>`;
+  }).join('');
 
   $('#page-report').innerHTML = `<div class="pad">
-    <div class="panel no-print"><div class="panel-h"><span>📋 处室工作简报</span><span class="seg-ctrl">${periodBtns}</span></div>
+    <div class="panel no-print"><div class="panel-h"><span>📋 处室工作简报</span>
+        <span style="display:flex;align-items:center"><span class="seg-ctrl">${periodBtns}</span>${navBtns}</span></div>
       <div class="panel-b">
-        <div class="hint" style="margin-bottom:10px">下面的内容跟着当前数据实时变化，先看这段时间干出了什么、量有多少，再看有哪些要盯紧的地方；切换上面的周期按钮可以看本周/本月/本季/本年的情况。</div>
+        <div class="hint" style="margin-bottom:10px">内容跟着当前数据实时变化。上面「按周/按月/按季/按年」切换统计粒度，右边 ‹ › 在同一粒度内前后翻期，默认停在当前这一期。
+          下面的分段和每段包含哪些内容，由报告编排决定${hasPermission('config_report') ? '，可以自己改' : '（默认只有管理员能改）'}。</div>
         <button class="btn primary" data-act="report-print">🖨 打印 / 导出 PDF</button>
         <button class="btn" style="margin-left:6px" data-act="report-image">🖼 导出为图片</button>
         <span class="hint" style="margin-left:8px">统计周期：${esc(d.periodLabel)}　${esc(d.rangeStart)} ～ ${esc(d.rangeEnd)}</span>
       </div></div>
 
+    ${hasPermission('config_report') ? reportConfigPanelHTML() : ''}
+
     <div id="report-print-area">
     <div class="panel"><div class="panel-h">📋 处室工作简报　·　统计周期：${esc(d.periodLabel)}（${esc(d.rangeStart)} ～ ${esc(d.rangeEnd)}）</div></div>
-
-    <div class="panel"><div class="panel-h">本期总览</div><div class="panel-b">
-      <div class="cards">
-        ${statCard('未完成任务（工作量）', d.open.length)}
-        ${statCard(`${d.periodLabel}完成`, d.doneInRange.length, 'ok')}
-        ${statCard(`${d.periodLabel}交付里程碑`, d.deliveredInRange.length, 'ok')}
-      </div>
-    </div></div>
-
-    <div class="panel"><div class="panel-h"><span>✅ ${esc(d.periodLabel)}已完成任务</span></div>
-      <div class="panel-b">${doneRows}</div></div>
-
-    <div class="panel"><div class="panel-h"><span>🎯 ${esc(d.periodLabel)}已交付里程碑</span></div>
-      <div class="panel-b">${deliveredRows}</div></div>
-
-    <div class="panel"><div class="panel-h"><span>▤ 各职责/工作推进情况</span>
-      <span class="no-print"><span class="toggle-view" data-act="report-expand-all">全部展开</span> <span class="toggle-view" data-act="report-collapse-all">全部折叠</span></span></div>
-      <div class="panel-b">${dutyRows}
-        <div class="legend">
-          <span><i style="background:var(--c-done)"></i>已完成</span>
-          <span><i style="background:var(--c-doing)"></i>进行中</span>
-          <span><i style="background:var(--c-late)"></i>逾期</span>
-          <span><i style="background:var(--c-todo)"></i>未开始</span>
-        </div></div></div>
-
-    <div class="panel"><div class="panel-h"><span>⚠ 需要关注：逾期任务</span><span class="hint">按到期日排序</span></div>
-      <div class="panel-b">${overdueRows}</div></div>
-
-    <div class="panel"><div class="panel-h"><span>⚠ 需要关注：即将到期/逾期未交付的里程碑</span></div>
-      <div class="panel-b">${msRows}</div></div>
+    ${body || '<div class="panel"><div class="panel-b"><div class="empty-mini">报告编排是空的，请让管理员在「报告编排」里添加区域和模块</div></div></div>'}
     </div>
   </div>`;
   $('#status-left').textContent = '报告';
 }
+// 纯文本简报：跟页面走同一份编排、同一批模块，不再另外维护一份写死的顺序
 function buildReportText() {
-  const d = buildReportData(reportPeriod);
+  const d = buildReportData(reportPeriod, reportOffset);
   const lines = [`处室工作简报（统计周期：${d.periodLabel}　${d.rangeStart} ～ ${d.rangeEnd}）`, ''];
-  lines.push('【本期总览】');
-  lines.push(`未完成任务 ${d.open.length}（工作量）· ${d.periodLabel}完成 ${d.doneInRange.length} · ${d.periodLabel}交付里程碑 ${d.deliveredInRange.length}`, '');
-  lines.push(`【${d.periodLabel}已完成任务】，共 ${d.doneInRange.length} 条`);
-  if (d.doneInRange.length) d.doneInRange.forEach(t => lines.push(`- ${fmtDate(t.actual_date)}　${t.title}（${t.owner || '未指派'}）`));
-  else lines.push('- 无');
-  lines.push('', `【${d.periodLabel}已交付里程碑】，共 ${d.deliveredInRange.length} 条`);
-  if (d.deliveredInRange.length) d.deliveredInRange.forEach(m => { const mt = byId('task', m.task); lines.push(`- ${fmtDate(m.actual_date)}　${m.deliverable || '（未填写交付物）'}（${mt ? mt.title : ''}）`); });
-  else lines.push('- 无');
-  lines.push('', '【各职责/工作推进情况】');
-  if (d.dutyStat.length) {
-    d.dutyStat.forEach(x => {
-      lines.push(`- ${x.name}：完成 ${x.done}/${x.total}（${x.rate}%），逾期 ${x.late} 条`);
-      d.workStat.filter(w => w.duty === x.code).forEach(w => lines.push(`　　· ${w.name}：完成 ${w.done}/${w.total}（${w.rate}%），逾期 ${w.late} 条`));
+  const push = s => lines.push(s);
+  reportSections().forEach(s => {
+    lines.push(`${s.title}`);
+    s.modules.forEach(k => {
+      const m = REPORT_MODULE_MAP[k];
+      lines.push(`【${m.label}】`);
+      m.text(d, push);
+      lines.push('');
     });
-  } else lines.push('- 暂无数据');
-  lines.push('', `【需要关注】逾期任务，共 ${d.overdue.length} 条${d.overdue.length > 15 ? '（仅列前 15 条）' : ''}`);
-  if (d.overdue.length) d.overdue.slice(0, 15).forEach(t => lines.push(`- ${fmtDate(t.plan_date)}　${t.title}（${t.owner || '未指派'}）`));
-  else lines.push('- 无');
-  lines.push('', `【需要关注】即将到期/逾期未交付的里程碑，共 ${d.msAttention.length} 条`);
-  if (d.msAttention.length) d.msAttention.forEach(m => { const mt = byId('task', m.task); lines.push(`- ${fmtDate(m.plan_date)}　${m.deliverable || '（未填写交付物）'}（${mt ? mt.title : ''}）`); });
-  else lines.push('- 无');
-  return lines.join('\n');
+  });
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n');
 }
 /* 报告页导出成图片：之前用 SVG foreignObject 把 HTML 塞进图里再画到 canvas 上（"穷人版 html2canvas"），
    实测在真实浏览器里会失败——常见原因是 foreignObject 里塞真实页面 HTML 常常不是合法的 XHTML（比如
@@ -4478,7 +4888,7 @@ function buildReportText() {
    不能偷懒直接照抄页面的 HTML/CSS。 */
 async function exportReportImage() {
   try {
-    const d = buildReportData(reportPeriod);
+    const d = buildReportData(reportPeriod, reportOffset);
     const W = 860, PAD = 24, LH = 22, GAP = 14;
     const COL = { text: '#2a2a2a', sub: '#6b6b6b', head: '#12466b', overdue: '#c0392b', done: '#1e7d45',
       track: '#e2ded8', bar: ['#1e7d45', '#1a6aa8', '#c0392b', '#b0a99c'], barMuted: ['#8fcda8', '#7fb3d9', '#e2a49b', '#c9c0ae'] };
@@ -4538,44 +4948,41 @@ async function exportReportImage() {
         y += LH - 4;
       };
       const empty = (text) => line(text, { color: COL.sub });
+      const IMG_LIST_LIMIT = 10;   // 图片里每个清单最多列 10 条，再多图片会长得没法看
+      // 任务/里程碑清单这两种画法各模块都要用，抽成原语挂进 api，模块自己不碰 canvas
+      const taskRows = (list, emptyText, overdueColor, dateKey, colorKey) => {
+        if (!list.length) { empty(emptyText); return; }
+        const color = colorKey === 'done' ? COL.done : (overdueColor ? COL.overdue : COL.sub);
+        list.slice(0, IMG_LIST_LIMIT).forEach(t =>
+          rowLine(fmtDate(t[dateKey || 'plan_date']), color, t.title, `${workName(t.work)} · ${t.owner || '未指派'}`));
+        if (list.length > IMG_LIST_LIMIT) line(`还有 ${list.length - IMG_LIST_LIMIT} 条…`, { color: COL.sub });
+      };
+      const msRows = (list, emptyText, overdueColor, dateKey, colorKey) => {
+        if (!list.length) { empty(emptyText); return; }
+        const color = colorKey === 'done' ? COL.done : (overdueColor ? COL.overdue : COL.sub);
+        list.slice(0, IMG_LIST_LIMIT).forEach(m => {
+          const mt = byId('task', m.task);
+          rowLine(fmtDate(m[dateKey || 'plan_date']), color, m.deliverable || '（未填写交付物）', mt ? mt.title : '');
+        });
+        if (list.length > IMG_LIST_LIMIT) line(`还有 ${list.length - IMG_LIST_LIMIT} 个…`, { color: COL.sub });
+      };
+      const api = { line, empty, bar, rowLine, taskRows, msRows };
 
       line(`处室工作简报`, { bold: true, gap: LH + 2 });
       line(`统计周期：${d.periodLabel}　${d.rangeStart} ～ ${d.rangeEnd}`, { color: COL.sub, gap: LH + GAP });
 
-      heading('本期总览');
-      line(`未完成任务 ${d.open.length}（工作量）　·　${d.periodLabel}完成 ${d.doneInRange.length}　·　${d.periodLabel}交付里程碑 ${d.deliveredInRange.length}`, { gap: LH + GAP });
-
-      heading(`✅ ${d.periodLabel}已完成任务`);
-      if (d.doneInRange.length) d.doneInRange.slice(0, 10).forEach(t => rowLine(fmtDate(t.actual_date), COL.done, t.title, `${workName(t.work)} · ${t.owner || '未指派'}`));
-      else empty('（无）');
-      y += GAP;
-
-      heading(`🎯 ${d.periodLabel}已交付里程碑`);
-      if (d.deliveredInRange.length) d.deliveredInRange.slice(0, 10).forEach(m => { const mt = byId('task', m.task); rowLine(fmtDate(m.actual_date), COL.done, m.deliverable || '（未填写交付物）', mt ? mt.title : ''); });
-      else empty('（无）');
-      y += GAP;
-
-      heading('▤ 各职责/工作推进情况');
-      const dutyMax = Math.max(1, ...d.dutyStat.map(x => x.total));
-      d.dutyStat.forEach(x => {
-        bar(x.name, x, dutyMax, 0, false);
-        const dutyWorks = d.workStat.filter(w => w.duty === x.code);
-        if (reportExpanded.has(x.code) && dutyWorks.length) {
-          const workMax = Math.max(1, ...dutyWorks.map(w => w.total));
-          dutyWorks.forEach(w => bar(w.name, w, workMax, 16, true));
-        }
+      /* 图片导出跟页面走同一份编排、同一批模块（见 REPORT_MODULES 的 canvas 出口）。
+         以前这里是写死的一套顺序，结果就是"页面上改了、导出的图还是老样子"，
+         改成由编排驱动之后，三个出口（页面/文本/图片）永远说的是同一件事。 */
+      reportSections().forEach(s => {
+        line(s.title, { bold: true, gap: LH + 2 });
+        s.modules.forEach(k => {
+          const m = REPORT_MODULE_MAP[k];
+          heading(m.label);
+          m.canvas(d, api);
+          y += GAP;
+        });
       });
-      y += GAP;
-
-      heading('⚠ 需要关注：逾期任务');
-      if (d.overdue.length) d.overdue.slice(0, 10).forEach(t => rowLine(fmtDate(t.plan_date), COL.overdue, t.title, `${workName(t.work)} · ${t.owner || '未指派'}`));
-      else empty('没有逾期任务 👍');
-      if (d.overdue.length > 10) line(`还有 ${d.overdue.length - 10} 条…`, { color: COL.sub });
-      y += GAP;
-
-      heading('⚠ 需要关注：即将到期/逾期未交付的里程碑');
-      if (d.msAttention.length) d.msAttention.slice(0, 10).forEach(m => { const mt = byId('task', m.task); rowLine(fmtDate(m.plan_date), m.plan_date < d.today ? COL.overdue : COL.sub, m.deliverable || '（未填写交付物）', mt ? mt.title : ''); });
-      else empty('近期没有未交付的里程碑 👍');
 
       return y + PAD;
     }
@@ -4645,15 +5052,18 @@ function accountsPanelHTML() {
           <td class="cell-center">${connectionStatusHTML(u)}</td>
           <td class="cell-center">${u.lastSeenAt ? esc(fmtLocalDateTime(u.lastSeenAt)) + `（${relTime(u.lastSeenAt)}）` : '<span class="hint">—</span>'}</td>
           <td class="cell-center">${appVersionCellHTML(u)}</td>
-          <td class="cell-center">${editable
-            ? `<button class="btn danger" data-act="admin-delete-user" data-name="${esc(u.name)}">删除</button>` : ''}</td></tr>`;
+          <td class="cell-center">${editable ? `${u.hash
+            ? `<button class="btn" data-act="admin-reset-pin" data-name="${esc(u.name)}" title="清掉他现在的 PIN，下次登录会让他自己重新设一个">重置 PIN</button>`
+            : ''}
+            <button class="btn danger" data-act="admin-delete-user" data-name="${esc(u.name)}" style="margin-left:6px">删除</button>` : ''}</td></tr>`;
       }).join('')}
     </tbody></table>
     <div class="hint" style="margin-top:8px">处室领导可以调整"员工/组长"两级账号的角色；"处室领导/部门领导/管理员"这三级只有管理员能改，且不能通过这里把别人改成处室领导、部门领导或管理员。
     "连接状态/最近连接"是这个账号最近一次真的把改动同步到共享文件的时间，不是网页开没开着的实时心跳——没有服务器，做不到真正的实时在线。
     "程序版本"是这个人最近一次同步时用的那份 html 的版本号——标红的说明他手上那份是旧的（多半是浏览器缓存住了、或者标签页一直没关过），
     请让他按住 Ctrl 点刷新，或者把所有标签页关掉重新打开；旧版本会被自动禁止写入共享文件，只能查看。
-    PIN 由本人第一次登录时自己设置，管理员这里看不到、也改不了别人的 PIN。
+    PIN 由本人第一次登录时自己设置，管理员这里看不到、也<b>设不了</b>别人的 PIN——"重置 PIN"做的是把他现在这个 PIN 清掉，
+    不是帮他改成什么，清掉之后他下次登录会跟第一次用这个系统一样，重新自己设一个新的。
     删除账号不会删掉这个人之前负责/参与过的任务、工作记录，只是这个账号本身没法再登录了；删除前会先确认，删完也可以 Ctrl+Z 撤销。</div>
     ${hasPermission('manage_director_accounts') ? `
     <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border)">
@@ -4812,7 +5222,8 @@ async function restoreMergeDamage() {
 }
 
 function renderLogs() {
-  if (!roleAtLeast('admin')) { goto('dashboard'); return; }
+  // hasPermission 对管理员恒真，这里换成权限判断，跟 PAGES 里 view_logs 的口径保持一致
+  if (!hasPermission('view_logs')) { goto('dashboard'); return; }
   const st = UI.logs;
   const now = Date.now();
   const all = filterLogs(DB.changelog, { range: st.range, kind: st.kind, who: st.who, now });
@@ -4882,19 +5293,21 @@ function renderLogs() {
 }
 
 function renderPermissions() {
-  if (!roleAtLeast('admin')) { goto('dashboard'); return; }
+  // 同样换成权限判断；页面里"新增账号""改角色""切权限矩阵"这些具体操作各自还有自己的
+  // requireRole('admin')/canManageAccount 等检查，看得见页面不等于点得动这些按钮
+  if (!hasPermission('view_permissions')) { goto('dashboard'); return; }
   $('#page-permissions').innerHTML = `<div class="pad">
     <div class="panel"><div class="panel-h">使用者</div><div class="panel-b">
       <div class="hint">当前身份：<b>${esc(DB.settings.me || '未设置')}</b>${myUser() ? `（${esc((ROLES.find(r => r.v === myUser().role) || {}).label)}）` : ''}</div>
       <div style="margin-top:8px"><button class="btn" data-act="switch-identity">切换身份…</button></div>
     </div></div>
-    <div class="panel"><div class="panel-h">新增账号</div><div class="panel-b">
+    ${roleAtLeast('admin') ? `<div class="panel"><div class="panel-h">新增账号</div><div class="panel-b">
       <div class="form-row"><label>姓名</label><input id="adm-new-name" placeholder="真实姓名"></div>
       <div class="form-row"><label>角色</label><select id="adm-new-role">${ROLES.map(r => `<option value="${r.v}">${esc(r.label)}</option>`).join('')}</select></div>
       <div class="form-row"><label></label><button class="btn primary" data-act="admin-new-user">创建账号</button></div>
       <div class="hint">这里不用设 PIN——同事打开这个页面时，从"请确认你的身份"里选中自己的姓名，
       第一次登录会提示他自己设置一个 PIN，以后每次登录都要输这个，管理员这边看不到、也改不了。</div>
-    </div></div>
+    </div></div>` : ''}
     ${accountsPanelHTML()}
     ${permissionMatrixPanelHTML()}
   </div>`;
@@ -5056,16 +5469,28 @@ function renderData() {
 
     <div class="panel"><div class="panel-h"><span>数据体检</span></div><div class="panel-b">
       ${hc.issues.length
-        ? hc.issues.map(i => `<div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12.5px">
-            <span style="color:${i.fix ? 'var(--overdue)' : 'var(--text2)'}">${i.fix ? '⚠' : 'ℹ'}</span>
-            <span style="flex:1">${esc(i.msg)}</span>
-            ${i.k === 'noWork' ? `<button class="btn" data-act="orphan-assign">批量指派…</button>` : ''}
-            ${i.k === 'noDate' ? `<button class="btn" data-act="health-nav-nodate">去补上…</button>` : ''}
-            ${i.fix ? `<button class="btn" data-act="health-fix" data-k="${i.k}">${esc(i.fix)}</button>` : ''}
-          </div>`).join('')
+        ? hc.issues.map(i => {
+            const open = _healthExpanded.has(i.k);
+            const items = i.items || [];
+            return `<div class="health-row">
+              <div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12.5px">
+                <span style="color:${i.fix ? 'var(--overdue)' : 'var(--text2)'}">${i.fix ? '⚠' : 'ℹ'}</span>
+                <span style="flex:1">${esc(i.msg)}</span>
+                ${items.length ? `<span class="toggle-view" data-act="health-toggle-detail" data-k="${i.k}">${open ? '收起' : '查看明细'}（${items.length}）</span>` : ''}
+                ${i.k === 'noWork' ? `<button class="btn" data-act="orphan-assign">批量指派…</button>` : ''}
+                ${i.k === 'noDate' ? `<button class="btn" data-act="health-nav-nodate">去补上…</button>` : ''}
+                ${i.fix ? `<button class="btn" data-act="health-fix" data-k="${i.k}">${esc(i.fix)}</button>` : ''}
+                ${i.purgeFix ? `<button class="btn" data-act="health-purge" data-k="${i.k}" style="color:var(--overdue)">${esc(i.purgeFix)}</button>` : ''}
+              </div>
+              ${open ? `<div class="health-detail">${items.map(it =>
+                it.act ? `<div class="health-detail-item clickable" data-act="${it.act}" data-id="${esc(it.id)}">${esc(it.label)}</div>`
+                       : `<div class="health-detail-item">${esc(it.label)}</div>`).join('')}</div>` : ''}
+            </div>`;
+          }).join('')
         : '<div class="hint">✅ 未发现引用断裂或编号冲突。</div>'}
       <div class="chart-note">体检检查：任务/里程碑指向的工作是否存在、任务的里程碑是否属于本工作、
-      同年度编号是否重复、未完成任务是否缺计划完成时间。标 ⚠ 的可一键修复，修复后 Ctrl+Z 可撤销。</div>
+      同年度编号是否重复、未完成任务是否缺计划完成时间。标 ⚠ 的可一键修复，修复后 Ctrl+Z 可撤销；
+      "查看明细"能在动手之前先核实具体是哪些数据。</div>
     </div></div>
 
     <div class="panel"><div class="panel-h">清理</div><div class="panel-b">
@@ -5242,8 +5667,13 @@ const ACTIONS = {
     snapshot();
     // 以前这里只在 entity==='task' 时才记快照/日志，工作和职责的改动一律不留痕迹
     const before = clone(r);
-    const vals = f.options.map(o => o.v);
-    r[d.field] = vals[(vals.indexOf(String(r[d.field])) + 1) % vals.length];
+    // 任务优先级走专门的中→高→低→中映射；其余（职责分类、工作状态）仍按选项数组原有顺序循环
+    if (d.entity === 'task' && d.field === 'priority') {
+      r[d.field] = PRIORITY_CYCLE_NEXT[String(r[d.field])] || f.options[0].v;
+    } else {
+      const vals = f.options.map(o => o.v);
+      r[d.field] = vals[(vals.indexOf(String(r[d.field])) + 1) % vals.length];
+    }
     pushChangeLog(d.entity, d.id, diffRecord(d.entity, before, r, [d.field]));
     await Repo.upsert(d.entity, r);
     afterEdit(d.entity, d.id, d.field);
@@ -5420,6 +5850,31 @@ const ACTIONS = {
     await Repo.persist(DB);
     renderPage();
     showSnack(`已创建账号：${name}（${roleLabel(role)}），对方首次登录时自己设置 PIN`);
+  },
+  /* 重置 PIN：清掉 salt/hash/iterations 三个字段，让这个账号回到"待首次登录设置"状态，
+     下次登录会走跟新账号一样的"自己设一个 PIN"流程（见 renderLoginPick 里 u.hash 的判断）。
+     跟"改角色"共用同一套权限收口（canManageAccount），不单独开一个权限项——
+     能管这个账号的角色，就该管得了它的 PIN 状态，没必要为这一件事再细分一层。
+     不允许重置自己：登录框里没有"改 PIN"这条路，只有首次设置，所以自己没法自助改 PIN，
+     这正是这个功能要解决的问题——只能靠别的有权限的人来重置。但如果连"重置自己"都放开，
+     清完的瞬间自己也会被顶到"待设置"状态，当场把自己挤出登录态，没有意义。 */
+  'admin-reset-pin': d => {
+    const u = DB.users.find(x => x.name === d.name && !x.deleted_at);
+    if (!u || !canManageAccount(u)) { showSnack('为了防止误操作，你暂时不能管理这个账号'); return; }
+    if (!u.hash) { showSnack('这个账号还没设置过 PIN，不用重置'); return; }
+    if (d.name === DB.settings.me) { showSnack('不能重置自己当前登录的这个账号的 PIN，请让别的有权限的人帮你重置'); return; }
+    confirmModal('重置 PIN',
+      `确定要清掉「${d.name}」的 PIN 吗？清掉之后他没法用原来的 PIN 登录了，下次登录会跟第一次用这个系统一样，
+      要求他重新自己设一个新的 PIN。这个操作可以 Ctrl+Z 撤销。`,
+      '确定重置', async () => {
+        snapshot();
+        delete u.salt; delete u.hash; delete u.iterations;
+        stampMeta(u);
+        pushAdminLog(`重置了 ${d.name} 的 PIN，对方下次登录需要重新设置`, { target: d.name });
+        await Repo.persist(DB);
+        renderPage();
+        showSnack(`已重置 ${d.name} 的 PIN`);
+      });
   },
   'admin-delete-user': d => {
     const u = DB.users.find(x => x.name === d.name && !x.deleted_at);
@@ -5625,19 +6080,117 @@ const ACTIONS = {
   },
   export: d => exportCSV(d.entity),
   'export-all': () => exportJSON(),
-  'report-period': d => { reportPeriod = d.period; renderReport(); },
+  // 换粒度（周/月/季/年）时把翻期归零：从"上3月"切到"按年"还停在偏移 3 上没有意义，
+  // 每次换粒度都应该先落回当前这一期，想再往前翻用户自己点 ‹ 就行
+  'report-period': d => { reportPeriod = d.period; reportOffset = 0; renderReport(); },
+  'report-period-nav': d => {
+    reportOffset = d.step === '0' ? 0 : reportOffset + Number(d.step);
+    renderReport();
+  },
   'report-duty-toggle': (d, el, e) => {
     if (e) e.stopPropagation();
     if (reportExpanded.has(d.code)) reportExpanded.delete(d.code); else reportExpanded.add(d.code);
     renderReport();
   },
   'report-expand-all': () => {
-    reportExpanded = new Set(buildReportData(reportPeriod).dutyStat.map(x => x.code));
+    reportExpanded = new Set(buildReportData(reportPeriod, reportOffset).dutyStat.map(x => x.code));
     renderReport();
   },
   'report-collapse-all': () => { reportExpanded.clear(); renderReport(); },
   'report-print': () => window.print(),
   'report-image': () => exportReportImage(),
+
+  /* ---- 报告编排（区域 + 模块）----
+     每个动作都单独把一次权限，不能只靠"面板本身没渲染出来"当门禁：
+     动作是全局注册的，知道名字就能从控制台调用，页面藏起来拦不住任何人。 */
+  'report-config-toggle': () => { reportConfigOpen = !reportConfigOpen; renderReport(); },
+  'report-sec-add': () => {
+    if (!requirePermission('config_report')) return;
+    promptModal('添加区域', '区域标题（就是汇报时的段落标题）', '', name => {
+      const title = (name || '').trim(); if (!title) return;
+      saveReportConfig(cfg => reportPresetIn(cfg).sections.push({ id: uid('sec'), title, modules: [] }));
+    });
+  },
+  'report-sec-rename': d => {
+    if (!requirePermission('config_report')) return;
+    const cur = reportSections().find(s => s.id === d.id); if (!cur) return;
+    promptModal('修改区域标题', '区域标题', cur.title, name => {
+      const title = (name || '').trim(); if (!title) return;
+      saveReportConfig(cfg => {
+        const s = reportPresetIn(cfg).sections.find(x => x.id === d.id);
+        if (s) s.title = title;
+      });
+    });
+  },
+  'report-sec-move': d => {
+    if (!requirePermission('config_report')) return;
+    const step = Number(d.step);
+    saveReportConfig(cfg => {
+      const list = reportPresetIn(cfg).sections;
+      const i = list.findIndex(s => s.id === d.id), j = i + step;
+      if (i < 0 || j < 0 || j >= list.length) return;
+      list.splice(j, 0, list.splice(i, 1)[0]);
+    });
+  },
+  'report-sec-del': d => {
+    if (!requirePermission('config_report')) return;
+    const cur = reportSections().find(s => s.id === d.id); if (!cur) return;
+    confirmModal('删除区域', `删除区域「${cur.title}」？只是把它从报告编排里去掉，任务/里程碑等实际数据一条都不动。`, '删除',
+      () => saveReportConfig(cfg => {
+        const p = reportPresetIn(cfg);
+        p.sections = p.sections.filter(s => s.id !== d.id);
+      }), true);
+  },
+  'report-mod-toggle': (d, el) => {
+    if (!requirePermission('config_report')) { renderReport(); return; }   // 重画一次把勾选框弹回原状
+    const on = !!(el && el.checked);
+    saveReportConfig(cfg => {
+      const s = reportPresetIn(cfg).sections.find(x => x.id === d.sec); if (!s) return;
+      if (!Array.isArray(s.modules)) s.modules = [];
+      if (on) { if (!s.modules.includes(d.mod)) s.modules.push(d.mod); }
+      else s.modules = s.modules.filter(k => k !== d.mod);
+    });
+  },
+  'report-preset-switch': (d, el) => {
+    if (!requirePermission('config_report')) { renderReport(); return; }
+    const id = el && el.value; if (!id) return;
+    saveReportConfig(cfg => { cfg.activeId = id; });
+  },
+  'report-preset-new': () => {
+    if (!requirePermission('config_report')) return;
+    promptModal('另存为新存档', '存档名称（比如"季度总结版"）', '', name => {
+      const nm = (name || '').trim(); if (!nm) return;
+      // 以当前这套为蓝本复制一份，区域 id 要重新生成，否则两套存档共用 id，改一边动另一边
+      saveReportConfig(cfg => {
+        const base = reportPresetIn(cfg);
+        const copy = { id: uid('preset'), name: nm, sections: clone(base.sections).map(s => Object.assign(s, { id: uid('sec') })) };
+        cfg.presets.push(copy);
+        cfg.activeId = copy.id;
+      });
+    });
+  },
+  'report-preset-rename': () => {
+    if (!requirePermission('config_report')) return;
+    const cur = activeReportPreset();
+    promptModal('重命名存档', '存档名称', cur.name || '', name => {
+      const nm = (name || '').trim(); if (!nm) return;
+      saveReportConfig(cfg => { reportPresetIn(cfg).name = nm; });
+    });
+  },
+  'report-preset-del': () => {
+    if (!requirePermission('config_report')) return;
+    if (reportPresets().length < 2) { showSnack('至少要留一套编排'); return; }
+    const cur = activeReportPreset();
+    confirmModal('删除存档', `删除编排存档「${cur.name || '未命名'}」？实际数据不受影响。`, '删除', () => saveReportConfig(cfg => {
+      cfg.presets = cfg.presets.filter(p => p.id !== cur.id);
+      cfg.activeId = cfg.presets[0].id;
+    }), true);
+  },
+  'report-config-reset': () => {
+    if (!requirePermission('config_report')) return;
+    confirmModal('恢复默认编排', '把当前这套存档的区域和模块恢复成系统默认的四段式？其它存档不受影响。', '恢复',
+      () => saveReportConfig(cfg => { reportPresetIn(cfg).sections = clone(DEFAULT_REPORT_SECTIONS); }), true);
+  },
   'dash-duty-toggle': (d, el, e) => {
     if (e) e.stopPropagation();
     if (dashExpanded.has(d.code)) dashExpanded.delete(d.code); else dashExpanded.add(d.code);
@@ -5830,6 +6383,13 @@ const ACTIONS = {
     goto('tasks');
   },
   'health-fix': d => { if (requirePermission('bulk_ops')) fixHealth(d.k); },
+  // 彻底删除是不可撤销的，权限门槛跟"清空全部数据"看齐，比一般体检修复更高
+  'health-purge': d => { if (requirePermission('system_admin')) purgeHealth(d.k); },
+  // 只是"看不看得见明细"的开关，不动数据，不需要权限门槛——谁能看数据页就能展开看
+  'health-toggle-detail': d => {
+    if (_healthExpanded.has(d.k)) _healthExpanded.delete(d.k); else _healthExpanded.add(d.k);
+    renderPage();
+  },
   'clear-test': () => {
     if (!requirePermission('bulk_ops')) return;
     const n = DB.tasks.filter(t => t.custom === '测试').length;
@@ -5911,7 +6471,9 @@ function afterEdit(entity, id, fieldKey) {
 // - account-role-change 是 select——点开下拉框本身就会先发一个 click（这时用户还没选完！），
 //   之前就是因为点击分发器把这次"打开下拉框"的 click 也当成了"确认选择"，选都没选就提交了
 // - logs-who 同理是个 select，点开下拉那一下的 click 不该被当成"选好了"
-const CHANGE_ONLY_ACTS = ['account-role-change', 'perm-toggle', 'backup-toggle', 'backup-interval-change', 'logs-who'];
+// - report-mod-toggle 是 checkbox、report-preset-switch 是 select，理由跟上面两条完全一样
+const CHANGE_ONLY_ACTS = ['account-role-change', 'perm-toggle', 'backup-toggle', 'backup-interval-change', 'logs-who',
+  'report-mod-toggle', 'report-preset-switch'];
 document.addEventListener('click', e => {
   if (e.target.closest('.col-resize')) return;
   const el = e.target.closest('[data-act]');
@@ -5943,6 +6505,10 @@ document.addEventListener('change', e => {
   if (bi) ACTIONS['backup-interval-change'](bi.dataset, bi, e);
   const lw = e.target.closest('[data-act="logs-who"]');
   if (lw) ACTIONS['logs-who'](lw.dataset, lw, e);
+  const rm = e.target.closest('[data-act="report-mod-toggle"]');
+  if (rm) ACTIONS['report-mod-toggle'](rm.dataset, rm, e);
+  const rp = e.target.closest('[data-act="report-preset-switch"]');
+  if (rp) ACTIONS['report-preset-switch'](rp.dataset, rp, e);
   if (e.target.classList.contains('cp-chk')) updateCpProgressPreview();   // 勾选/取消里程碑完成状态，实时刷新进度预览
 });
 document.addEventListener('dblclick', e => {
@@ -6770,7 +7336,13 @@ function workOptionsHTML(dutyCode, selectedId) {
 // 新建任务：先造一份还没入库的草稿，直接用任务详情弹窗把字段填全，点"创建"才真正落库
 function openNewTask() {
   const draft = blank('task', { status: 'todo', priority: '2', progress: 0 });
-  draft.owner = defaultTaskOwner('');
+  /* 从任务页当前的筛选/树选中状态判断用户此刻大概率是在哪项工作下面新建——直接预填所属工作，
+     省去打开详情弹窗后还要再点一次工作选择器的操作。只认"选中了具体某项工作"这一种情况
+     （UI.tasks.filters.work），只选中了职责、没往下选到具体工作时（filters._duty）
+     没法确定该填哪一项工作，宁可留空让用户自己选，不瞎猜。 */
+  const stw = UI.tasks.filters.work;
+  if (stw && stw !== '__empty__') draft.work = stw;
+  draft.owner = defaultTaskOwner(draft.work);
   openTaskDetail(draft.id, draft);
 }
 function openTaskDetail(id, draft) {
@@ -7142,16 +7714,65 @@ function openOrphanAssign() {
 }
 
 /* ---- 数据体检：找出引用断裂与明显异常 ---- */
+/* ★ 体检结果里"哪些数据有问题"要能看得到，不只是一个数字 ★
+   以前每一项体检结果只有一句话 + 一个数（"12 条任务指向了不存在的工作"），要修复只能整批点下去，
+   压根不知道具体是哪几条、点了会动到谁。对着一个不认识的数字按"一键修复"，出了事故也不知道该找谁核实。
+   这里给每一项都挂一份 items 明细（任务/工作能定位到具体记录的，点了可以跳过去看；
+   跳不到具体页面的——比如孤儿里程碑，它的任务本来就不存在了——就摆一行说明文字，好歹能核对内容对不对。 */
+function taskItem(t) {
+  return { id: t.id, label: `${t.code ? t.code + ' ' : ''}${t.title || '（无标题）'}`, act: 'focus-task' };
+}
+// 数据页里哪几项体检的"查看明细"是展开的——纯 UI 状态，不用持久化，刷新一次就该收起来
+let _healthExpanded = new Set();
 function healthCheck() {
   const issues = [];
   const orphanTasks = DB.tasks.filter(t => !t.deleted_at && t.work && !byId('work', t.work));
-  if (orphanTasks.length) issues.push({ k: 'orphanTask', n: orphanTasks.length, msg: `${orphanTasks.length} 条任务指向了不存在的工作`, fix: '清空这些任务的所属工作' });
+  if (orphanTasks.length) issues.push({ k: 'orphanTask', n: orphanTasks.length, msg: `${orphanTasks.length} 条任务指向了不存在的工作`, fix: '清空这些任务的所属工作',
+    items: orphanTasks.map(taskItem) });
 
   const noWork = DB.tasks.filter(t => !t.deleted_at && !t.work);
-  if (noWork.length) issues.push({ k: 'noWork', n: noWork.length, msg: `${noWork.length} 条任务未归属任何工作`, fix: null });
+  if (noWork.length) issues.push({ k: 'noWork', n: noWork.length, msg: `${noWork.length} 条任务未归属任何工作`, fix: null,
+    items: noWork.map(taskItem) });
 
-  const orphanMs = DB.milestones.filter(m => !m.deleted_at && (!m.task || !byId('task', m.task)));
-  if (orphanMs.length) issues.push({ k: 'orphanMs', n: orphanMs.length, msg: `${orphanMs.length} 个里程碑指向了不存在的任务`, fix: '删除这些里程碑' });
+  /* ★ 无主里程碑：所属任务的记录已经完全不存在了（不是"被删了"，是连那条记录都查不到）★
+
+     这一类刻意【连已经软删除的一起算进来】，而且清理方式是彻底删除，不是软删除——两个改动都有原因：
+
+     1) 软删除对这一类毫无意义。里程碑只能从所属任务的详情弹窗里看到和恢复，而它的任务
+        连记录都没有了，界面上永远打不开、永远恢复不了。给它盖一个 deleted_at，
+        只是把一条谁也够不着的垃圾从"计入统计的垃圾"变成"不计入统计的垃圾"，
+        它在共享文件里还是原样占着体积。
+     2) 处里反映共享 JSON 越来越大、里面一堆对不上任务的里程碑，就是这么攒起来的：
+        早期"删任务不连带删里程碑"（现在已经修了，见 cascadeSoftDeleteTask）留下一批，
+        后来体检把它们软删除，体积一个字节没少。所以这里改成真的从文件里拿掉。
+
+     彻底删除会留墓碑（见 recordPurge），否则还没同步的机器会把它们原样推回来——
+     那才是真正的"删不干净"。 */
+  const orphanMs = DB.milestones.filter(m => !m.task || !byId('task', m.task));
+  if (orphanMs.length) {
+    const aliveN = orphanMs.filter(m => !m.deleted_at).length;
+    issues.push({ k: 'orphanMs', n: orphanMs.length,
+      msg: `${orphanMs.length} 个里程碑的所属任务记录已不存在（其中 ${aliveN} 个还算在统计里，其余只占文件体积），界面上永远打不开也恢复不了`,
+      fix: null, purgeFix: '彻底删除这些里程碑',
+      // 所属任务本来就查不到了，没有页面能跳过去，只能摆出内容让人核对是不是真的该删
+      items: orphanMs.map(m => ({ label: `${m.plan_date || '（无日期）'} · ${m.deliverable || '（未填写交付物）'}${m.deleted_at ? '（已删除）' : ''}` })) });
+  }
+
+  /* 任务本身活着，但所属工作已经被"停用"（软删除）了。
+     orphanTask 抓不到这一类——它判断的是 byId 查不到所属工作，而软删除的工作仍然查得到
+     （byId 不过滤 deleted_at，这是本系统一贯的约定：软删除的记录照样能被引用解析出来）。
+     停用工作那个操作（'work-del'）的确认文案说"该工作下的任务会变为未归属"，但代码其实只
+     软删除了工作本身，没有去清空这些任务的 work 字段——这些任务因此变成了"名义上挂在一个
+     已经不存在的工作下"：workName() 直接从 byId 拿名字，不检查 deleted_at，界面上这些任务
+     还在正常显示那个（已经停用的）工作名字，完全看不出异常，跟体检文案承诺的"未归属"对不上。 */
+  const taskOfDeletedWork = DB.tasks.filter(t => {
+    if (t.deleted_at || !t.work) return false;
+    const w = byId('work', t.work);
+    return !!(w && w.deleted_at);
+  });
+  if (taskOfDeletedWork.length) issues.push({ k: 'taskOfDeletedWork', n: taskOfDeletedWork.length,
+    msg: `${taskOfDeletedWork.length} 条任务所属的工作已被停用，但任务还挂在它下面（该显示成"未归属"却没有）`,
+    fix: '清空这些任务的所属工作，让它们变成真正的未归属', items: taskOfDeletedWork.map(taskItem) });
 
   /* 所属任务已经被删掉、自己却还活着的里程碑。
      上面那条 orphanMs 抓不到这一类：它判断的是 byId 查不到所属任务，而软删除的任务仍然查得到。
@@ -7164,7 +7785,11 @@ function healthCheck() {
   });
   if (msOfDeletedTask.length) issues.push({ k: 'msOfDeletedTask', n: msOfDeletedTask.length,
     msg: `${msOfDeletedTask.length} 个里程碑的所属任务已被删除，但它们自己还留着（界面上点不到，却仍算进统计）`,
-    fix: '把这些里程碑一并删除' });
+    fix: '把这些里程碑一并删除',
+    items: msOfDeletedTask.map(m => {
+      const t = byId('task', m.task);
+      return { label: `${m.plan_date || '（无日期）'} · ${m.deliverable || '（未填写交付物）'} · 属于「${t ? t.title : '？'}」（已删除）` };
+    }) });
 
   /* ★ 重复的任务 / 工作 ★
      出现过一次"所有任务和工作都被复制成多条"的事故。最可能的来源是同一份线下表格被导入了两次：
@@ -7177,42 +7802,46 @@ function healthCheck() {
      任务 = 同一项工作下的同名任务；工作 = 同一年度下的同编号工作。
      清理时保留创建时间最早的那条（后建的才是复制品），其余软删除——
      软删除而不是抹掉，是为了万一判断错了还能在「已删除」视图里找回来。 */
-  const dupTaskIds = [];
+  const dupTaskIds = [], dupTaskRecs = [];
   const taskSeen = new Map();
   DB.tasks.filter(t => !t.deleted_at && t.work && t.title)
     .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))
     .forEach(t => {
       const key = t.work + ' ' + t.title;
-      if (taskSeen.has(key)) dupTaskIds.push(t.id); else taskSeen.set(key, t.id);
+      if (taskSeen.has(key)) { dupTaskIds.push(t.id); dupTaskRecs.push(t); } else taskSeen.set(key, t.id);
     });
   if (dupTaskIds.length) issues.push({ k: 'dupTask', n: dupTaskIds.length,
     msg: `${dupTaskIds.length} 条任务跟同一项工作下的另一条完全同名（多半是同一份表格导入了两次）`,
-    fix: '保留最早创建的那条，其余删除' });
+    fix: '保留最早创建的那条，其余删除', items: dupTaskRecs.map(taskItem) });
 
-  const dupWorkIds = [];
+  const dupWorkIds = [], dupWorkRecs = [];
   const workSeen = new Map();
   DB.works.filter(w => !w.deleted_at && w.code)
     .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))
     .forEach(w => {
       const key = w.code + ' ' + (w.year || '');
-      if (workSeen.has(key)) dupWorkIds.push(w.id); else workSeen.set(key, w.id);
+      if (workSeen.has(key)) { dupWorkIds.push(w.id); dupWorkRecs.push(w); } else workSeen.set(key, w.id);
     });
   if (dupWorkIds.length) issues.push({ k: 'dupWork', n: dupWorkIds.length,
     msg: `${dupWorkIds.length} 项工作跟同年度的另一项编号完全相同（多半是同一份表格导入了两次）`,
-    fix: '保留最早创建的那项，其余删除' });
+    fix: '保留最早创建的那项，其余删除',
+    items: dupWorkRecs.map(w => ({ label: `${w.code} ${w.name || ''}（${w.year || '无年度'}）` })) });
 
   const badDuty = DB.works.filter(w => !w.deleted_at && (!w.duty || !byId('duty', w.duty)));
-  if (badDuty.length) issues.push({ k: 'badDuty', n: badDuty.length, msg: `${badDuty.length} 项工作指向了不存在的职责`, fix: null });
+  if (badDuty.length) issues.push({ k: 'badDuty', n: badDuty.length, msg: `${badDuty.length} 项工作指向了不存在的职责`, fix: null,
+    items: badDuty.map(w => ({ label: `${w.code} ${w.name || ''}` })) });
 
   const seen = new Map(), dup = [];
   DB.works.filter(w => !w.deleted_at).forEach(w => {
     const k = w.year + '/' + w.code;
     if (seen.has(k)) dup.push(w); else seen.set(k, w);
   });
-  if (dup.length) issues.push({ k: 'dupCode', n: dup.length, msg: `${dup.length} 项工作在同一年度内编号重复`, fix: null });
+  if (dup.length) issues.push({ k: 'dupCode', n: dup.length, msg: `${dup.length} 项工作在同一年度内编号重复`, fix: null,
+    items: dup.map(w => ({ label: `${w.code} ${w.name || ''}（${w.year || '无年度'}）` })) });
 
   const noDate = DB.tasks.filter(t => !t.deleted_at && isOpen(t) && !t.plan_date);
-  if (noDate.length) issues.push({ k: 'noDate', n: noDate.length, msg: `${noDate.length} 条未完成任务没有计划完成时间`, fix: null });
+  if (noDate.length) issues.push({ k: 'noDate', n: noDate.length, msg: `${noDate.length} 条未完成任务没有计划完成时间`, fix: null,
+    items: noDate.map(taskItem) });
 
   // 没填计划完成时间、但底下已经有里程碑的任务：里程碑本身有日期，没道理任务还空着，直接拿最后一个里程碑日期补上
   const noDateHasMsMap = new Map();   // taskId -> 该任务最晚的里程碑日期
@@ -7224,7 +7853,11 @@ function healthCheck() {
     }
   });
   if (noDateHasMsMap.size) issues.push({ k: 'noDateHasMs', n: noDateHasMsMap.size,
-    msg: `${noDateHasMsMap.size} 条任务没填计划完成时间，但底下已经有里程碑`, fix: '用最后一个里程碑日期补全' });
+    msg: `${noDateHasMsMap.size} 条任务没填计划完成时间，但底下已经有里程碑`, fix: '用最后一个里程碑日期补全',
+    items: [...noDateHasMsMap.entries()].map(([taskId, date]) => {
+      const t = byId('task', taskId);
+      return t ? { id: t.id, act: 'focus-task', label: `${taskItem(t).label} → 拟补为 ${date}` } : { label: `（任务已不存在）→ ${date}` };
+    }) });
 
   // 里程碑计划日期晚于任务自己的计划完成时间，逻辑上说不通——交付物还没到，任务却已经算完成了
   const msLateMap = new Map();   // taskId -> 该任务下最晚的里程碑日期
@@ -7236,7 +7869,11 @@ function healthCheck() {
     }
   });
   if (msLateMap.size) issues.push({ k: 'msLateThanTask', n: msLateMap.size,
-    msg: `${msLateMap.size} 条任务的里程碑计划日期晚于任务本身的计划完成时间`, fix: '把这些任务的计划完成时间顺延到最晚的里程碑日期' });
+    msg: `${msLateMap.size} 条任务的里程碑计划日期晚于任务本身的计划完成时间`, fix: '把这些任务的计划完成时间顺延到最晚的里程碑日期',
+    items: [...msLateMap.entries()].map(([taskId, date]) => {
+      const t = byId('task', taskId);
+      return t ? { id: t.id, act: 'focus-task', label: `${taskItem(t).label} → 拟顺延为 ${date}` } : { label: `（任务已不存在）→ ${date}` };
+    }) });
 
   /* 同一任务下内容完全一样的重复里程碑。
      来源是一个已经修掉的 bug：任务详情保存曾经"把里程碑整批删掉再重建"，而弹窗的确定按钮又没防连点，
@@ -7245,19 +7882,23 @@ function healthCheck() {
      判定标准取得很严——任务+日期+交付物+呈报层级+完成状态全都一样才算重复，
      只留最早创建的那条。差一个字都不动，宁可漏掉也不能误删别人真填的东西。 */
   const dupMsMap = new Map();   // 保留的那条 id -> 要删掉的重复条数
-  const dupMsIds = [];
+  const dupMsIds = [], dupMsRecs = [];
   const msSeen = new Map();
   DB.milestones.filter(m => !m.deleted_at).slice()
     .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))   // 最早建的那条留下
     .forEach(m => {
       const k = [m.task, m.plan_date, m.deliverable, m.report_level, m.done].join(' ');
       const keep = msSeen.get(k);
-      if (keep) { dupMsIds.push(m.id); dupMsMap.set(keep, (dupMsMap.get(keep) || 0) + 1); }
+      if (keep) { dupMsIds.push(m.id); dupMsMap.set(keep, (dupMsMap.get(keep) || 0) + 1); dupMsRecs.push(m); }
       else msSeen.set(k, m.id);
     });
   if (dupMsIds.length) issues.push({ k: 'dupMs', n: dupMsIds.length,
     msg: `${dupMsIds.length} 个里程碑跟同一任务下的另一个完全重复（日期、交付物、呈报层级、完成状态全都一样）`,
-    fix: '每组只保留最早创建的那一个，其余删除' });
+    fix: '每组只保留最早创建的那一个，其余删除',
+    items: dupMsRecs.map(m => {
+      const t = byId('task', m.task);
+      return { id: m.task, act: 'cp-editor', label: `${m.plan_date || '（无日期）'} · ${m.deliverable || '（未填写交付物）'} · 属于「${t ? t.title : '？'}」` };
+    }) });
 
   /* 进度和状态对不上——多半是历史数据：以前改进度不会联动状态，日积月累就会有一批
      "进度都过半了、状态却还是未开始"或者"标了已完成、进度却没到 100%"的任务。
@@ -7273,10 +7914,11 @@ function healthCheck() {
   });
   if (progressMismatch.length) issues.push({ k: 'progressMismatch', n: progressMismatch.length,
     msg: `${progressMismatch.length} 条任务的进度和状态对不上（比如进度过半了状态还是未开始、或者标了已完成进度却没到 100%）`,
-    fix: '按当前进度自动纠正状态' });
+    fix: '按当前进度自动纠正状态', items: progressMismatch.map(t => ({ id: t.id, act: 'focus-task',
+      label: `${taskItem(t).label}（进度 ${t.progress || 0}% · 状态 ${(TASK_STATUS.find(s => s.v === t.status) || {}).label || t.status}）` })) });
 
   return { issues, orphanTasks, orphanMs, msLateMap, noDateHasMsMap, dupMsIds, progressMismatch, msOfDeletedTask,
-    dupTaskIds, dupWorkIds };
+    dupTaskIds, dupWorkIds, taskOfDeletedWork };
 }
 
 async function fixHealth(kind) {
@@ -7284,7 +7926,7 @@ async function fixHealth(kind) {
   snapshot();
   await Repo.bulk(() => {
     if (kind === 'orphanTask') r.orphanTasks.forEach(t => { t.work = ''; stampMeta(t); });
-    if (kind === 'orphanMs') r.orphanMs.forEach(m => { m.deleted_at = new Date().toISOString(); stampMeta(m); });
+    if (kind === 'taskOfDeletedWork') r.taskOfDeletedWork.forEach(t => { t.work = ''; stampMeta(t); });
     if (kind === 'msOfDeletedTask') r.msOfDeletedTask.forEach(m => { m.deleted_at = new Date().toISOString(); stampMeta(m); });
     // 重复的任务连它自己的里程碑一起删掉，否则会留下一堆 msOfDeletedTask 那类的孤儿里程碑
     if (kind === 'dupTask') {
@@ -7333,6 +7975,43 @@ async function fixHealth(kind) {
   });
   renderPage();
   showSnack('已修复（Ctrl+Z 可撤销）');
+}
+
+/* ★ 体检里的"彻底删除"分支 ★
+   跟 fixHealth 分开写，因为它跟其它体检修复有本质区别：其它修复都是改字段或软删除，
+   点错了 Ctrl+Z 能完整退回来；这个是把记录从共享文件里真的拿掉，退不回来。
+
+   两道闸都不能省：
+   1) 必须先连上共享文件夹。本机缓存看到的 DB 不一定是全处的完整数据——万一某条任务
+      只存在于别人机器上还没同步过来，本机就会把它名下的里程碑误判成"无主"。
+      连上之后 DB 是合并后的全量，这个误判才不成立。
+   2) 必须走一次确认框，并把条数写清楚。
+   彻底删除会自动留墓碑（removeHard → recordPurge），没有墓碑的话，
+   任何一台还没同步的机器都会把它们原样推回来——那就成了"删了个寂寞"。 */
+const PURGE_HEALTH_KINDS = { orphanMs: { field: 'orphanMs', entity: 'milestone', label: '无主里程碑' } };
+async function purgeHealth(kind) {
+  const cfg = PURGE_HEALTH_KINDS[kind]; if (!cfg) return;
+  if (!_fileHandle) {
+    showSnack('请先连接共享文件夹再做彻底清理——没连上时本机看到的不一定是全处的完整数据，可能误判', { priority: true });
+    return;
+  }
+  const list = healthCheck()[cfg.field] || [];
+  if (!list.length) { showSnack('没有需要清理的数据'); return; }
+  const pk = schema(cfg.entity).pk;
+  const ids = list.map(r => r[pk]);
+  confirmModal('彻底删除',
+    `确认从共享数据里彻底删除这 ${ids.length} 个${cfg.label}？`
+    + `它们的所属任务记录已经不存在，界面上打不开也恢复不了，留着只占文件体积。`
+    + `这一步不可撤销（Ctrl+Z 也退不回来），删除前建议先在本页导出一份备份。`,
+    '彻底删除', async () => {
+      snapshot();
+      await Repo.bulk(() => {
+        ids.forEach(id => removeHard(cfg.entity, id));
+        pushChangeLog(cfg.entity, '', `数据体检：彻底删除了 ${ids.length} 个${cfg.label}（所属任务记录已不存在）`);
+      });
+      renderPage();
+      showSnack(`已彻底删除 ${ids.length} 个${cfg.label}`);
+    }, true);
 }
 
 /* ---- 备份状态 ---- */
@@ -7398,8 +8077,10 @@ function openWorkForm() {
   const duties = DB.duties.filter(d => !d.deleted_at);
   if (!duties.length) { showSnack('请先创建职责'); return; }
   const people = allPeople();
+  // 工作页当前如果按某个职责筛选着，新建时默认选中它——大概率就是想往这个职责下面加工作
+  const preDuty = UI.works.filters.duty && UI.works.filters.duty !== '__empty__' ? UI.works.filters.duty : '';
   openModal('新建工作', `
-    <div class="form-row"><label>所属职责</label><select id="wf-duty">${duties.map(d => `<option value="${esc(d.code)}">${esc(d.code + ' ' + d.name)}</option>`).join('')}</select></div>
+    <div class="form-row"><label>所属职责</label><select id="wf-duty">${duties.map(d => `<option value="${esc(d.code)}"${d.code === preDuty ? ' selected' : ''}>${esc(d.code + ' ' + d.name)}</option>`).join('')}</select></div>
     <div class="form-row"><label>工作名称</label><input id="wf-name" placeholder="必填"></div>
     <div class="form-row"><label>牵头人</label><input id="wf-owner" list="wf-people" placeholder="可留空"></div>
     <div class="form-row"><label>年度</label><input id="wf-year" type="number" value="${DB.settings.year || new Date().getFullYear()}"></div>
@@ -7459,6 +8140,20 @@ function openModal(title, bodyHTML, okText, cb, danger) {
 }
 function confirmModal(title, msg, okText, cb, danger) {
   openModal(title, `<p>${esc(msg)}</p>`, okText, async () => { closeModal(); await cb(); }, danger);
+}
+/* 单行文本输入的小弹窗。不用浏览器原生 prompt()：那个在部分浏览器/内嵌环境里会被静默屏蔽，
+   点了没反应还查不出原因，而且样式跟本应用其它弹窗完全不搭。
+   取值必须在 closeModal() 之前——closeModal 会把 #modal-body 清空，之后再读就是空字符串了。 */
+function promptModal(title, label, initial, cb) {
+  openModal(title, `<div class="form-row"><label>${esc(label)}</label>
+      <input id="prompt-input" type="text" value="${esc(initial || '')}" maxlength="60"></div>`,
+    '确定', async () => {
+      const el = $('#prompt-input');
+      const val = el ? el.value : '';
+      closeModal();
+      await cb(val);
+    });
+  setTimeout(() => { const el = $('#prompt-input'); if (el && el.focus) el.focus(); }, 50);
 }
 function closeModal() {
   modalCallback = null;
@@ -7702,8 +8397,28 @@ function startAutoReload() {
     if (!_fileHandle) return;
     if (syncBlocked()) { _syncBlockedPending = true; return; }
     await withSyncGate(syncNowAndRender);
-    await maybeAutoBackup();  // 顺带看一眼定期备份到点没有（只有管理员、且配置开着才会真写）
   }, RELOAD_INTERVAL_MS);
+}
+/* ★ 定期备份必须有自己独立的定时器，不能挂在共享文件同步的定时器上 ★
+   以前 maybeAutoBackup() 是从 startAutoReload() 里那个定时器顺带调用的，而那个定时器
+   只有在共享文件连接成功之后才会 startAutoReload() 启动（见 tryReconnectSharedFile/connectSharedFile）；
+   一旦开机时连接没成功——网盘那个小应用还没启动、共享文件夹一时半会儿挂不上，
+   于是走进 _offlineMode（真离线）或者只是 _needPermissionRestore（等一次点击就能恢复）——
+   这个定时器压根不会被启动，哪怕浏览器一直开着、哪怕后来手动重新连上了共享文件夹但没恰好触发
+   "startAutoReload"这条路径，定期备份就会在余下的整个会话里一次都不跑，跟共享文件的连接状态
+   完全绑死，而这两件事本来毫不相干——备份写的是管理员另外指定的本机文件夹，不依赖共享连接。
+
+   所以拆成两个独立的定时器：这个只管备份，开机不管共享文件连没连上都无条件启动。 */
+let _backupTimer = null;
+let _backupInFlight = false;   // 避免两个定时器（或定时器+手动点击）在极小概率下同时触发写两次
+async function backupTick() {
+  if (_backupInFlight) return;
+  _backupInFlight = true;
+  try { await maybeAutoBackup(); } finally { _backupInFlight = false; }
+}
+function startAutoBackupTimer() {
+  if (_backupTimer) return;
+  _backupTimer = setInterval(backupTick, RELOAD_INTERVAL_MS);
 }
 /* 定时器被挡掉过就补一次。关弹窗、退出单元格编辑之后调用，代价很小（只读一次文件）。 */
 async function syncCatchUp() {
@@ -7817,6 +8532,7 @@ async function connectSharedFile() {
       DB.purged = remote.purged || [];   // 墓碑也整体听共享文件的，本机那些只针对演示数据的墓碑没有意义
       DB.permissionMatrix = mergePermissionMatrix(DB.permissionMatrix, remote.permissionMatrix);
       DB.shareConfig = mergePermissionMatrix(DB.shareConfig, remote.shareConfig);
+      DB.reportConfig = mergePermissionMatrix(DB.reportConfig, remote.reportConfig);
       if (!DB.users.some(u => u.name === DB.settings.me && !u.deleted_at)) DB.settings.me = '';
     } else {
       const merged = mergeSyncPayload(syncPayload(DB), remote);
@@ -7900,7 +8616,18 @@ async function runBackup(manual) {
   let perm = 'denied';
   try { perm = await dir.queryPermission({ mode: 'readwrite' }); } catch (e) {}
   if (perm !== 'granted') {
-    if (!manual) return false;   // 没有用户手势，requestPermission 调不了，等管理员自己点一次
+    if (!manual) {
+      // 没有用户手势，requestPermission 调不了，只能先跳过这一轮，等下一轮或管理员手动点一次。
+      // 以前这里是纯静默 return，跳过的事实完全没人知道，配合过去"备份定时器可能压根没启动"的
+      // bug，会让人以为定期备份在正常跑、实际上已经很久没写过——所以现在至少弹一句节流过的提示，
+      // 不刷屏（20 分钟内最多提一次），但不会再彻底沉默
+      const now = Date.now();
+      if (now - _lastBackupAuthWarnAt > 1200000) {
+        _lastBackupAuthWarnAt = now;
+        showSnack('⚠ 定期备份这一轮跳过了：备份文件夹的写入授权已失效，请点「立即备份一次」重新授权');
+      }
+      return false;
+    }
     try { perm = await dir.requestPermission({ mode: 'readwrite' }); } catch (e) {}
     if (perm !== 'granted') { showSnack('没有拿到备份文件夹的写入授权'); return false; }
   }
@@ -8516,6 +9243,9 @@ async function boot() {
   goto(currentPage);
 
   maybeAutoBackup();   // 管理员开了定期备份、且距上次够久了，开机就顺手存一份（不阻塞界面）
+  // ★ 不管共享文件这次开机连没连上，备份定时器都要启动 ★ 见 startAutoBackupTimer 的注释：
+  // 这两件事本来就毫不相干，绑在一起是之前"到点没自动备份"的真正原因
+  startAutoBackupTimer();
 
   // 备份提醒：数据只在本机浏览器，超过 7 天未备份且期间有改动就提示一次
   const bk = backupState();

@@ -147,8 +147,12 @@ async function main() {
   const keys = S.PAGES.map(p => p.key);
   ok('有 logs 这一页', keys.includes('logs'));
   ok('★位置就在数据页和权限页中间', keys.indexOf('logs') === keys.indexOf('data') + 1 && keys.indexOf('permissions') === keys.indexOf('logs') + 1, keys);
-  ok('跟数据页/权限页一样硬编码成管理员专属，不进权限矩阵',
-    S.PAGES.find(p => p.key === 'logs').adminOnly === true && !S.PERMISSIONS.some(p => p.key === 'view_logs'));
+  // P54 之后不再是硬编码 adminOnly，改成 view_logs 权限矩阵项（默认仍然只有管理员能看，
+  // 效果不变，区别是现在管理员可以主动放开给别的角色）
+  ok('跟数据页/权限页一样走 view_logs 权限矩阵项，默认仍只对管理员开放',
+    S.PAGES.find(p => p.key === 'logs').viewPermission === 'view_logs'
+    && S.PERMISSIONS.some(p => p.key === 'view_logs')
+    && S.DEFAULT_PERMISSION_MATRIX.staff.view_logs === false);
   ok('页面容器存在', html.includes('id="page-logs"'));
 
   section('②-2 登录事件：写进 changelog，带 kind=login，且不污染工作台最近动态');
@@ -243,7 +247,9 @@ async function main() {
   S.ACTIONS['logs-who']({}, { value: '张三' });
   ok('换人员，页码同样回到第 1 页', S.UI.logs.page === 1 && S.UI.logs.who === '张三');
   ok('★人员下拉走 change 而不是 click 分发（点开下拉那一下不该被当成"选好了"）',
-    html.includes(`'logs-who'`) && html.includes(`CHANGE_ONLY_ACTS = ['account-role-change', 'perm-toggle', 'backup-toggle', 'backup-interval-change', 'logs-who']`));
+    // 断言只盯"logs-who 在不在这张名单里"，不再整串比对——P55 又往名单里加了报告编排的
+    // 勾选框和下拉框，整串比对会因为跟本条毫无关系的新增而失败
+    html.includes(`'logs-who'`) && /CHANGE_ONLY_ACTS = \[[^\]]*'logs-who'/.test(html));
 
   section('②-9 非管理员进不去');
   S.DB.users.push({ name: 'P51员工', role: 'staff', salt: '', hash: '', iterations: 0 });
