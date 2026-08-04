@@ -316,6 +316,9 @@ td.cell-center { text-align: center; }
 .role-select:hover { border-color: var(--accent); }
 /* ===== 日志页 ===== */
 .log-filters { display: flex; align-items: center; gap: 12px; margin-bottom: 10px; flex-wrap: wrap; }
+#logs-text { height: 26px; width: 200px; padding: 0 8px; border: 1px solid var(--border2); border-radius: 4px;
+  font-family: var(--font); font-size: 12.5px; color: var(--text); background: #fff; outline: none; }
+#logs-text:focus { border-color: var(--accent); }
 .log-filters select { height: 26px; padding: 0 6px; border: 1px solid var(--border2); border-radius: 4px;
   font-family: var(--font); font-size: 12px; color: var(--text); background: #fff; outline: none; cursor: pointer; }
 .log-filters select:focus, .log-filters select:hover { border-color: var(--accent); }
@@ -660,7 +663,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260804005609';
+const APP_VERSION = 'v20260804022952';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -2724,7 +2727,7 @@ const UI = {
   works:  { filters: {}, search: '', sortKey: 'code', sortDir: 1, widths: {}, cols: schema('work').fields.map(f => f.key) },
   duties: { filters: {}, search: '', sortKey: 'code', sortDir: 1, widths: {}, cols: schema('duty').fields.map(f => f.key) },
   // 日志页：默认落在"今天"，翻页状态不持久化——每次进这一页都从最新看起才是常态
-  logs:   { range: 'today', kind: 'all', who: '', page: 1 },
+  logs:   { range: 'today', kind: 'all', who: '', text: '', page: 1 },
 };
 
 /* 列显示/列宽/列顺序属于个人偏好，随 settings 一起持久化 */
@@ -4842,21 +4845,26 @@ function renderReport() {
     </div>`;
   }).join('');
 
+  /* 之前这里是两块"处室工作简报"：上面一块管交互（周期按钮/翻期/导出按钮，标了 no-print，
+     打印和导出图片时不出现），下面 #report-print-area 里单独摆了一块只有标题+统计周期的
+     纯展示版，专门给打印/导出的成品当页头用。两块内容重叠、位置又隔着"报告编排"面板，
+     看着像两个不相关的区域。
+     合并成一块：标题和统计周期文字放进 panel-h，跟周期/翻期按钮同一行（面板本身不再是
+     no-print，所以打印/导出图片时这行标题+统计周期照样在）；周期/翻期按钮和下面的两个
+     导出按钮各自单独标 no-print——按钮本来就是给屏幕上点的，纸上/图片里留着一排点不动的
+     按钮没有意义，只留标题和统计周期当页头。 */
   $('#page-report').innerHTML = `<div class="pad">
-    <div class="panel no-print"><div class="panel-h"><span>📋 处室工作简报</span>
-        <span style="display:flex;align-items:center"><span class="seg-ctrl">${periodBtns}</span>${navBtns}</span></div>
-      <div class="panel-b">
-        <div class="hint" style="margin-bottom:10px">内容跟着当前数据实时变化。上面「按周/按月/按季/按年」切换统计粒度，右边 ‹ › 在同一粒度内前后翻期，默认停在当前这一期。
-          下面的分段和每段包含哪些内容，由报告编排决定${hasPermission('config_report') ? '，可以自己改' : '（默认只有管理员能改）'}。</div>
-        <button class="btn primary" data-act="report-print">🖨 打印 / 导出 PDF</button>
-        <button class="btn" style="margin-left:6px" data-act="report-image">🖼 导出为图片</button>
-        <span class="hint" style="margin-left:8px">统计周期：${esc(d.periodLabel)}　${esc(d.rangeStart)} ～ ${esc(d.rangeEnd)}</span>
-      </div></div>
-
     ${hasPermission('config_report') ? reportConfigPanelHTML() : ''}
 
     <div id="report-print-area">
-    <div class="panel"><div class="panel-h">📋 处室工作简报　·　统计周期：${esc(d.periodLabel)}（${esc(d.rangeStart)} ～ ${esc(d.rangeEnd)}）</div></div>
+    <div class="panel"><div class="panel-h">
+        <span>📋 处室工作简报　·　统计周期：${esc(d.periodLabel)}（${esc(d.rangeStart)} ～ ${esc(d.rangeEnd)}）</span>
+        <span class="no-print" style="display:flex;align-items:center"><span class="seg-ctrl">${periodBtns}</span>${navBtns}</span>
+      </div>
+      <div class="panel-b no-print">
+        <button class="btn primary" data-act="report-print">🖨 打印 / 导出 PDF</button>
+        <button class="btn" style="margin-left:6px" data-act="report-image">🖼 导出为图片</button>
+      </div></div>
     ${body || '<div class="panel"><div class="panel-b"><div class="empty-mini">报告编排是空的，请让管理员在「报告编排」里添加区域和模块</div></div></div>'}
     </div>
   </div>`;
@@ -4927,9 +4935,15 @@ async function exportReportImage() {
         }
         y += LH - 2;
       };
+      /* ★ 之前这里 barW 顶格算到画布最右边（W - PAD），右边那截"12/34 · 88%"文字
+         就只能从这条线往外画——画到了画布边界之外，导出的图片右侧被截掉一块。
+         页面上的 HTML 版本（见 hBar）不会有这个问题：那边是 flex 布局，track 和
+         数字标签是两个独立元素，浏览器会自动把 track 让出空间给数字站住。
+         canvas 是手工排版，没有自动让位这回事，得自己预留出 NUM_W 这块地方。 */
+      const NUM_W = 92;
       const bar = (label, c, max, indent, muted) => {
         const nameW = 190 - indent;
-        const barX = PAD + 200, barW = W - PAD * 2 - 200, barH = 13;
+        const barX = PAD + 200, barW = W - PAD * 2 - 200 - NUM_W - 8, barH = 13;
         if (draw) {
           ctx.font = '12px sans-serif';
           ctx.fillStyle = muted ? COL.sub : COL.text;
@@ -4943,7 +4957,7 @@ async function exportReportImage() {
             if (w > 0) { ctx.fillStyle = colors[i]; ctx.fillRect(cx, y, w, barH); cx += w; }
           });
           ctx.fillStyle = COL.sub; ctx.font = '11px sans-serif';
-          ctx.fillText(`${c.done}/${c.total} · ${c.rate}%`, barX + barW + 8, y + 10);
+          ctx.fillText(truncate(ctx, `${c.done}/${c.total} · ${c.rate}%`, NUM_W), barX + barW + 8, y + 10);
         }
         y += LH - 4;
       };
@@ -5165,9 +5179,13 @@ function logRangeBounds(range, now) {
 function filterLogs(list, opts) {
   const o = opts || {};
   const { from, to } = logRangeBounds(o.range || 'all', o.now || Date.now());
+  // 文本搜索刻意只匹配"人能看到的东西"：变更摘要本身 + 操作人姓名，不去搜内部才有的
+  // taskId/entity 之类的字段——那些用户压根不知道，搜了也匹配不到任何直觉上"该有"的结果
+  const text = (o.text || '').trim().toLowerCase();
   return (list || []).filter(e => {
     if (o.kind && o.kind !== 'all' && logKind(e) !== o.kind) return false;
     if (o.who && (e.by || '') !== o.who) return false;
+    if (text && !((e.summary || '').toLowerCase().includes(text) || (e.by || '').toLowerCase().includes(text))) return false;
     const at = e.at || '';
     if (from && at < from) return false;
     if (to && at >= to) return false;
@@ -5226,15 +5244,15 @@ function renderLogs() {
   if (!hasPermission('view_logs')) { goto('dashboard'); return; }
   const st = UI.logs;
   const now = Date.now();
-  const all = filterLogs(DB.changelog, { range: st.range, kind: st.kind, who: st.who, now });
+  const all = filterLogs(DB.changelog, { range: st.range, kind: st.kind, who: st.who, text: st.text, now });
   const pages = Math.max(1, Math.ceil(all.length / LOG_PAGE_SIZE));
   // 换筛选条件之后页码可能已经越界（比如原来在第 5 页，切到"今天"只剩 1 页），这里夹回合法范围
   st.page = Math.min(Math.max(1, st.page), pages);
   const rows = all.slice((st.page - 1) * LOG_PAGE_SIZE, st.page * LOG_PAGE_SIZE);
 
-  // 时间段按钮上带条数：不用点进去就知道哪天有动静，省得一段段试
+  // 时间段/类型按钮上带的条数要跟着文本搜索联动，否则搜着搜着会发现按钮上的数字和实际看到的对不上
   const rangeBtns = LOG_RANGES.map(r => {
-    const n = filterLogs(DB.changelog, { range: r.key, kind: st.kind, who: st.who, now }).length;
+    const n = filterLogs(DB.changelog, { range: r.key, kind: st.kind, who: st.who, text: st.text, now }).length;
     return `<span class="s${st.range === r.key ? ' on' : ''}" data-act="logs-range" data-range="${r.key}">${esc(r.label)} ${n}</span>`;
   }).join('');
   const kindBtns = LOG_KINDS.map(k =>
@@ -5274,6 +5292,7 @@ function renderLogs() {
             ${people.map(p => `<option value="${esc(p)}"${st.who === p ? ' selected' : ''}>${esc(p)}</option>`).join('')}
           </select>
           <span class="hint">共 ${all.length} 条${all.length > LOG_PAGE_SIZE ? `，每页 ${LOG_PAGE_SIZE} 条` : ''}</span>
+          <input id="logs-text" type="text" placeholder="搜索日志内容…" value="${esc(st.text)}" style="margin-left:auto">
         </div>
         <table class="dtable log-table"><thead><tr>
           <th style="text-align:left;width:190px">时间</th><th style="width:90px">人员</th><th style="width:64px">类型</th><th style="text-align:left">内容</th>
@@ -5290,6 +5309,25 @@ function renderLogs() {
       </div></div>
   </div>`;
   $('#status-left').textContent = `操作日志 · ${all.length} 条`;
+  bindLogsTextSearch();
+}
+// 日志文本搜索：跟任务/工作页那个搜索框同一套写法——防抖 + 重渲染后把焦点和光标位置还回去，
+// 不然每敲一个字就重画一次整页，输入框会丢焦点，字打到一半光标跳没了
+function bindLogsTextSearch() {
+  const el = $('#logs-text');
+  if (!el) return;
+  let timer = null;
+  el.addEventListener('input', () => {
+    clearTimeout(timer);
+    const pos = el.selectionStart;
+    timer = setTimeout(() => {
+      UI.logs.text = el.value;
+      UI.logs.page = 1;
+      renderLogs();
+      const again = $('#logs-text');
+      if (again) { again.focus(); again.setSelectionRange(pos, pos); }
+    }, 150);
+  });
 }
 
 function renderPermissions() {
