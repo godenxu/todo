@@ -101,8 +101,10 @@ async function main() {
   ok('★停用工作之后，体检查出了这条任务', twd && twd.n === 1, twd);
   ok('workName 不检查 deleted_at，这条任务在界面上会正常显示"被停用的工作"这个名字（这正是异常所在，不是真的未归属）',
     S.workName(t1.work) === '被停用的工作');
+  // ★ P60 改过处理方式：工作停用现在直接连带删任务（见 'work-del'），这里体检修复的是改动前
+  // 遗留下来的历史数据，处理方式要跟新政策一致——连同里程碑一起软删除，不再是清空 work 字段
   await S.fixHealth('taskOfDeletedWork');
-  ok('★一键修复后，任务的所属工作被清空，变成真正的未归属', S.byId('task', t1.id).work === '');
+  ok('★一键修复后，任务被软删除了（不再是清空所属工作变成未归属）', !!S.byId('task', t1.id).deleted_at);
   ok('工作本身没有被动（停用是用户自己做的决定，体检不该替他撤销）', !!S.byId('work', w1.id).deleted_at);
   ok('清完之后体检不再报这一项', !S.healthCheck().issues.some(i => i.k === 'taskOfDeletedWork'));
 

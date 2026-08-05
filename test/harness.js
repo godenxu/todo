@@ -23,6 +23,11 @@ function mkEl(sel) {
     },
     addEventListener() {}, removeEventListener() {}, appendChild() {}, removeChild() {},
     focus() {}, select() {}, click() {},
+    // 真实 DOM 里 querySelector('svg') 拿到的元素总有 getAttribute；这里的元素是按选择器
+    // 现造的桩，并不真的解析 innerHTML，但既然桩造出来了就该有这个方法，不然像
+    // fitFlexBarChart() 这种"量完真实宽度、按需要重画"的代码一读 svg 的 width 属性就炸——
+    // 沙盒本来就测不出真实布局宽度（见调用处注释），返回 null 就是「没量到」，够用了
+    getAttribute: () => null, setAttribute() {},
     getBoundingClientRect: () => ({ left: 0, top: 0, right: 100, bottom: 20, width: 100, height: 20 }),
     closest() { return null; },
     querySelector(s) { return mkEl(sel + ' ' + s); },
@@ -183,6 +188,13 @@ const exportTail = `
   setSnackPriorityUntil(v){ _snackPriorityUntil = v; },
   // P55：合并熔断的新鲜度基准线 + 体检彻底删除
   mergeDamageSince, MERGE_DAMAGE_MAX_WINDOW_MS, MERGE_DAMAGE_LIMIT, purgeHealth, PURGED_LIMIT, recordPurge,
+  // P57：模块分类 / 同行排列 / 最近连接心跳
+  REPORT_GROUPS, reportChartWidth,
+  get reportMsDutyExpanded(){return reportMsDutyExpanded}, get reportMsWorkExpanded(){return reportMsWorkExpanded},
+  touchPresence, markUserSeen, PRESENCE_MIN_GAP_MS,
+  get lastPresenceAt(){return _lastPresenceAt}, setLastPresenceAt(v){ _lastPresenceAt = v; },
+  // P59：报告模块"看数据表"+ 到期分布字体缩放修复
+  dataTable, svgScroll, reportIsTable, reportModHead, fitFlexBarChart, ganttDataTable, ganttTableRows,
 };`;
 
 vm.createContext(sandbox);

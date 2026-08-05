@@ -177,13 +177,19 @@ async function main() {
   /* ====================== ⑤ 报告页区域+模块可配置 ====================== */
   section('⑤：模块注册表 —— 每个模块三个出口（页面/文本/图片）一个都不能少');
   ok('模块数量够用（至少 10 个）', S.REPORT_MODULES.length >= 10, S.REPORT_MODULES.length);
-  ok('★每个模块都同时提供了 html / text / canvas 三种呈现',
-    S.REPORT_MODULES.every(m => typeof m.html === 'function' && typeof m.text === 'function' && typeof m.canvas === 'function'),
-    S.REPORT_MODULES.filter(m => !(m.html && m.text && m.canvas)).map(m => m.key));
+  /* P57 之后 canvas 出口改成可选的：模块从 12 个涨到 28 个，里面一多半是饼图/折线/甘特，
+     用 exportReportImage 那几个 canvas 原语根本画不出来，硬写只会让三个出口越走越偏。
+     缺省行为改成"把 text() 的行画进图片"——图形没了但数字一条不少，而且天然跟纯文本一致。
+     所以这里改成：html/text 两个出口必须都有（它们才是内容的来源），canvas 有就得是函数。 */
+  ok('★每个模块都提供了 html 和 text 两个出口',
+    S.REPORT_MODULES.every(m => typeof m.html === 'function' && typeof m.text === 'function'),
+    S.REPORT_MODULES.filter(m => !(m.html && m.text)).map(m => m.key));
+  ok('写了 canvas 的模块，canvas 必须是函数（没写的走 text 兜底）',
+    S.REPORT_MODULES.every(m => m.canvas === undefined || typeof m.canvas === 'function'));
   ok('每个模块都有 key/label/desc', S.REPORT_MODULES.every(m => m.key && m.label && m.desc));
   ok('key 不重复', new Set(S.REPORT_MODULES.map(m => m.key)).size === S.REPORT_MODULES.length);
   ok('用户点名要的那几块都在',
-    ['periodScope', 'periodPlan', 'periodStatus', 'highPriority', 'overdueTasks', 'overdueMs', 'soonTasks', 'soonMs', 'people']
+    ['periodScope', 'periodPlan', 'periodStatus', 'highPriority', 'overdueTasks', 'overdueMs', 'soonTasks', 'soonMs', 'personBars']
       .every(k => !!S.REPORT_MODULE_MAP[k]));
 
   section('⑤：默认编排就是汇报要念的四段（老数据 reportConfig 为 null 时自动回落到它）');
@@ -191,13 +197,14 @@ async function main() {
   const defSecs = S.reportSections();
   ok('★没有任何配置时也拿得到四段（向后兼容，老共享文件不用改一个字）', defSecs.length === 4, defSecs.length);
   ok('四段标题就是用户要的那四段',
-    defSecs.map(s => s.title).join('|') === '一、当期处室工作目标|二、当期处室工作状态|三、当期需要关注的工作|四、人员工作情况',
+    defSecs.map(s => s.title).join('|') === '一、当期处室工作目标|二、当期处室工作进展|三、当期需要关注的工作|四、人员工作情况',
     defSecs.map(s => s.title));
   ok('第一段是"涉及多少 + 计划完成多少"', defSecs[0].modules.join(',') === 'periodScope,periodPlan');
   ok('第二段含整体进度（SPI 在这里）', defSecs[1].modules.includes('periodStatus'));
   ok('第三段把高优先级/逾期/即将到期都放齐了',
     ['highPriority', 'overdueTasks', 'overdueMs', 'soonTasks', 'soonMs'].every(k => defSecs[2].modules.includes(k)));
-  ok('第四段是人员工作情况', defSecs[3].modules.join(',') === 'people');
+  // "人员工作情况"模块已经被功能更完整的 personBars（各人任务量与完成率，含牵头/参与比例）取代
+  ok('第四段是人员工作情况（现在用 personBars 呈现）', defSecs[3].modules.join(',') === 'personBars');
   ok('没配置时默认存档也拿得到（不会崩）', S.reportPresets().length === 1 && S.activeReportPreset().name === '默认编排');
 
   section('⑤：当期口径 —— 上期欠下来还没完成的任务要带进本期，不能凭空消失');
@@ -230,7 +237,7 @@ async function main() {
   S.renderReport();
   const rh = q('#page-report').innerHTML;
   ok('四个区域标题都渲染出来了',
-    ['一、当期处室工作目标', '二、当期处室工作状态', '三、当期需要关注的工作', '四、人员工作情况'].every(t => rh.includes(t)));
+    ['一、当期处室工作目标', '二、当期处室工作进展', '三、当期需要关注的工作', '四、人员工作情况'].every(t => rh.includes(t)));
   ok('区域用了 .rep-region-title 这个样式', rh.includes('rep-region-title'));
   ok('模块以面板形式挂在区域下面', rh.includes('当期涉及范围') && rh.includes('当期完成进度'));
   ok('高优先级那条任务的标题直接看得到', rh.includes('本期计划完成'));
@@ -239,22 +246,31 @@ async function main() {
   section('⑤：三个出口说的是同一件事（页面 / 纯文本 / 导出图片都跟着编排走）');
   const txt = S.buildReportText();
   ok('★纯文本里也是同样四段、同样顺序',
-    ['一、当期处室工作目标', '二、当期处室工作状态', '三、当期需要关注的工作', '四、人员工作情况'].every(t => txt.includes(t))
+    ['一、当期处室工作目标', '二、当期处室工作进展', '三、当期需要关注的工作', '四、人员工作情况'].every(t => txt.includes(t))
     && txt.indexOf('一、当期处室工作目标') < txt.indexOf('四、人员工作情况'));
-  ok('文本里带上了模块名', txt.includes('【当期涉及范围】') && txt.includes('【人员工作情况】'));
+  // "人员工作情况"这个模块 key 已经被 personBars 取代，文本里带的模块名跟着变了
+  ok('文本里带上了模块名', txt.includes('【当期涉及范围】') && txt.includes('【各人任务量与完成率】'));
   await S.exportReportImage();
   ok('导出图片这条路径不抛异常（沙盒里没有真 canvas，优雅降级出提示）', !!q('#snack-msg').textContent);
+  // P57：canvas 出口可选之后，这一行变成"有 canvas 用 canvas，没有就退回 text"，但仍然是由编排驱动的
   ok('图片导出的排版也由编排驱动，不是另写一套写死的顺序',
-    /reportSections\(\)\.forEach\(s => \{[\s\S]{0,300}m\.canvas\(d, api\)/.test(html));
+    /reportSections\(\)\.forEach\(s => \{[\s\S]{0,800}if \(m\.canvas\) m\.canvas\(d, api\);[\s\S]{0,120}else m\.text\(/.test(html));
 
   section('⑤：配置面板 —— 区域增删改名移位');
   S.setReportConfigOpen(true);
   S.renderReport();
   const cfgH = q('#page-report').innerHTML;
   ok('面板展开后列出了每个区域', cfgH.includes('data-act="report-sec-rename"') && cfgH.includes('data-act="report-sec-del"'));
-  ok('每个区域下面列出全部可选模块的勾选框',
+  /* P57：模块涨到 28 个之后，配置面板从"平铺一大片勾选框"改成
+     「已选模块列表（可排序/设同行/移除）+ 按分类分组的添加器」，
+     所以断言从"每个模块都有一个勾选框"改成"每个模块要么已选、要么在添加器里出现" */
+  ok('每个模块要么在已选列表里、要么在分类添加器里，一个都不会漏掉',
     S.REPORT_MODULES.every(m => cfgH.includes(`data-mod="${m.key}"`)));
-  ok('已经在编排里的模块是勾上的', /data-mod="periodScope" checked/.test(cfgH));
+  ok('已经在编排里的模块出现在"已选"那一段（带移除按钮）',
+    /data-act="report-mod-remove"[^>]*data-mod="periodScope"/.test(cfgH));
+  ok('没选的模块出现在添加器里（带＋号）',
+    /data-act="report-mod-add"[^>]*data-mod="personBars"/.test(cfgH));
+  ok('添加器按分类分组，分类标题都在', S.REPORT_GROUPS.every(g => cfgH.includes(g.label)));
   ok('第一个区域的"上移"是禁用状态', /data-act="report-sec-move"[^>]*data-step="-1"[^>]*opacity:\.3/.test(cfgH));
 
   S.ACTIONS['report-sec-add']();
@@ -267,12 +283,13 @@ async function main() {
   ok('记了是谁改的', S.DB.reportConfig.updated_by === '测试管理员');
 
   const newSecId = S.reportSections()[4].id;
-  await S.ACTIONS['report-mod-toggle']({ sec: newSecId, mod: 'doneTasks' }, { checked: true });
+  // P57：勾选框换成了"＋添加 / 移除"两个明确的动作
+  await S.ACTIONS['report-mod-add']({ sec: newSecId, mod: 'doneTasks' });
   await tick(20);
-  ok('★勾选模块生效', S.reportSections()[4].modules.includes('doneTasks'));
-  await S.ACTIONS['report-mod-toggle']({ sec: newSecId, mod: 'doneTasks' }, { checked: false });
+  ok('★添加模块生效', S.reportSections()[4].modules.includes('doneTasks'));
+  await S.ACTIONS['report-mod-remove']({ sec: newSecId, mod: 'doneTasks' });
   await tick(20);
-  ok('取消勾选也生效', !S.reportSections()[4].modules.includes('doneTasks'));
+  ok('移除模块也生效', !S.reportSections()[4].modules.includes('doneTasks'));
 
   await S.ACTIONS['report-sec-move']({ id: newSecId, step: '-1' });
   await tick(20);
@@ -331,14 +348,14 @@ async function main() {
     { snack: q('#snack-msg').textContent, n: S.reportPresets().length });
 
   section('⑤：恢复默认编排');
-  await S.ACTIONS['report-mod-toggle']({ sec: S.reportSections()[0].id, mod: 'people' }, { checked: true });
+  await S.ACTIONS['report-mod-add']({ sec: S.reportSections()[0].id, mod: 'personBars' });
   await tick(20);
-  ok('先故意改乱一点', S.reportSections()[0].modules.includes('people'));
+  ok('先故意改乱一点', S.reportSections()[0].modules.includes('personBars'));
   S.ACTIONS['report-config-reset']();
   await S.ACTIONS['modal-ok']();
   await tick(20);
   ok('★恢复默认后回到那四段', S.reportSections().map(s => s.title).join('|')
-    === '一、当期处室工作目标|二、当期处室工作状态|三、当期需要关注的工作|四、人员工作情况');
+    === '一、当期处室工作目标|二、当期处室工作进展|三、当期需要关注的工作|四、人员工作情况');
   ok('第一段的模块也还原了', S.reportSections()[0].modules.join(',') === 'periodScope,periodPlan');
 
   section('⑤：认不出来的模块 key 直接跳过，不让整页报告渲染不出来');

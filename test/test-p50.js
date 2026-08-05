@@ -87,14 +87,27 @@ async function main() {
   restore();
   const t3 = S.DB.tasks.find(x => !x.deleted_at && aliveMsOf(x.id) > 0);
   const n3 = aliveMsOf(t3.id);
+  const msIds3 = S.DB.milestones.filter(m => m.task === t3.id && !m.deleted_at).map(m => m.id);
   S.softDelete('task', t3.id); S.rebuildIndex();   // 只删任务不删里程碑，模拟老数据
   const issue = S.healthCheck().issues.find(i => i.k === 'msOfDeletedTask');
   ok('★体检发现了这批脏数据（原来的 orphanMs 抓不到，因为软删除的任务 byId 仍查得到）', !!issue, issue);
   ok('数量对得上', issue && issue.n >= n3, { 期望至少: n3, 报告: issue && issue.n });
-  ok('带一键修复', !!(issue && issue.fix));
-  await S.fixHealth('msOfDeletedTask');
+  /* 这一类现在跟 orphanMs 一样走彻底删除，不再是"一键软删除"——软删除只是给它盖个 deleted_at，
+     它自己判定条件就是"必须还活着"，盖完确实不再报了，但记录原样留在共享文件里，文件体积一点
+     没少（这正是本轮用户反馈"清空了很多里程碑，数据文件还是很大"的根因），所以改成 purgeFix。 */
+  ok('不再带（软删除式的）一键修复', !(issue && issue.fix));
+  ok('★带彻底删除入口', !!(issue && issue.purgeFix));
+  // purgeHealth 要求先连上共享文件夹（防止本机数据不全时误判、误删别人还没同步过来的东西）
+  const store3 = { text: '', mtime: 1, writes: 0 };
+  S.setFileHandle(makeStoreHandle(store3)); S.setEverConnected(true);
+  S.purgeHealth('msOfDeletedTask');
+  await S.modalCallback(); await tick();
   ok('修完之后这条任务名下没有活着的里程碑了', aliveMsOf(t3.id) === 0);
+  ok('★不是软删除，是记录整条没了', !S.DB.milestones.some(m => msIds3.includes(m.id)));
+  ok('★留了墓碑（否则会从别人还没同步的设备上飘回来）',
+    msIds3.every(id => (S.DB.purged || []).some(p => p.entity === 'milestone' && p.id === id)));
   ok('这一项不再报了', !S.healthCheck().issues.some(i => i.k === 'msOfDeletedTask'));
+  S.setFileHandle(null); S.setEverConnected(false);
 
   section('★③：撤销必须能顶过共享文件里那一份（这是原来完全失效的根因）');
   restore();
