@@ -74,9 +74,9 @@ async function main() {
      数据本身（doneInRange / deliveredInRange）一点没动，管理员在编排里勾上就回来。
      所以这里改成验证"默认四段都在、顺序对"，外加"那两个模块勾上之后确实渲染得出来"。 */
   ok('默认编排四段都渲染出来了',
-    ['当期处室工作目标', '当期处室工作进展', '当期需要关注的工作', '人员工作情况'].every(t => reportHtml.includes(t)));
-  const idxGoal = reportHtml.indexOf('当期处室工作目标');
-  const idxAttention = reportHtml.indexOf('当期需要关注的工作');
+    ['本期处室工作目标', '本期处室工作进展', '本期需要关注的工作', '人员工作情况'].every(t => reportHtml.includes(t)));
+  const idxGoal = reportHtml.indexOf('本期处室工作目标');
+  const idxAttention = reportHtml.indexOf('本期需要关注的工作');
   const idxPeople = reportHtml.indexOf('人员工作情况');
   ok('顺序是"目标→关注→人员"，跟汇报顺序一致', idxGoal > -1 && idxGoal < idxAttention && idxAttention < idxPeople);
   const d = S.buildReportData('week');
@@ -101,9 +101,9 @@ async function main() {
   section('报告页：文本版本（buildReportText）跟页面用同一份编排、同一批模块');
   const reportText = S.buildReportText();
   ok('文本里包含统计周期说明', reportText.includes('统计周期：本周'));
-  ok('文本里也是默认那四段', ['当期处室工作目标', '当期处室工作进展', '当期需要关注的工作', '人员工作情况'].every(t => reportText.includes(t)));
-  const textIdxGoal = reportText.indexOf('当期处室工作目标');
-  const textIdxAttention = reportText.indexOf('当期需要关注的工作');
+  ok('文本里也是默认那四段', ['本期处室工作目标', '本期处室工作进展', '本期需要关注的工作', '人员工作情况'].every(t => reportText.includes(t)));
+  const textIdxGoal = reportText.indexOf('本期处室工作目标');
+  const textIdxAttention = reportText.indexOf('本期需要关注的工作');
   ok('纯文本版本的段落顺序跟页面一致', textIdxGoal > -1 && textIdxAttention > -1 && textIdxGoal < textIdxAttention);
 
   section('报告页：统计周期可以切换（按周/按月/按季/按年）');

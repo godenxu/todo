@@ -82,20 +82,26 @@ async function main() {
   // 没有真的 getContext('2d')，exportReportImage() 会在最开始就优雅降级退出，
   // layout()/bar() 内部逻辑根本执行不到，没法在这里用真实 canvas 量像素——
   // 真实的边界验证在浏览器里用 measureText 做过，这里锁的是"算法本身有没有留出空间"。
+  // P77 起 bar() 改成按 cur.x0/cur.w（当前列的起点/宽度）取值，不再是写死的页面级 PAD/W——
+  // 并排布局落地之后，一个模块可能只占半页宽，留白算法得对"任意列宽"成立，不能只对整页宽成立。
   const NUM_W_DEF = html.match(/const NUM_W = (\d+);/);
   ok('★定义了给右侧文字留白的常量 NUM_W', !!NUM_W_DEF, NUM_W_DEF);
-  const barWLine = html.match(/const barX = PAD \+ 200, barW = ([^,]+), barH = 13;/);
-  ok('★barW 的算式里减去了 NUM_W（不再是顶格到画布边界的 W - PAD * 2 - 200）',
+  const barWLine = html.match(/const barX = cur\.x0 \+ 200, barW = ([^,]+), barH = 13;/);
+  ok('★barW 的算式里减去了 NUM_W（不再是顶格到列边界的 cur.w - 200）',
     !!barWLine && /NUM_W/.test(barWLine[1]), barWLine && barWLine[1]);
   ok('右侧文字本身也做了截断（truncate 到 NUM_W 宽度以内），双保险防止极端长文字仍然溢出',
     /truncate\(ctx, `\$\{c\.done\}\/\$\{c\.total\} · \$\{c\.rate\}%`, NUM_W\)/.test(html));
   if (NUM_W_DEF && barWLine) {
-    // 用跟源码一致的算式反推一下：barX + barW + 8（文字起点）+ NUM_W（文字最大宽度）应该 <= W（画布宽度）
-    const W = 860, PAD = 24, NUM_W = Number(NUM_W_DEF[1]);
-    const barX = PAD + 200;
-    const barW = eval(barWLine[1].replace(/NUM_W/g, NUM_W));
-    ok('★按当前常量实算：文字最右端不会超出画布宽度', barX + barW + 8 + NUM_W <= W,
-      { barX, barW, textEnd: barX + barW + 8 + NUM_W, W });
+    // 用跟源码一致的算式反推一下：barX + barW + 8（文字起点）+ NUM_W（文字最大宽度）应该正好落在
+    // cur.x0 + cur.w（这一列的右边界）——换两组不同的 x0/w（模拟整页宽 vs 并排时的半页宽）
+    // 都验一遍，证明这套留白算法不是只对某个特定宽度凑巧成立
+    const NUM_W = Number(NUM_W_DEF[1]);
+    [{ x0: 24, w: 812 }, { x0: 460, w: 376 }].forEach(({ x0, w }) => {
+      const barX = x0 + 200;
+      const barW = eval(barWLine[1].replace(/NUM_W/g, NUM_W).replace(/cur\.w/g, w));
+      ok(`★按当前常量实算（列宽 ${w}）：文字最右端刚好落在这一列的右边界，不会超出去`,
+        barX + barW + 8 + NUM_W === x0 + w, { barX, barW, textEnd: barX + barW + 8 + NUM_W, colRight: x0 + w });
+    });
   }
 
   /* ====================== ③ 报告页面板合并 ====================== */

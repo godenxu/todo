@@ -145,6 +145,8 @@ async function main() {
   ok('一并标记：进度变成 100%', S.byId('task', statusTaskId).progress === 100);
 
   section('spCommitSingle：任务页状态下拉选"已完成"，里程碑没完成时会先弹确认');
+  // P71 起，确认框不再提供"仅改状态、不动里程碑"的选项——确认就是任务状态和里程碑一起标完成，
+  // 避免出现"任务已完成、里程碑却没完成"这种矛盾状态，见 test-p71.js 的专项测试
   const spTaskId = 'p21_sp_task';
   await S.Repo.upsert('task', { id: spTaskId, work: wid2, title: 'P21下拉测试任务', status: 'todo', plan_date: S.offsetDate(30), progress: 0, owner: '测试管理员', assignees: [] });
   await S.Repo.upsert('milestone', { id: 'p21_sp_ms1', task: spTaskId, plan_date: '2026-08-01', deliverable: 'P21下拉测试交付物', report_level: 'section', done: '0' });
@@ -152,18 +154,19 @@ async function main() {
   S.ACTIONS['edit']({ entity: 'task', id: spTaskId, field: 'status' }, el);
   await S.ACTIONS['sp-pick']({ val: 'done' });
   ok('里程碑未完成时，选"已完成"会先弹确认框，不会立刻改状态', typeof S.modalCallback === 'function' && S.byId('task', spTaskId).status === 'todo');
-  ok('确认框上有"仅改任务状态"这个额外按钮', q('#modal-body').innerHTML.includes('data-act="status-done-only"'));
-  await S.ACTIONS['status-done-only']();
-  ok('点"仅改状态"后任务变成已完成', S.byId('task', spTaskId).status === 'done');
-  ok('点"仅改状态"后里程碑没有被动', S.byId('milestone', 'p21_sp_ms1').done === '0');
+  await S.modalCallback();
+  ok('确认后任务变成已完成', S.byId('task', spTaskId).status === 'done');
+  ok('确认后里程碑也一并被标记完成了', S.byId('milestone', 'p21_sp_ms1').done === '1');
 
-  section('spCommitSingle：里程碑本来就都完成了，选"已完成"不会弹确认');
+  section('spCommitSingle：里程碑本来就都完成了、计划/实际完成时间也都填了，选"已完成"不会弹确认');
+  // P71 起，弹确认框的条件扩展成"计划/实际完成时间缺了 或 有未完成里程碑"三选一，
+  // 这里三项都补齐，才是真正验证"什么都不缺时不弹框"，见 test-p71.js 的 doneAutoFillNeeded 专项测试
   const spTaskId2 = 'p21_sp_task2';
-  await S.Repo.upsert('task', { id: spTaskId2, work: wid2, title: 'P21下拉测试任务2', status: 'todo', plan_date: S.offsetDate(30), progress: 0, owner: '测试管理员', assignees: [] });
+  await S.Repo.upsert('task', { id: spTaskId2, work: wid2, title: 'P21下拉测试任务2', status: 'todo', plan_date: S.offsetDate(30), actual_date: S.offsetDate(-5), progress: 0, owner: '测试管理员', assignees: [] });
   await S.Repo.upsert('milestone', { id: 'p21_sp_ms2', task: spTaskId2, plan_date: '2026-08-01', deliverable: 'P21下拉测试交付物2', report_level: 'section', done: '1' });
   S.ACTIONS['edit']({ entity: 'task', id: spTaskId2, field: 'status' }, el);
   await S.ACTIONS['sp-pick']({ val: 'done' });
-  ok('没有未完成的里程碑，直接改成已完成，不弹确认框', S.byId('task', spTaskId2).status === 'done' && !S.modalCallback);
+  ok('没有未完成的里程碑、日期也都齐了，直接改成已完成，不弹确认框', S.byId('task', spTaskId2).status === 'done' && !S.modalCallback);
 
   section('任务详情弹窗：进度字段加了 %，进度和实际完成之间有"已完成"按钮');
   const noMsTaskId = 'p21_progress_task';

@@ -280,6 +280,12 @@ td.cell-center { text-align: center; }
 .chart-flex-col { flex: 1 1 200px; min-width: 180px; text-align: center; }
 .chart-flex-col-title { font-size: 12px; color: var(--text2); font-weight: 600; margin-bottom: 8px; }
 .pie-label { font-size: 10.5px; font-weight: 700; fill: #fff; paint-order: stroke; stroke: rgba(0,0,0,.55); stroke-width: 2.5px; stroke-linejoin: round; pointer-events: none; }
+.pie-slice-clickable { cursor: pointer; }
+.pie-slice-clickable:hover { opacity: .82; }
+.pie-slice-active { stroke: var(--accent); stroke-width: 2px; stroke-linejoin: round; }
+.pie-legend span.clickable { cursor: pointer; border-radius: 3px; padding: 1px 4px; margin: -1px -4px; transition: background .1s; }
+.pie-legend span.clickable:hover { background: var(--bg); }
+.pie-legend span.clickable.active { background: var(--accent-light); color: var(--accent); font-weight: 600; }
 .ax-line { stroke: var(--border); stroke-width: 1; }
 .ax-grid { stroke: var(--border); stroke-width: 1; opacity: .55; }
 .ax-text { font-family: var(--font); font-size: 10px; fill: var(--text3); }
@@ -319,6 +325,37 @@ td.cell-center { text-align: center; }
 .dtable tr:hover { background: var(--bg); }
 .dtable th.sortable { cursor: pointer; }
 .dtable th.sortable:hover { color: var(--accent); }
+/* ===== 图表页"人员工作矩阵" ===== */
+.matrix-wrap { overflow-x: auto; }
+/* ★ table-layout: fixed 是列宽的关键 ★ 默认 auto 布局下，浏览器按内容自动摊算列宽，
+   每个 <td>/<th> 自己声明的 width 只是个建议，长职责名照样能把列撑开；fixed 布局下
+   列宽完全交给 <colgroup> 里的 <col>（见 personMatrixHTML）决定，才是真正稳定生效的。
+   ★ 字号/行高/内边距不生效的另一个根因 ★ 全局有一条 `td { padding:0 8px; font-size:12.5px;
+   border-right:1px solid ...}` 的表格重置（给别处的数据表用的），这些声明是"直接写在 td 上"
+   的，就算 .matrix-cell/.matrix-row-label 是 class 选择器、优先级按理更高，只要它们自己
+   没显式声明同一个属性，浏览器就会用这条全局 td 规则、而不是从 <table> 继承下来的字号——
+   直接声明永远赢过继承，跟选择器优先级高低无关。这就是"工作行字体比职责行小一号"（职责行
+   一直在悄悄用全局的 12.5px，工作行自己单独声明了 11px）、"内边距/行高怎么调都没用"的真正
+   原因。这里把 font-size/line-height/padding/border-right 在每一条规则里都显式重新声明一遍，
+   不再留任何一个属性给全局 td/th 重置去趁虚而入。
+   字号定为 11px，20 个汉字大约 220px 宽（中文字符的字宽近似等于字号），加上箭头和内边距，
+   职责/工作名称列给到 230px；行高不额外加行距，就是这个字号本该占的高度（line-height:1）。 */
+.matrix-table { border-collapse: separate; border-spacing: 2px 1px; font-size: 11px; table-layout: fixed; }
+.matrix-table col.col-label { width: 230px; }
+.matrix-table col.col-person { width: 46px; }
+.matrix-table th { font-weight: 600; color: var(--text2); padding: 0 2px; white-space: nowrap; text-align: center;
+  font-size: 11px; line-height: 1; overflow: hidden; text-overflow: ellipsis; border-right: none; }
+.matrix-row-label { font-size: 11px; line-height: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  padding: 0 10px 0 2px; color: var(--text2); text-align: left; border-right: none; }
+.matrix-row-label .sb-caret { margin-right: 2px; }
+/* 字号不在这里单独声明——跟 .matrix-row-label 共用同一份 11px，避免两处各写一次、
+   日后改一处忘了改另一处，又变回"工作行字体对不上职责行"这个老问题 */
+.matrix-row-work { padding-left: 22px; color: var(--text3); }
+.matrix-cell { font-size: 11px; line-height: 1; padding: 0; text-align: center; border-radius: 3px; overflow: hidden;
+  font-variant-numeric: tabular-nums; color: var(--text); font-weight: 600; border-right: none; }
+.matrix-cell-empty { background: var(--bg); }
+.matrix-cell.clickable { cursor: pointer; }
+.matrix-cell.clickable:hover { outline: 1.5px solid var(--accent); outline-offset: -1.5px; }
 .role-select { height: 26px; padding: 0 6px; border: 1px solid var(--border2); border-radius: 4px;
   font-family: var(--font); font-size: 12px; color: var(--text); background: #fff; outline: none; cursor: pointer; }
 .role-select:focus { border-color: var(--accent); }
@@ -368,6 +405,8 @@ td.cell-center { text-align: center; }
 .rep-pick { display: flex; align-items: center; gap: 8px; font-size: 12px; padding: 3px 6px;
   background: var(--surface); border: 1px solid var(--border); border-radius: 3px; margin-bottom: 3px; }
 .rep-pick-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rep-width-sel { height: 22px; padding: 0 4px; border: 1px solid var(--border2); border-radius: 3px;
+  font-family: var(--font); font-size: 11px; color: var(--text2); background: #fff; flex-shrink: 0; }
 /* 可添加的模块：按分类分组的一片"＋ 模块名" */
 .rep-picker { margin-top: 6px; border-top: 1px dashed var(--border); padding-top: 6px; }
 .rep-grp { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 8px; margin-bottom: 4px; }
@@ -422,6 +461,7 @@ td.cell-center { text-align: center; }
 .mini-list .d { width: 62px; flex-shrink: 0; font-size: 11px; }
 .mini-list .t { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mini-list .p { flex-shrink: 0; color: var(--text3); font-size: 11px; max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mini-list .lvl { flex-shrink: 0; width: 54px; text-align: center; font-size: 10.5px; color: var(--text2); background: var(--bg); border-radius: 3px; padding: 1px 3px; }
 .empty-mini { color: var(--text3); font-size: 12px; padding: 6px 0; }
 /* ===== 数据体检明细 ===== */
 .health-row { border-bottom: 1px dashed var(--border); }
@@ -581,6 +621,33 @@ td.col-sel, th.col-sel { text-align: center; padding: 0; }
   #report-print-area, #report-print-area * { visibility: visible; }
   #report-print-area { position: absolute; left: 0; top: 0; width: 100%; }
   .no-print { display: none !important; }
+  /* ★ 人员工作矩阵打印/导出 PDF 还是不对，这才是真正的根因 ★
+     矩阵格子的热力颜色是靠 `style="background:rgba(...)"` 画出来的（见 matrixHeatCellHTML），
+     数字本身不带任何深浅信息，颜色才是这个模块唯一的信息载体。但 Chrome 打印/导出 PDF
+     默认不打印背景色/背景图（用户得自己去打印对话框里勾"背景图形"，几乎没人知道要勾这个），
+     这是浏览器级别的默认行为，跟上一轮修的"列宽超出被截断"是两个完全不同的问题——上一轮
+     修完之后列不再丢了，但矩阵打印出来是一整片没有颜色的空白格子，只剩数字，等于看不出
+     热力分布，这就是用户说"还不对"的真正原因。柱状图/饼图那些用 SVG 的 fill 画色块，不受
+     这条默认行为影响，所以“大部分图表都正常了”——只有矩阵这种靠 CSS background 画色的
+     栽在这上面。用 print-color-adjust: exact 强制打印背景色，一次性解决，顺带保住职责/工作
+     推进条、人员负荷条这些同样靠 background 画色段的模块（当时没人反馈是因为它们还有色块
+     本身的边界/文字撑着，不像矩阵那样整格全靠颜色，没那么容易被人一眼看出"缺了颜色"，但
+     原理上是同一个坑，不该只修矩阵这一个）。 */
+  * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; }
+  /* ★ 人员工作矩阵打印/导出 PDF 时右侧列被截掉，根因在这里 ★
+     屏幕上 .matrix-wrap 是 overflow-x:auto，人多的时候超出面板宽度就横向滚动，这没问题；
+     但打印时浏览器不会把这种"横向可滚动"的容器展开或分页，只会照着它渲染出来的实际宽度
+     原样截断——表格本身又是 table-layout:fixed + 每个人固定 46px 列宽，人越多表格越宽，
+     超出打印页面可用宽度的部分就直接消失了，屏幕上滚动能看到、打印出来就没了。
+     打印时把这套"固定列宽 + 横向滚动"换成"总宽度锁定 100%、列宽自动摊分"：
+     table-layout:fixed 下，没写 width 的列会把剩余空间平分掉，人越多每列自动越窄，
+     表格永远不会超出这一页能用的宽度，代价是人特别多时格子会变挤——但至少不会整列消失。 */
+  .matrix-wrap { overflow-x: visible; }
+  .matrix-table { width: 100%; font-size: 9px; }
+  .matrix-table col.col-label { width: 130px; }
+  .matrix-table col.col-person { width: auto; }
+  .matrix-table th, .matrix-row-label, .matrix-cell { font-size: 9px; padding-left: 1px; padding-right: 1px; }
+  .matrix-row-label { padding-right: 4px; }
 }
 </style>
 </head>
@@ -685,7 +752,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260805051856';
+const APP_VERSION = 'v20260812201811';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -1228,7 +1295,8 @@ const TASK_VIEWS = [
   { key: 'todo',    label: '未开始',   match: t => !t.deleted_at && t.status === 'todo' },
   { key: 'done',    label: '已完成',   match: t => !t.deleted_at && t.status === 'done' },
   { key: 'hold',    label: '已挂起',   match: t => !t.deleted_at && t.status === 'hold' },
-  { key: 'deleted', label: '已删除',   match: t => !!t.deleted_at },
+  // recovery 标记：这是恢复入口，取全量任务池、不受年度/所属工作状态过滤（见 taskPoolFor）
+  { key: 'deleted', label: '已删除',   match: t => !!t.deleted_at, recovery: true },
 ];
 const TASK_VIEW_MAP = Object.fromEntries(TASK_VIEWS.map(v => [v.key, v]));
 
@@ -1584,6 +1652,9 @@ const MERGE_ALERT_KEY = 'todo_v4_merge_alert';
    这个取舍是划算的——真出事时处里必然有人当天就在用，而误报的代价（所有人被吓一跳、
    还可能真去点回滚，把别人的正常改动滚掉）比漏报大得多。 */
 const MERGE_DAMAGE_MAX_WINDOW_MS = 24 * 60 * 60 * 1000;
+/* 换版本之后的第一次合并，跳过一次熔断告警（只跳这一次，用完即清）。
+   在 boot() 里发现本机缓存是别的版本写的时置为 true，详见 noteMergeAlerts 里那段说明。 */
+let _skipDamageAlertOnce = false;
 // 算出这次合并的"新鲜"基准线：本机上次对账时间与 24 小时前，取更晚的那个
 function mergeDamageSince(db, nowMs) {
   const now = nowMs || Date.now();
@@ -1624,9 +1695,32 @@ function noteMergeAlerts(localPayload, merged) {
   // 这里从 DB 上读没问题，但语义上它代表"本机上次对账时间"，跟 localPayload 是同一时刻的东西
   const damage = mergeDamageReport(localPayload, merged, mergeDamageSince(DB));
   if (damage.total > MERGE_DAMAGE_LIMIT) {
-    armMergeDamageAlert(localPayload, damage);
-    pushAlertLog(`同步进来的这批改动删除了 ${damage.total} 条记录（任务 ${damage.tasks}、里程碑 ${damage.milestones}、工作 ${damage.works}、职责 ${damage.duties}、账号 ${damage.users}），已在本机留底，可回滚`);
-    showSnack(`⚠ 这次同步删掉了 ${damage.total} 条记录，已自动留底。请到「日志」页确认，不对可以一键回滚`, { priority: true });
+    /* ★ 换版本之后第一次合并，不报警 ★（这是第二次针对同一类误报做的收敛，跟前面 24 小时
+       基准线那段是配套的，改之前请把两段一起读完）
+       处里每次发新版 html，同事打开的那一刻会发生一件必然的事：他本机浏览器里存着一份
+       旧缓存，而这段时间共享文件里正常发生过的删除（有人清理过期任务、管理员清了回收站……）
+       对这份旧缓存来说全都是"合并之后才消失的"。于是一次追平就把这些删除攒在一起报出来，
+       同事看到一句"同步进来的这批改动删除了 XXX 条记录"，谁都没删过东西，却被吓一跳——
+       更糟的是他可能真去点"回滚"，把别人正常的清理成果又倒回来。
+       24 小时基准线挡不住这一类：如果这批清理恰好就发生在最近一天（发版前刚整理过数据，
+       这恰恰是最常见的节奏），删除时间就是新鲜的，照样越过阈值。
+
+       真正的区分点不是时间，而是【这次合并的性质】：换版本后的第一次合并是"拿旧缓存跟
+       共享文件对账"，本来就应该以共享文件为准，不是事故；之后的每一次才是正常协作，
+       那时候突然少掉一大片才值得警惕。所以只对这第一次放行，而且只放行一次
+       （_skipDamageAlertOnce 用完即清），本次会话里后面真出事照样报。
+       放行不等于不留痕：照样写一条普通日志说明这次追平了多少条，只是不再当成事故告警、
+       也不留那个会误导人的"回滚"入口。 */
+    if (_skipDamageAlertOnce) {
+      _skipDamageAlertOnce = false;
+      pushChangeLog('task', '', `换用新版本后首次同步：从共享文件追平了 ${damage.total} 条此前已删除的记录`
+        + `（任务 ${damage.tasks}、里程碑 ${damage.milestones}、工作 ${damage.works}、职责 ${damage.duties}、账号 ${damage.users}）。`
+        + `这是本机旧缓存跟共享文件对账的正常结果，不是误删。`);
+    } else {
+      armMergeDamageAlert(localPayload, damage);
+      pushAlertLog(`同步进来的这批改动删除了 ${damage.total} 条记录（任务 ${damage.tasks}、里程碑 ${damage.milestones}、工作 ${damage.works}、职责 ${damage.duties}、账号 ${damage.users}），已在本机留底，可回滚`);
+      showSnack(`⚠ 这次同步删掉了 ${damage.total} 条记录，已自动留底。请到「日志」页确认，不对可以一键回滚`, { priority: true });
+    }
   }
   _integrityAlerts.forEach(a => {
     // 同一起提权只记一条：不去重的话，每 5 分钟一轮同步就刷一条，正经日志会被淹掉
@@ -1668,6 +1762,8 @@ let _needPermissionRestore = false;   // 连过、句柄也还在，只是刷新
 let _everConnected = false;
 let _lastUnsyncedWarnAt = 0;   // "改动没同步"的提示做节流，不然连着改十条就弹十次
 let _lastBackupAuthWarnAt = 0;   // 自动备份因为授权失效而跳过时的提示节流（见 runBackup）
+let _backupPermLapsed = false;   // 备份文件夹的写入授权失效了，等下一次用户点一下页面就静默要回来（见 armBackupPermAutoRestore）
+let _backupPermRestoring = false;
 const IDB_NAME = 'todoapp_fsa', IDB_STORE = 'handles', IDB_KEY = 'sharedFile';
 const IDB_BACKUP_KEY = 'backupDir';   // 管理员定期备份的目标文件夹句柄，跟共享文件夹分开存
 function idbOpen() {
@@ -2527,7 +2623,11 @@ const UNDO_LIMIT = 20;
    超过这个范围的回退应该是人和人商量着改，而不是由一个快捷键悄悄完成。 */
 const UNDO_MAX_AGE_MS = 10 * 60 * 1000;
 let undoStack = [];
+/* 最近一次拍快照的时刻。用途只有一个：让底部提示条判断"这一条提示是不是真的对应
+   一次刚刚发生的、可撤销的改动"——详见 showSnack 里那段注释。 */
+let _lastSnapshotAt = 0;
 function snapshot() {
+  _lastSnapshotAt = Date.now();
   undoStack.push({
     // 快照时刻有两个用途：判有没有过期；以及判某条记录是不是"我拍完快照之后才被别人动过"
     at: new Date().toISOString(),
@@ -2764,8 +2864,10 @@ const UI = {
        所以改成按需打开：工具栏那个「批量」按钮点一下才把这列亮出来，退出批量模式就收回去。 */
     batchMode: false,
   },
-  works:  { filters: {}, search: '', sortKey: 'code', sortDir: 1, widths: {}, cols: schema('work').fields.map(f => f.key) },
-  duties: { filters: {}, search: '', sortKey: 'code', sortDir: 1, widths: {}, cols: schema('duty').fields.map(f => f.key) },
+  // view: 'active' 正常清单 / 'stopped'(工作) 'deleted'(职责) 是恢复入口——
+  // 停用工作会连带删除它名下的任务，没有恢复入口的话这个动作等于不可逆（见 'work-del'）
+  works:  { view: 'active', filters: {}, search: '', sortKey: 'code', sortDir: 1, widths: {}, cols: schema('work').fields.map(f => f.key) },
+  duties: { view: 'active', filters: {}, search: '', sortKey: 'code', sortDir: 1, widths: {}, cols: schema('duty').fields.map(f => f.key) },
   // 日志页：默认落在"今天"，翻页状态不持久化——每次进这一页都从最新看起才是常态
   logs:   { range: 'today', kind: 'all', who: '', text: '', page: 1 },
 };
@@ -2933,19 +3035,26 @@ function renderSidebar() {
   let html = '';
 
   if (currentPage === 'tasks') {
-    const st = UI.tasks, all = visibleTasks();
+    const st = UI.tasks;
+    // 每个视图的计数都用它自己的池子（「已删除」是恢复入口，取全量），
+    // 否则侧栏会出现"已删除 0"、点进去却有一堆，或者反过来——见 taskPoolFor 的注释
     html += `<div class="sb-section-title">◆ 视图</div>` + TASK_VIEWS.map(v =>
       `<div class="sb-item${st.view === v.key ? ' active' : ''}" data-act="task-view" data-view="${v.key}">
-         <span class="sb-label">${esc(v.label)}</span><span class="cnt">${all.filter(v.match).length || ''}</span></div>`).join('');
+         <span class="sb-label">${esc(v.label)}</span><span class="cnt">${taskPoolFor(v.key).filter(v.match).length || ''}</span></div>`).join('');
     html += '<hr class="sb-divider">';
-    const rows = all.filter(TASK_VIEW_MAP[st.view].match);
+    const rows = taskPoolFor(st.view).filter(TASK_VIEW_MAP[st.view].match);
     html += renderTaskTree(rows);
     // 职责与工作已由树承担；负责人+参与人合并成一个"人员"分面，其余分面仍平铺
     html += personFacetBlock('task', rows, st.filters, 'task-filter');
     schema('task').fields.filter(f => f.facet && f.key !== '_duty' && f.key !== 'work')
       .forEach(f => { html += facetBlock('task', f, rows, st.filters, 'task-filter'); });
   } else if (currentPage === 'works') {
-    const st = UI.works, rows = visibleWorks();
+    const st = UI.works, rows = workPoolFor(st.view);
+    html += `<div class="sb-section-title">◆ 视图</div>`
+      + [{ k: 'active', label: '全部工作' }, { k: 'stopped', label: '已停用' }].map(v =>
+        `<div class="sb-item${st.view === v.k ? ' active' : ''}" data-act="work-view" data-view="${v.k}">
+           <span class="sb-label">${esc(v.label)}</span><span class="cnt">${workPoolFor(v.k).length || ''}</span></div>`).join('')
+      + '<hr class="sb-divider">';
     const wfacets = schema('work').fields.filter(f => f.facet);
     const dutyField = wfacets.find(f => f.key === 'duty');
     // 所属职责在上、人员在下，其余分面殿后
@@ -2953,7 +3062,12 @@ function renderSidebar() {
     html += personFacetBlock('work', rows, st.filters, 'work-filter');
     wfacets.filter(f => f.key !== 'duty').forEach(f => { html += facetBlock('work', f, rows, st.filters, 'work-filter'); });
   } else if (currentPage === 'duties') {
-    const st = UI.duties, rows = DB.duties.filter(d => !d.deleted_at);
+    const st = UI.duties, rows = dutyPoolFor(st.view);
+    html += `<div class="sb-section-title">◆ 视图</div>`
+      + [{ k: 'active', label: '全部职责' }, { k: 'deleted', label: '已删除' }].map(v =>
+        `<div class="sb-item${st.view === v.k ? ' active' : ''}" data-act="duty-view" data-view="${v.k}">
+           <span class="sb-label">${esc(v.label)}</span><span class="cnt">${dutyPoolFor(v.k).length || ''}</span></div>`).join('')
+      + '<hr class="sb-divider">';
     html += facetBlock('duty', fieldDef('duty', 'category'), rows, st.filters, 'duty-filter');
   } else {
     sb.classList.add('hidden'); sb.innerHTML = ''; return;
@@ -3046,15 +3160,26 @@ function renderToolbar() {
   bindToolbarInputs(currentPage);
 }
 
+/* ★ 搜索框统一走这里，中文输入法的"合成期"必须让开 ★
+   拼音敲到一半、候选词还没选定的时候，浏览器照样一路触发 input 事件，
+   事件里拿到的是拼音字母而不是最终的汉字。这时候就去筛选有两个后果：
+   一是按字母筛出一堆无关结果；二是筛完要重绘，而重绘会把输入框这个 DOM 元素整个换掉
+   （日志页尤其明显——它是整页重建），正在进行的合成于是被强行中断：
+   候选框消失、已经敲进去的拼音字母被当成最终输入落在框里。
+   任务页之所以看着没事，只是因为它的搜索框在工具栏上、重绘时不会被换掉，
+   合成能撑到用户选完词——但按字母抢跑筛选这件事其实一样在发生。
+   所以两处都改成：合成期间一概不动，等 compositionend（用户真的选定了）再按最终文本走一次。 */
+function bindComposableSearch(el, apply, delay) {
+  if (!el) return;
+  let timer = null, composing = false;
+  const fire = () => { clearTimeout(timer); timer = setTimeout(apply, delay || 150); };
+  el.addEventListener('compositionstart', () => { composing = true; clearTimeout(timer); });
+  el.addEventListener('compositionend', () => { composing = false; fire(); });
+  el.addEventListener('input', () => { if (!composing) fire(); });
+}
 function bindToolbarInputs(page) {
   const si = $('#search-input');
-  if (si) {
-    let timer = null;
-    si.addEventListener('input', () => {
-      clearTimeout(timer);
-      timer = setTimeout(() => { UI[page].search = si.value; renderPage(); si.focus(); }, 150);
-    });
-  }
+  bindComposableSearch(si, () => { UI[page].search = si.value; renderPage(); si.focus(); });
 }
 
 /* =============================================================
@@ -3062,9 +3187,30 @@ function bindToolbarInputs(page) {
    ============================================================= */
 function inYear(w) { return !DB.settings.year || !w.year || w.year === DB.settings.year; }
 function visibleWorks() { return DB.works.filter(w => !w.deleted_at && inYear(w)); }
+/* 工作/职责的"恢复入口"池子。跟任务的「已删除」视图同理：既然停用/删除是可逆的，
+   就必须有一个地方能看见被停用的东西——而且不受年度过滤影响，否则切到别的年度就又找不着了。 */
+function stoppedWorks() { return DB.works.filter(w => !!w.deleted_at); }
+function deletedDuties() { return DB.duties.filter(d => !!d.deleted_at); }
+function workPoolFor(view) { return view === 'stopped' ? stoppedWorks() : visibleWorks(); }
+function dutyPoolFor(view) { return view === 'deleted' ? deletedDuties() : DB.duties.filter(d => !d.deleted_at); }
+/* ★ 这里只按「年度」过滤，绝不按「所属工作是否已停用」过滤 ★
+   以前这个函数是从 visibleWorks() 推出来的，而 visibleWorks() 已经排除了停用的工作——
+   于是"所属工作被停用"的任务在全站每一个视图里凭空消失。停用工作会连带删除它名下的任务
+   （见 'work-del'），这些任务因此同时满足"自己已删除"和"所属工作已停用"两个条件，
+   连唯一的恢复入口「已删除」视图都进不去：数据概况按 DB.tasks 直接数，数得出 166 条，
+   界面上却一条都够不到，也就永远恢复不了——记录还在文件里，人却拿它没办法。
+   任务该不该出现，只由它自己的 deleted_at 决定；所属工作的状态不该替它做这个决定。
+   （历史遗留的"工作已停用、任务还活着"那批，现在也能正常看到并处理了，而不是被静悄悄藏起来） */
 function visibleTasks() {
-  const ok = new Set(visibleWorks().map(w => w.id));
-  return DB.tasks.filter(t => !t.work || ok.has(t.work));
+  const inYearWork = new Set(DB.works.filter(inYear).map(w => w.id));
+  return DB.tasks.filter(t => !t.work || inYearWork.has(t.work));
+}
+/* 「已删除」是唯一的恢复入口，必须无条件看到全部软删除记录——连年度过滤都要绕开：
+   工作是 2025 年度的、当前切在 2026 年度，它名下被删的任务同样会消失在恢复入口之外。
+   恢复入口一旦有任何过滤，就存在"数得着、够不到"的黑洞，这是上面那段注释里出过的事故。 */
+function taskPoolFor(viewKey) {
+  const v = TASK_VIEW_MAP[viewKey];
+  return v && v.recovery ? DB.tasks : visibleTasks();
 }
 
 function renderPage() {
@@ -3199,7 +3345,7 @@ function renderTasks() {
     tail: [{ key: 'action', label: '✕' }],
   });
   _taskRows = query('task', {
-    pool: visibleTasks().filter(TASK_VIEW_MAP[st.view].match),
+    pool: taskPoolFor(st.view).filter(TASK_VIEW_MAP[st.view].match),
     filters: st.filters, search: st.search, sortKey: st.sortKey, sortDir: st.sortDir,
   });
   // 选中项可能因筛选/视图变化而不在当前结果里，清掉避免"看不见却被批量改"
@@ -3289,8 +3435,9 @@ function renderWorks() {
   renderHead('#works-head', 'work', cols, st, {
     tail: [{ key: 'stat', label: '任务进度' }, { key: 'action', label: '✕' }],
   });
-  const rows = query('work', { pool: visibleWorks(), filters: st.filters, search: st.search, sortKey: st.sortKey, sortDir: st.sortDir });
-  $('#status-left').textContent = `${rows.length} 项工作`;
+  const stopped = st.view === 'stopped';
+  const rows = query('work', { pool: workPoolFor(st.view), filters: st.filters, search: st.search, sortKey: st.sortKey, sortDir: st.sortDir });
+  $('#status-left').textContent = `${rows.length} 项工作${stopped ? '（已停用）' : ''}`;
 
   $('#works-body').innerHTML = rows.map(w => {
     const cells = cols.map(k => renderCellValue('work', w, fieldDef('work', k), true)).join('');
@@ -3299,12 +3446,22 @@ function renderWorks() {
     const doing = ts.filter(t => t.status === 'doing').length;
     const over = ts.filter(isOverdue).length;
     const pct = ts.length ? Math.round(done / ts.length * 100) : 0;
-    const statCell = `<td class="cell-center" data-act="work-drill" data-id="${esc(w.id)}" style="cursor:pointer" title="查看该工作下的任务">
+    /* 已停用视图里这一列没有"进度"可言（名下任务都跟着被删了，ts 恒为空），
+       换成"恢复会带回来多少条"——这正是点恢复之前最想知道的那个数 */
+    const statCell = stopped
+      ? (() => {
+          const back = DB.tasks.filter(t => t.work === w.id && t.deleted_at).length;
+          return `<td class="cell-center"><span class="hint">${back ? `恢复将带回 ${back} 条任务` : '名下没有任务'}</span></td>`;
+        })()
+      : `<td class="cell-center" data-act="work-drill" data-id="${esc(w.id)}" style="cursor:pointer" title="查看该工作下的任务">
         <div class="progress-wrap"><div class="progress-bar"><div class="progress-fill" style="width:${pct}%"></div></div>
         <span class="progress-num">${ts.length ? done + '/' + ts.length : '—'}</span></div>
         ${over ? `<div style="font-size:10px;color:var(--overdue);line-height:1">逾期 ${over}</div>`
                : (doing ? `<div style="font-size:10px;color:var(--text3);line-height:1">进行 ${doing}</div>` : '')}</td>`;
-    const act = `<td class="cell-center"><button class="action-btn del" data-act="work-del" data-id="${esc(w.id)}" title="停用">×</button></td>`;
+    // 已停用视图里换成"恢复"——停用会连带删掉名下任务，没有这个入口的话这一步就是不可逆的
+    const act = stopped
+      ? `<td class="cell-center"><button class="action-btn restore" data-act="work-restore" data-id="${esc(w.id)}" title="恢复（连同其下被连带删除的任务）">↩</button></td>`
+      : `<td class="cell-center"><button class="action-btn del" data-act="work-del" data-id="${esc(w.id)}" title="停用">×</button></td>`;
     return `<tr data-id="${esc(w.id)}">${cells}${statCell}${act}</tr>`;
   }).join('');
 }
@@ -3318,11 +3475,12 @@ function renderDuties() {
   renderHead('#duties-head', 'duty', cols, st, {
     tail: [{ key: 'stat', label: '工作 / 任务' }, { key: 'action', label: '✕' }],
   });
+  const isDel = st.view === 'deleted';
   const rows = query('duty', {
-    pool: DB.duties.filter(d => !d.deleted_at),
+    pool: dutyPoolFor(st.view),
     filters: st.filters, search: st.search, sortKey: st.sortKey, sortDir: st.sortDir,
   });
-  $('#status-left').textContent = `${rows.length} 项职责`;
+  $('#status-left').textContent = `${rows.length} 项职责${isDel ? '（已删除）' : ''}`;
 
   $('#duties-body').innerHTML = rows.map(d => {
     const cells = cols.map(k => renderCellValue('duty', d, fieldDef('duty', k), true)).join('');
@@ -3332,7 +3490,9 @@ function renderDuties() {
     const done = ts.filter(t => t.status === 'done').length;
     const stat = `<td class="cell-center" data-act="duty-drill" data-code="${esc(d.code)}" style="cursor:pointer" title="查看该职责下的工作">
        <span style="color:var(--text2)">${ws.length} 项工作</span><span class="cell-sub"> · ${ts.length ? done + '/' + ts.length + ' 任务' : '无任务'}</span></td>`;
-    const act = `<td class="cell-center"><button class="action-btn del" data-act="duty-del" data-code="${esc(d.code)}" title="删除">×</button></td>`;
+    const act = isDel
+      ? `<td class="cell-center"><button class="action-btn restore" data-act="duty-restore" data-code="${esc(d.code)}" title="恢复">↩</button></td>`
+      : `<td class="cell-center"><button class="action-btn del" data-act="duty-del" data-code="${esc(d.code)}" title="删除">×</button></td>`;
     return `<tr data-id="${esc(d.code)}">${cells}${stat}${act}</tr>`;
   }).join('');
 }
@@ -3348,6 +3508,12 @@ let dashMsMineOnly = true;           // 工作台「里程碑甘特图」是否�
 
 function daysFromToday(d) {
   return Math.round((new Date(d + 'T00:00:00') - new Date(todayStr() + 'T00:00:00')) / 86400000);
+}
+// 甘特图时间轴左边界用："2 个月前"按日历月算，不是简单减 60 天——各月天数不一样，
+// 减固定天数在月初/月末会有一两天的偏差，不如直接把月份减 2 交给 Date 构造函数处理
+function twoMonthsAgoOffset() {
+  const now = new Date();
+  return daysFromToday(fmtLocal(new Date(now.getFullYear(), now.getMonth() - 2, now.getDate())));
 }
 function relTime(iso) {
   if (!iso) return '';
@@ -3559,6 +3725,7 @@ function workName(code) { const w = byId('work', code); return w ? w.name : (cod
    ============================================================= */
 let chartTab = 'person';
 let chartDutyExpanded = new Set();   // 图表页"按工作"里"各职责/工作推进情况"展开了哪些职责，跟工作台/报告页各自独立一份状态
+let chartMatrixDutyExpanded = new Set();   // 图表页"人员工作矩阵"tab 自己一份展开状态，跟"按工作"tab 的 chartDutyExpanded 互不影响
 let msDutyExpanded = new Set();      // 图表页"按里程碑"树状展开：哪些职责展开了
 let msWorkExpanded = new Set();      // 图表页"按里程碑"树状展开：哪些工作展开了（展开工作才看得到任务级的甘特时间线）
 let trendGranularity = 'month';      // 图表页"按时间"待办总量趋势图的粒度：month/week/day
@@ -3569,6 +3736,7 @@ const CHART_TABS = [
   { key: 'category', label: '按职责' },
   { key: 'time',     label: '按时间' },
   { key: 'gantt',    label: '按里程碑' },
+  { key: 'matrix',   label: '人员工作矩阵' },
 ];
 const chartTableView = {};      // 每个图表是否切到表格视图
 
@@ -3637,7 +3805,7 @@ function worksByYear() {
 }
 function worksByDutyCount() {
   return DB.duties.filter(d => !d.deleted_at)
-    .map(d => ({ label: `${d.code} ${d.name}`, n: visibleWorks().filter(w => w.duty === d.code).length }))
+    .map(d => ({ label: `${d.code} ${d.name}`, n: visibleWorks().filter(w => w.duty === d.code).length, code: d.code }))
     .filter(x => x.n > 0)
     .sort((a, b) => a.label.localeCompare(b.label));
 }
@@ -3646,7 +3814,7 @@ function worksByDutyCount() {
 function taskFieldBars(fieldKey, tasks) {
   return facet('task', fieldDef('task', fieldKey), tasks)
     .filter(i => i.count > 0)
-    .map(i => ({ label: i.label, n: i.count }));
+    .map(i => ({ label: i.label, n: i.count, value: i.value }));
 }
 // SPI（进度绩效指数）= 全部任务"实际进度"之和 ÷ "计划进度"之和，是一个围绕 1 的比值，不是百分比——
 // 大于 1 说明整体比计划快，小于 1 说明落后于计划。图表页"按任务/按工作"总览用。
@@ -3682,19 +3850,28 @@ function msCompletionPie(tasks) {
   return [
     { label: '已完成', n: done, color: 'var(--c-done)' },
     { label: '逾期未完成', n: overdue, color: 'var(--c-late)' },
-    { label: '未完成（未逾期）', n: pending, color: 'var(--c-todo)' },
+    { label: '推进中', n: pending, color: 'var(--c-todo)' },
   ];
 }
 // 按交付物的"最高呈报层级"分类统计（跟完成情况是两个不同维度，颜色特意不跟状态色/优先级色重复，避免混淆）
 const REPORT_LEVEL_COLORS = ['#c9b8e8', '#8f6bc4', '#5b3a8e'];
+// 拆出不依赖 tasks 的版本：deliveredMsLevelPie（只看本期实际交付的那一小批里程碑）要复用同一套统计口径。
+// order 可选：给一份层级 code 的顺序表（如 DELIVERED_MS_LEVEL_ORDER），不传就用 REPORT_LEVELS 的原始顺序。
+// 颜色始终按 REPORT_LEVELS 里"这个层级本来的位置"取，不随 order 变——同一层级不管在哪张图里顺序如何，
+// 颜色都得是同一个，不然容易被当成两码事。
+function msReportLevelStatsOf(ms, order) {
+  const levels = order ? order.map(v => REPORT_LEVELS.find(rl => rl.v === v)).filter(Boolean) : REPORT_LEVELS;
+  return levels.map(rl => ({
+    v: rl.v,
+    label: rl.label,
+    n: ms.filter(m => (m.report_level || 'section') === rl.v).length,
+    color: REPORT_LEVEL_COLORS[REPORT_LEVELS.indexOf(rl)],
+  }));
+}
 function msReportLevelStats(tasks) {
   const ids = new Set(tasks.map(t => t.id));
   const ms = DB.milestones.filter(m => !m.deleted_at && ids.has(m.task));
-  return REPORT_LEVELS.map((rl, i) => ({
-    label: rl.label,
-    n: ms.filter(m => (m.report_level || 'section') === rl.v).length,
-    color: REPORT_LEVEL_COLORS[i],
-  }));
+  return msReportLevelStatsOf(ms);
 }
 function monthKey(iso) { return (iso || '').slice(0, 7); }
 /* 待办总量趋势："新增/完成"是流量，看不出积压是否在变大；这里换成存量口径——
@@ -3839,9 +4016,78 @@ function dutyTreeRowsHTML(dutyStat, workStat, expandedSet, toggleAct) {
     return `<div class="report-duty-row">${caret}<div style="flex:1">${bar}</div></div>${workRows}`;
   }).join('');
 }
+/* 人员×职责/工作 热力矩阵：跟"各职责/工作推进情况"用同一套职责→工作树状展开，只是每一行
+   右边不再是状态进度条，而是横向铺开每个人在这个职责/工作里的"热力度"。
+   格子里的数字是这个人在这个职责/工作下牵头+参与的任务数（牵头、参与各自独立计数，
+   跟"各人任务量与完成率"同一个口径，不去重"既牵头又参与"这种边界情况）。
+   格子颜色深浅按"加权热力值"算——牵头意味着要对这条任务负责，参与只是搭把手，
+   所以牵头的权重定成参与的 3 倍：weight = lead*3 + join。
+   颜色深浅的基准是整张矩阵（职责行 + 工作行）里出现过的最大加权值，不随展开/折叠变化，
+   否则一折叠一展开，同一个格子的深浅会跳来跳去，没法稳定地横向比较。 */
+function personDutyWorkHeat(tasks) {
+  const dutyMap = new Map(), workMap = new Map();
+  const bump = (map, key, person, field) => {
+    if (!map.has(key)) map.set(key, new Map());
+    const pm = map.get(key);
+    if (!pm.has(person)) pm.set(person, { lead: 0, join: 0 });
+    pm.get(person)[field]++;
+  };
+  tasks.forEach(t => {
+    const w = byId('work', t.work);
+    if (!w) return;
+    if (t.owner) { bump(dutyMap, w.duty, t.owner, 'lead'); bump(workMap, w.id, t.owner, 'lead'); }
+    (t.assignees || []).forEach(a => { if (!a) return; bump(dutyMap, w.duty, a, 'join'); bump(workMap, w.id, a, 'join'); });
+  });
+  let maxWeight = 0;
+  [...dutyMap.values(), ...workMap.values()].forEach(pm => pm.forEach(v => { maxWeight = Math.max(maxWeight, v.lead * 3 + v.join); }));
+  return { dutyMap, workMap, maxWeight: maxWeight || 1 };
+}
+function matrixHeatCellHTML(pm, person, maxWeight, actAttrs) {
+  const v = (pm && pm.get(person)) || { lead: 0, join: 0 };
+  const n = v.lead + v.join;
+  if (!n) return `<td class="matrix-cell matrix-cell-empty"></td>`;
+  const weight = v.lead * 3 + v.join;
+  const ratio = Math.min(1, weight / maxWeight);
+  const alpha = (0.16 + ratio * 0.74).toFixed(2);
+  const tip = `${person}：牵头 ${v.lead} · 参与 ${v.join}（加权热力 ${weight}）`;
+  return `<td class="matrix-cell clickable" style="background:rgba(44,95,138,${alpha})" data-act="matrix-cell-filter"${actAttrs} title="${esc(tip)}">${n}</td>`;
+}
+function personMatrixHTML(dutyStat, workStat, people, heat, expandedSet, toggleAct) {
+  if (!dutyStat.length) return '<div class="empty-mini">暂无数据</div>';
+  if (!people.length) return '<div class="empty-mini">还没有任何人员</div>';
+  /* 列宽必须靠 <colgroup> 定，不能只指望每个 <td>/<th> 自己声明 width——table-layout 默认是 auto，
+     浏览器按内容自动摊算列宽，per-cell 的 width 只是个建议，长职责名照样能把列撑开；
+     加了 table-layout:fixed 之后，列宽改成完全由第一次出现的宽度声明（也就是这里的 colgroup）
+     决定，跟内容长短、跟哪一行的 class 是什么都没关系，这才是真正稳定的做法。 */
+  const colgroup = `<colgroup><col class="col-label">${people.map(() => '<col class="col-person">').join('')}</colgroup>`;
+  const head = `<tr><th class="matrix-row-label">职责 / 工作</th>${people.map(p => `<th>${esc(p)}</th>`).join('')}</tr>`;
+  const rows = dutyStat.map(x => {
+    const dutyWorks = workStat.filter(w => w.duty === x.code).sort((a, b) => (a.code || '').localeCompare(b.code || ''));
+    const isOpen = expandedSet.has(x.code);
+    const caret = dutyWorks.length
+      ? `<span class="sb-caret" data-act="${toggleAct}" data-code="${esc(x.code)}">${isOpen ? '▾' : '▸'}</span>`
+      : `<span class="sb-caret"></span>`;
+    const dutyPm = heat.dutyMap.get(x.code);
+    const dutyRow = `<tr><td class="matrix-row-label">${caret}<span title="${esc(x.name)}">${esc(x.name)}</span></td>`
+      + people.map(p => matrixHeatCellHTML(dutyPm, p, heat.maxWeight, ` data-duty="${esc(x.code)}" data-person="${esc(p)}"`)).join('')
+      + `</tr>`;
+    let workRows = '';
+    if (isOpen && dutyWorks.length) {
+      workRows = dutyWorks.map(w => {
+        const workPm = heat.workMap.get(w.id);
+        return `<tr><td class="matrix-row-label matrix-row-work"><span title="${esc(w.name)}">${esc(w.name)}</span></td>`
+          + people.map(p => matrixHeatCellHTML(workPm, p, heat.maxWeight, ` data-work="${esc(w.id)}" data-person="${esc(p)}"`)).join('')
+          + `</tr>`;
+      }).join('');
+    }
+    return dutyRow + workRows;
+  }).join('');
+  return `<div class="matrix-wrap"><table class="matrix-table">${colgroup}${head}${rows}</table></div>`;
+}
 // 跟工作台顶部大卡片同一套 .cards/.card 样式，报告页"本期总览"也用这个，别再单独整一份数字排一行的样式
-function statCard(k, v, cls) {
-  return `<div class="card"><div class="k">${esc(k)}</div><div class="v ${cls || ''}">${v}</div></div>`;
+// attrs 传了就整张卡片可点（配 .card.clickable 的悬浮样式），不传就是原来的纯展示卡片
+function statCard(k, v, cls, attrs) {
+  return `<div class="card${attrs ? ' clickable' : ''}"${attrs || ''}><div class="k">${esc(k)}</div><div class="v ${cls || ''}">${v}</div></div>`;
 }
 const statusLegend = `<div class="legend">
   <span><i style="background:var(--c-done)"></i>已完成</span>
@@ -3952,21 +4198,24 @@ function barChart(buckets, w) {
   return `<svg width="${w}" height="${h}" role="img" aria-label="未完成任务的到期分布">
     ${g}<line class="ax-line" x1="${padL}" y1="${padT + ih}" x2="${w - padR}" y2="${padT + ih}"/>${bars}</svg>`;
 }
-/* 柱状图跟饼图并排放在 .chart-flex-bars 里时用这个：先用估算宽度画的那版可能跟真实
-   flex-grow 出来的宽度对不上（留白或裁切），插入 DOM 之后调这个函数量一次真的宽度，
-   差距明显就照实际宽度用 barChart() 重画、换掉——柱子和文字全程都是 1:1 真实像素，
-   不需要靠 CSS 拉伸凑数，字号自然跟页面其它地方保持一致。
+/* 图表跟别的东西并排（或者独占一行但容器宽度是靠 flex 撑出来）的时候用这个：先用估算宽度
+   画的那版可能跟真实 flex-grow 出来的宽度对不上（留白，或者更麻烦的——裁切/出现横向滚动条），
+   插入 DOM 之后调这个函数量一次真的宽度，差距明显就照实际宽度重画、换掉——柱子/折线和文字
+   全程都是 1:1 真实像素，不需要靠 CSS 拉伸凑数，字号自然跟页面其它地方保持一致。
    容器如果还没量到宽度（比如 display:none 或者压根没插进 DOM）就什么也不做，
-   保留原来那版"猜的"，好歹不是空白。 */
-function fitFlexBarChart(wrapEl, buckets) {
+   保留原来那版"猜的"，好歹不是空白。
+   redraw(actualW) 由调用方传入——不同图表类型（barChart/lineChart/groupedBarChart）画法不同，
+   这个函数只管"要不要重画"和"重画完了拿什么换掉"，不关心具体怎么画。 */
+function fitFlexChart(wrapEl, redraw) {
   if (!wrapEl) return;
   const svg = wrapEl.querySelector('svg');
   if (!svg) return;
   const actualW = Math.round(wrapEl.getBoundingClientRect().width);
   const declaredW = Number(svg.getAttribute('width')) || 0;
   if (!actualW || Math.abs(actualW - declaredW) < 6) return;   // 差得不多，不折腾
-  wrapEl.innerHTML = barChart(buckets, actualW);
+  wrapEl.innerHTML = redraw(actualW);
 }
+function fitFlexBarChart(wrapEl, buckets) { fitFlexChart(wrapEl, w => barChart(buckets, w)); }
 /* 分组柱状图：每个类别并排两根柱子，用来对比两个系列（比如按月计划完成的任务数 vs 里程碑数） */
 function groupedBarChart(data, w, keys) {
   const { aKey = 'a', bKey = 'b', aLabel = 'A', bLabel = 'B', aCls = 'bar-norm', bCls = 'bar-done', ariaLabel = '' } = keys || {};
@@ -4007,17 +4256,21 @@ function groupedBarChart(data, w, keys) {
 // 横向列表式条形图：标签在左（太长会自动省略号截断，完整内容看 title）、条在中间、数字在右，
 // 复用 .bar-row/.track/.nm/.num 这套现成样式。barChart 那种纵向柱状图标签挤在下面，
 // 类别一多、名字一长就会重叠看不清，这种情况（各职责工作数量、来源/标签分布）改用这个
+// b.attrs（可选）同 pieChart，传了这一行就可点击下钻
 function hBarList(buckets, max) {
   if (!buckets.length) return '<div class="empty-mini">暂无数据</div>';
   const mx = max || Math.max(1, ...buckets.map(b => b.n));
-  return buckets.map(b => `<div class="bar-row" title="${esc(b.label)}：${b.n}">
+  return buckets.map(b => `<div class="bar-row${b.attrs ? ' clickable' : ''}"${b.attrs || ''} title="${esc(b.label)}：${b.n}">
     <span class="nm">${esc(b.label)}</span>
     <span class="track">${b.n > 0 ? `<span class="seg seg-doing" style="width:${b.n / mx * 100}%"></span>` : ''}</span>
     <span class="num">${b.n}</span></div>`).join('');
 }
 
 /* ---------- 饼图（占比，配合柱状/横条图的绝对量互补） ---------- */
-// data: [{label, n, color}]；color 可以是十六进制或 var(--x)，统一走 style 而非 fill 属性
+// data: [{label, n, color, attrs}]；color 可以是十六进制或 var(--x)，统一走 style 而非 fill 属性。
+// attrs（可选）是调用方拼好的 data-act 属性字符串（见 taskViewAttrs/taskFilterAttrs），
+// 传了这一项就在扇区和图例上都变成可点击、能下钻——两个入口都给，是因为窄扇区在饼图上
+// 很难精确点中，图例文字是更容易命中的靶子。
 function pieChart(data, size, ariaLabel) {
   const list = data.filter(d => d.n > 0);
   const r = size / 2 - 3, cx = size / 2, cy = size / 2;
@@ -4040,7 +4293,7 @@ function pieChart(data, size, ariaLabel) {
   });
 
   const paths = slices.map(s =>
-    `<path d="${s.path}" style="fill:${s.d.color}"><title>${esc(s.d.label)}：${s.d.n} 条（${s.pct}%）</title></path>`).join('');
+    `<path d="${s.path}" style="fill:${s.d.color}"${s.d.attrs ? ` class="pie-slice-clickable${s.d.active ? ' pie-slice-active' : ''}"${s.d.attrs}` : ''}><title>${esc(s.d.label)}：${s.d.n} 条（${s.pct}%）</title></path>`).join('');
   // 占比标签直接写百分比：太窄的扇区（<6%）省略，避免文字互相重叠
   const labels = slices.filter(s => s.pct >= 6).map(s =>
     `<text class="pie-label" x="${s.mx.toFixed(1)}" y="${s.my.toFixed(1)}" text-anchor="middle" dominant-baseline="middle">${s.pct}%</text>`).join('');
@@ -4051,7 +4304,7 @@ function pieChart(data, size, ariaLabel) {
 }
 function pieLegend(data) {
   return `<div class="legend pie-legend">${data.filter(d => d.n > 0).map(d =>
-    `<span><i style="background:${d.color}"></i>${esc(d.label)} ${d.n}</span>`).join('')}</div>`;
+    `<span${d.attrs ? ` class="clickable${d.active ? ' active' : ''}"${d.attrs}` : ''}><i style="background:${d.color}"></i>${esc(d.label)} ${d.n}</span>`).join('')}</div>`;
 }
 
 /* ---------- 按里程碑：职责→工作→任务 三级树，叶子节点（任务）才是真正的甘特时间线 ----------
@@ -4087,7 +4340,10 @@ function milestoneTreeHTML(tasks, dutyExpandedSet, workExpandedSet, dutyToggleAc
   if (!byDutyWork.size) return `<div class="empty-mini">还没有里程碑。到「任务」页双击某条任务的「里程碑/交付物」列即可添加。</div>`;
 
   const allOffs = [...msByTask.values()].flat().map(m => daysFromToday(m.plan_date));
-  let lo = Math.min(0, ...allOffs) - 5, hi = Math.max(...allOffs) + 5;
+  // 时间轴左边界不再跟着最早的历史数据无限往前延伸：往过去最多只画到 2 个月前，
+  // 再早的历史里程碑不体现在时间轴上——不然一条几年前的老里程碑会把整条轴的比例尺
+  // 拉得极稀，最近这两三个月反而挤成一条线，看不清真正有用的部分。
+  let lo = Math.max(Math.min(0, ...allOffs) - 5, twoMonthsAgoOffset()), hi = Math.max(...allOffs) + 5;
   if (hi - lo < 60) hi = lo + 60;
   const pct = d => ((d - lo) / (hi - lo) * 100).toFixed(2) + '%';
   const ticks = [];
@@ -4096,9 +4352,13 @@ function milestoneTreeHTML(tasks, dutyExpandedSet, workExpandedSet, dutyToggleAc
     if (ds.endsWith('-01')) ticks.push({ d, label: (+ds.slice(5, 7)) + '月' });
   }
 
-  // 给定一组里程碑（可能是单条任务的，也可能是折叠层级下合并了多条任务的），画出跨度条+圆点
+  // 给定一组里程碑（可能是单条任务的，也可能是折叠层级下合并了多条任务的），画出跨度条+圆点。
+  // 早于时间轴左边界（2 个月前）的点直接不画——轴本来就没往那么早延伸，硬画只会全部
+  // 贴在最左边挤成一坨；完成数统计（gantt-cnt 的 done/total）仍按完整列表算，不受影响。
   const ganttTrackHTML = msList => {
-    const ms = [...msList].sort((a, b) => a.plan_date.localeCompare(b.plan_date));
+    const visible = msList.filter(m => daysFromToday(m.plan_date) >= lo);
+    if (!visible.length) return `<span class="gantt-track" style="--today:${pct(0)}"></span>`;
+    const ms = [...visible].sort((a, b) => a.plan_date.localeCompare(b.plan_date));
     const a = daysFromToday(ms[0].plan_date), b = daysFromToday(ms[ms.length - 1].plan_date);
     const pts = ms.map(m => {
       const off = daysFromToday(m.plan_date);
@@ -4446,7 +4706,7 @@ function renderCharts() {
         <div class="chart-note">按任务/里程碑各自的「计划完成时间」落在哪个月统计，跟前面的"待办总量趋势"是不同的口径（那张看的是存量，这张看的是未来各月的计划分布）；
         从当月起统计到还有计划安排的最后一个月，不是固定看多少个月；任务数和里程碑数共用同一纵轴。</div></div></div>`;
 
-  } else {
+  } else if (chartTab === 'gantt') {
     const msPie = msCompletionPie(tasks);
     const msLevelStats = msReportLevelStats(tasks);
     body = `<div class="rep-row">
@@ -4466,6 +4726,22 @@ function renderCharts() {
       <div class="panel-b">${chartTableView.gantt ? ganttDataTable() : milestoneTreeHTML(tasks, msDutyExpanded, msWorkExpanded)}
       <div class="chart-note">里程碑本来就是挂在具体任务下的，这里按"职责→工作→任务"逐级展开；展开到工作层级再往下，
       看到的每一行就是一条任务自己的甘特时间线（灰色横条是该任务名下里程碑的首末跨度，圆点是各里程碑）。</div></div></div>`;
+
+  } else if (chartTab === 'matrix') {
+    const dutyStatNow = statsByDuty(tasks).sort((a, b) => (a.code || '').localeCompare(b.code || ''));
+    const workStatNow = statsByWork(tasks);
+    const people = allPeople().slice().sort((a, b) => a.localeCompare(b, 'zh'));
+    const heat = personDutyWorkHeat(tasks);
+    body = `<div class="panel"><div class="panel-h"><span>▦ 人员工作矩阵</span>
+        <span class="hint">按编号排序 · 点击格子下钻 · <span class="toggle-view" data-act="chart-matrix-expand-all">全部展开</span> <span class="toggle-view" data-act="chart-matrix-collapse-all">全部折叠</span></span></div>
+      <div class="panel-b">
+        ${personMatrixHTML(dutyStatNow, workStatNow, people, heat, chartMatrixDutyExpanded, 'chart-matrix-duty-toggle')}
+        <div class="chart-note">行是职责（点箭头展开看下面的工作），列是每个人；格子里的数字是这个人在这项职责/工作下牵头 + 参与的任务总数，
+        颜色深浅按"加权热力"算——牵头的权重是参与的 3 倍，同一张图里颜色越深说明这个人在这块投入越集中；空白格子代表这个人跟这项职责/工作没有关系。
+        点有数字的格子可以跳到任务页，筛出这个人在这项职责/工作下的具体任务。</div></div></div>`;
+
+  } else {
+    body = '<div class="empty-mini">未知的图表标签页</div>';
   }
 
   $('#page-charts').innerHTML = `<div class="pad">${tabs}${body}</div>`;
@@ -4531,6 +4807,12 @@ const REPORT_PERIODS = [
 // 在当前粒度下，相对于"现在"翻了几期：0 = 本期，负数往前，正数往后。切换粒度时会归零（见 report-period）
 let reportOffset = 0;
 let reportExpanded = new Set();   // 报告页里展开了哪些职责（要看它下面的工作明细）
+let reportMatrixDutyExpanded = new Set();   // 报告页"人员工作矩阵"模块自己一份展开状态，跟图表页那份互不影响
+let reportDeliveredMsLevelFilter = '';   // "本期已交付里程碑"模块按呈报层级筛选，点饼图/图例某一块切换，再点一次清除；空串 = 不筛
+// "本期已交付里程碑"专用的呈报层级顺序：行领导 → 部门领导 → 处室领导，级别越高越靠前，
+// 跟 REPORT_LEVELS 定义顺序（处室领导→部门领导→行领导）正好相反——这是汇报场景特有的排序习惯，
+// 不动 REPORT_LEVELS 本身，免得连带影响里程碑编辑器下拉框、图表页其它呈报层级统计的顺序
+const DELIVERED_MS_LEVEL_ORDER = ['bank', 'department', 'section'];
 // period + offset → 起止日期。offset 用整期整期地挪（挪一周/一整个月/一整个季度/一整年），
 // 不是简单地挪 N 天——月份天数不一样、季度更是三个月一挪，只有基于"年/月/周数"做整数偏移
 // 再交给 Date 构造函数才不会挪出偏差（Date 对超范围的月份/日期会自动进位，这里刚好借力）
@@ -4591,12 +4873,26 @@ function buildReportData(period, offset) {
      · 实际完成日落在本期的——本期干完的（哪怕它原计划是上期的）；
      · 还没完成、且计划完成日早于本期的——从上期欠下来带进本期的。
      只按计划日筛的话，欠账任务会凭空消失，"当期需推进"这个数字就会明显偏小。 */
+  /* "推进中"（status === 'doing'）单独再补一条口径：哪怕计划完成日在本期之外
+     （比如排到了下个季度）、也没有任何完成节点落进本期，只要现在正在干，就该算"当期涉及"——
+     否则一个正常推进、只是还没到交付节点的任务，会在报告里彻底消失，显得当期什么都没干。 */
   const inRange = dt => !!dt && dt >= rangeStart && dt <= rangeEnd;
   const msAll = DB.milestones.filter(m => !m.deleted_at && taskIds.has(m.task));
-  const periodTasks = tasks.filter(t => inRange(t.plan_date) || inRange(t.actual_date)
-    || (isOpen(t) && t.plan_date && t.plan_date < rangeStart));
+  const doingTaskIds = new Set(tasks.filter(t => t.status === 'doing').map(t => t.id));
+  /* 已完成的任务只认"实际完成日是否落在本期"，不再看计划完成日——一条任务标了"已完成"之后，
+     计划日期就只是历史参考，真正决定它属于哪一期的是它究竟哪天完成的。以前只要计划日落在
+     本期就会被算进"本期完成进度"的已完成数，导致"提前完成、实际完成日其实是上一期"的任务
+     也被计进本期——这正是"本期完成进度（已完成）"跟"本期已完成任务"清单（只认实际完成日）
+     数字对不上的原因，两边现在统一成同一个口径。 */
+  const periodTasks = tasks.filter(t => {
+    if (t.status === 'done') return inRange(t.actual_date);
+    return inRange(t.plan_date) || inRange(t.actual_date)
+      || (isOpen(t) && t.plan_date && t.plan_date < rangeStart)
+      || t.status === 'doing';
+  });
   const periodMs = msAll.filter(m => inRange(m.plan_date) || inRange(m.actual_date)
-    || (m.done !== '1' && m.plan_date && m.plan_date < rangeStart));
+    || (m.done !== '1' && m.plan_date && m.plan_date < rangeStart)
+    || (m.done !== '1' && doingTaskIds.has(m.task)));
   const periodOpen = periodTasks.filter(isOpen);
   const planTasks = tasks.filter(t => inRange(t.plan_date));   // 本期计划完成的任务
   const planMs = msAll.filter(m => inRange(m.plan_date));      // 本期计划完成的里程碑
@@ -4693,7 +4989,7 @@ const REPORT_STATUS_LEGEND = `<div class="legend">
 /* 模块分类。模块从十来个涨到二十多个之后，配置面板里平铺一大片勾选框已经没法用了，
    按"这块讲的是什么"分组，找起来才有方向。顺序就是选择器里的显示顺序。 */
 const REPORT_GROUPS = [
-  { key: 'overview', label: '当期概览' },
+  { key: 'overview', label: '本期概览' },
   { key: 'attention', label: '需要关注' },
   { key: 'people', label: '人员' },
   { key: 'duty', label: '职责与工作' },
@@ -4722,16 +5018,26 @@ function reportIsTable(key) { return !!chartTableView['rep_' + key]; }
    标题在左，控件在右，从左到右依次是"全量"标记、note（月/周/日、展开折叠这类）、
    看图表/看数据表按钮。控件不出现在这里而是被塞进 html() 正文里，
    是之前几批"从图表页搬模块过来"时图省事留下的位置错位，这次一并挪正。 */
-function reportModHead(m, note) {
+// count（可选）：一些清单类模块要在标题后面直接标出"这里一共几条"，不用数正文有几行——
+// 传了就拼成"标题（N）"，不传就是原来的纯标题
+function reportModHead(m, note, count) {
   const isTable = m.table && reportIsTable(m.key);
-  return `<div class="panel-h"><span>${esc(m.label)}</span><span>
+  return `<div class="panel-h"><span>${esc(m.label)}${count != null ? `（${count}）` : ''}</span><span>
     ${m.scope === 'all' ? '<span class="hint" style="margin-right:8px">全量 · 不随周期变化</span>' : ''}
     ${note ? `<span class="hint" style="margin-right:8px">${note}</span>` : ''}
     ${m.table ? `<span class="toggle-view" data-act="chart-view" data-id="${esc('rep_' + m.key)}">${isTable ? '看图表' : '看数据表'}</span>` : ''}
   </span></div>`;
 }
+/* 报告页模块的点击下钻：统一拼成 data-act 属性字符串，给 statCard/pieChart/hBarList/hBar 等
+   绘制件直接拼进标签里。之所以不直接在这几个绘制件里写死跳转逻辑，是因为同一份 pieChart()/
+   hBarList() 还要给图表页、工作台那些"不需要下钻"或者"下钻目标不一样"的场景复用——
+   要不要能点、点了去哪，交给调用它的报告模块自己决定，绘制件只负责"有 attrs 就渲染成可点的样子"。 */
+function taskViewAttrs(view) { return ` data-act="goto-view" data-page="tasks" data-view="${esc(view)}"`; }
+function taskFilterAttrs(field, val) { return ` data-act="report-filter-tasks" data-field="${esc(field)}" data-val="${esc(val)}"`; }
+function workFilterAttrs(field, val) { return ` data-act="report-filter-works" data-field="${esc(field)}" data-val="${esc(val)}"`; }
+function dutyFilterAttrs(field, val) { return ` data-act="report-filter-duties" data-field="${esc(field)}" data-val="${esc(val)}"`; }
 const REPORT_MODULES = [
-  { key: 'periodScope', label: '当期涉及范围', desc: '当期一共涉及多少职责、工作、任务、里程碑',
+  { key: 'periodScope', label: '本期涉及范围', desc: '本期一共涉及多少职责、工作、任务、里程碑',
     group: 'overview', scope: 'period',
     html: d => `<div class="cards">
         ${statCard('涉及职责', d.dutyCodes.size)}
@@ -4743,72 +5049,131 @@ const REPORT_MODULES = [
     text: (d, push) => push(`职责 ${d.dutyCodes.size} 项 · 工作 ${d.workIds.size} 项 · 任务 ${d.periodTasks.length} 条 · 里程碑 ${d.periodMs.length} 个`),
     canvas: (d, a) => a.line(`职责 ${d.dutyCodes.size} 项　·　工作 ${d.workIds.size} 项　·　任务 ${d.periodTasks.length} 条　·　里程碑 ${d.periodMs.length} 个`) },
 
-  { key: 'periodPlan', label: '当期工作计划量', desc: '需推进多少任务、计划完成多少任务和里程碑',
+  { key: 'periodPlan', label: '本期工作计划量', desc: '需推进多少任务、计划完成多少任务和里程碑',
     group: 'overview', scope: 'period',
     html: d => `<div class="cards">
         ${statCard('需推进任务', d.periodOpen.length)}
         ${statCard('计划完成任务', d.planTasks.length)}
         ${statCard('计划完成里程碑', d.planMs.length)}
       </div>
-      <div class="chart-note">"需推进"= 当期涉及的任务里还没完成的；"计划完成"= 计划完成日就落在本期之内的。</div>`,
+      <div class="chart-note">"需推进"= 本期涉及的任务里还没完成的；"计划完成"= 计划完成日就落在本期之内的。</div>`,
     text: (d, push) => push(`需推进任务 ${d.periodOpen.length} 条 · 计划完成任务 ${d.planTasks.length} 条 · 计划完成里程碑 ${d.planMs.length} 个`),
     canvas: (d, a) => a.line(`需推进任务 ${d.periodOpen.length} 条　·　计划完成任务 ${d.planTasks.length} 条　·　计划完成里程碑 ${d.planMs.length} 个`) },
 
-  { key: 'periodStatus', label: '当期完成进度（含 SPI）', desc: '已完成/进行中/未开始/逾期各几条，加整体 SPI',
-    group: 'overview', scope: 'period',
-    html: d => `<div class="cards">
-        ${statCard('SPI', d.spi === null ? '—' : d.spi.toFixed(2), d.spi === null ? '' : (d.spi >= 1 ? 'ok' : 'warn'))}
-        ${statCard('已完成', d.statusStat.done, 'ok')}
-        ${statCard('进行中', d.statusStat.doing)}
-        ${statCard('未开始', d.statusStat.todo)}
-        ${statCard('逾期', d.statusStat.late, d.statusStat.late ? 'warn' : '')}
-      </div>
-      <div class="chart-note">四类互斥、加起来正好是当期任务总数（逾期优先判定，不重复计进"进行中/未开始"）。
-      SPI = 实际进度 ÷ 计划进度，是围绕 1 的比值不是百分比：大于 1 快于计划，小于 1 落后于计划；没有计划完成时间的任务不参与。</div>`,
+  /* 原来"当期完成进度"是纯卡片，"任务状态占比"是另一个独立模块的饼图——两个模块说的是
+     同一组数字，只是展示形式不同，拆成两块反而要占两个位置。合并成一块，卡片在左、
+     饼图在右（合并前 taskStatusPie 自己是饼图在左，这次特意换边，跟 workOverview
+     那种"饼图在左"的旧模块区分开，别让人以为两个面板长一样）。 */
+  { key: 'periodStatus', label: '本期完成进度（含 SPI）', desc: '已完成/进行中/未开始/逾期各几条 + 状态占比饼图，加整体 SPI',
+    group: 'overview', scope: 'period', table: true,
+    html: d => {
+      if (reportIsTable('periodStatus')) return dataTable(['状态', '数量'],
+        [['已完成', d.statusStat.done], ['进行中', d.statusStat.doing], ['未开始', d.statusStat.todo], ['逾期', d.statusStat.late]]);
+      const pie = [
+        { label: '已完成', n: d.statusStat.done, color: 'var(--c-done)', attrs: taskViewAttrs('done') },
+        { label: '进行中', n: d.statusStat.doing, color: 'var(--c-doing)', attrs: taskViewAttrs('doing') },
+        { label: '逾期', n: d.statusStat.late, color: 'var(--c-late)', attrs: taskViewAttrs('overdue') },
+        { label: '未开始', n: d.statusStat.todo, color: 'var(--c-todo)', attrs: taskViewAttrs('todo') },
+      ];
+      return `<div class="chart-flex">
+          <div class="cards" style="flex:1;min-width:220px;margin-bottom:0">
+            ${statCard('SPI', d.spi === null ? '—' : d.spi.toFixed(2), d.spi === null ? '' : (d.spi >= 1 ? 'ok' : 'warn'))}
+            ${statCard('已完成', d.statusStat.done, 'ok', taskViewAttrs('done'))}
+            ${statCard('进行中', d.statusStat.doing, '', taskViewAttrs('doing'))}
+            ${statCard('未开始', d.statusStat.todo, '', taskViewAttrs('todo'))}
+            ${statCard('逾期', d.statusStat.late, d.statusStat.late ? 'warn' : '', taskViewAttrs('overdue'))}
+          </div>
+          <div class="chart-flex-pie" style="margin:0">${pieChart(pie, 140, '本期任务状态占比')}${pieLegend(pie)}</div>
+        </div>
+      <div class="chart-note">四类互斥、加起来正好是本期任务总数（逾期优先判定，不重复计进"进行中/未开始"）。
+      SPI = 实际进度 ÷ 计划进度，是围绕 1 的比值不是百分比：大于 1 快于计划，小于 1 落后于计划；没有计划完成时间的任务不参与。
+      点卡片或饼图能跳到任务页对应状态，但那边看到的是全部任务，不限于本期这个统计周期。</div>`;
+    },
     text: (d, push) => push(`SPI ${d.spi === null ? '—' : d.spi.toFixed(2)} · 已完成 ${d.statusStat.done} · 进行中 ${d.statusStat.doing} · 未开始 ${d.statusStat.todo} · 逾期 ${d.statusStat.late}`),
     canvas: (d, a) => a.line(`SPI ${d.spi === null ? '—' : d.spi.toFixed(2)}　·　已完成 ${d.statusStat.done}　·　进行中 ${d.statusStat.doing}　·　未开始 ${d.statusStat.todo}　·　逾期 ${d.statusStat.late}`) },
 
-  { key: 'highPriority', label: '高优先级未完成任务', desc: '当期涉及的任务里优先级为"高"且还没完成的',
+  { key: 'highPriority', label: '高优先级未完成任务', desc: '本期涉及的任务里优先级为"高"且还没完成的',
     group: 'attention', scope: 'period',
-    html: d => reportTaskRows(d.highPriTasks, '当期没有高优先级的未完成任务 👍'),
+    titleCount: d => d.highPriTasks.length,
+    html: d => reportTaskRows(d.highPriTasks, '本期没有高优先级的未完成任务 👍'),
     text: (d, push) => reportTaskText(d.highPriTasks, push),
     canvas: (d, a) => a.taskRows(d.highPriTasks, '（无）') },
 
   { key: 'overdueTasks', label: '逾期任务', desc: '已经过了计划完成时间还没完成的任务',
     group: 'attention', scope: 'period',
+    titleCount: d => d.overdue.length,
     html: d => reportTaskRows(d.overdue, '没有逾期任务 👍', 'due-overdue'),
     text: (d, push) => reportTaskText(d.overdue, push),
     canvas: (d, a) => a.taskRows(d.overdue, '没有逾期任务', true) },
 
   { key: 'overdueMs', label: '逾期里程碑', desc: '已经过了计划日期还没交付的里程碑',
     group: 'attention', scope: 'period',
+    titleCount: d => d.overdueMs.length,
     html: d => reportMsRows(d.overdueMs, '没有逾期里程碑 👍', d.today),
     text: (d, push) => reportMsText(d.overdueMs, push),
     canvas: (d, a) => a.msRows(d.overdueMs, '没有逾期里程碑', true) },
 
   { key: 'soonTasks', label: '即将到期任务', desc: '今天起到本期结束之间要完成、还没完成的任务',
     group: 'attention', scope: 'period',
+    titleCount: d => d.soonTasks.length,
     html: d => reportTaskRows(d.soonTasks, '本期剩下的时间里没有待到期的任务'),
     text: (d, push) => reportTaskText(d.soonTasks, push),
     canvas: (d, a) => a.taskRows(d.soonTasks, '（无）') },
 
   { key: 'soonMs', label: '即将到期里程碑', desc: '今天起到本期结束之间要交付、还没交付的里程碑',
     group: 'attention', scope: 'period',
+    titleCount: d => d.soonMs.length,
     html: d => reportMsRows(d.soonMs, '本期剩下的时间里没有待交付的里程碑', d.today),
     text: (d, push) => reportMsText(d.soonMs, push),
     canvas: (d, a) => a.msRows(d.soonMs, '（无）') },
 
   { key: 'doneTasks', label: '本期已完成任务', desc: '实际完成日落在本期内的任务清单',
     group: 'list', scope: 'period',
+    titleCount: d => d.doneInRange.length,
     html: d => reportTaskRows(d.doneInRange, `${d.periodLabel}还没有完成的任务`, '', 'actual_date', 'var(--done)'),
     text: (d, push) => d.doneInRange.length ? d.doneInRange.forEach(t => push(`- ${fmtDate(t.actual_date)}　${t.title}（${t.owner || '未指派'}）`)) : push('- 无'),
     canvas: (d, a) => a.taskRows(d.doneInRange, '（无）', false, 'actual_date', 'done') },
 
-  { key: 'deliveredMs', label: '本期已交付里程碑', desc: '实际交付日落在本期内的里程碑清单',
+  /* 这份清单按"实际交付日落在本期内"计数——跟"里程碑完成情况分布"里的"已完成"不是同一个数：
+     那边数的是"本期涉及的任务名下、眼下已经完成的里程碑"，不管是哪天完成的，哪怕是很久以前
+     就交了、只是任务本身还在本期继续推进，也会被算进去。一个是"这段时间交了什么"（事件），
+     一个是"现在这批任务的里程碑整体完成到什么程度"（快照），两个问题不一样，数字对不上是
+     正常的，不是哪边算错了。
+     呈报层级饼图原来是独立一个模块（deliveredMsLevelPie），现在并进来放在清单上方——两者
+     说的本来就是同一批数据（本期实际交付的这些里程碑），拆成两个模块反而占两个位置；
+     饼图一眼看出"这批交付物大头在哪个层级"，下面清单给出具体是哪几条，不需要再切"看数据表"。 */
+  { key: 'deliveredMs', label: '本期已交付里程碑', desc: '实际交付日落在本期内的里程碑清单，按呈报层级排列，配可点选筛选的分布饼图',
     group: 'list', scope: 'period',
-    html: d => reportMsRows(d.deliveredInRange, `${d.periodLabel}还没有交付的里程碑`, d.today, 'actual_date', 'var(--done)'),
-    text: (d, push) => d.deliveredInRange.length ? d.deliveredInRange.forEach(m => { const mt = byId('task', m.task); push(`- ${fmtDate(m.actual_date)}　${m.deliverable || '（未填写交付物）'}（${mt ? mt.title : ''}）`); }) : push('- 无'),
-    canvas: (d, a) => a.msRows(d.deliveredInRange, '（无）', false, 'actual_date', 'done') },
+    titleCount: d => d.deliveredInRange.length,
+    html: d => {
+      // 饼图/图例按"行领导→部门领导→处室领导"排（DELIVERED_MS_LEVEL_ORDER），级别越高越靠前，
+      // 点一下某个扇区/图例项就按那个层级筛下面的清单，再点一次同一项取消——见 report-delivered-ms-level-filter
+      const st = msReportLevelStatsOf(d.deliveredInRange, DELIVERED_MS_LEVEL_ORDER).map(s => ({
+        ...s, active: reportDeliveredMsLevelFilter === s.v,
+        attrs: ` data-act="report-delivered-ms-level-filter" data-level="${esc(s.v)}"`,
+      }));
+      const pieHtml = st.some(s => s.n > 0)
+        ? `<div class="chart-flex-pie" style="margin:0 auto 10px">${pieChart(st, 120, '本期交付物呈报层级分布')}${pieLegend(st)}</div>`
+        : '';
+      const filterLabel = reportDeliveredMsLevelFilter && (REPORT_LEVELS.find(rl => rl.v === reportDeliveredMsLevelFilter) || {}).label;
+      const filtered = reportDeliveredMsLevelFilter
+        ? d.deliveredInRange.filter(m => (m.report_level || 'section') === reportDeliveredMsLevelFilter) : d.deliveredInRange;
+      const filterNote = filterLabel
+        ? `<div class="chart-note">已按「${esc(filterLabel)}」筛选 · <span class="toggle-view" data-act="report-delivered-ms-level-filter" data-level="${esc(reportDeliveredMsLevelFilter)}">清除筛选</span></div>` : '';
+      return pieHtml + filterNote
+        + reportMsRows(filtered, filterLabel ? `本期交付给「${filterLabel}」的里程碑` : `${d.periodLabel}还没有交付的里程碑`, d.today, 'actual_date', 'var(--done)', true)
+        + `<div class="chart-note">这里数的是"实际交付日落在本期内"的里程碑；「里程碑完成情况分布」模块里的"已完成"数的是本期任务名下所有已完成的里程碑（不限交付时间），两个口径不同，数字不一定相等。</div>`;
+    },
+    // 文本导出走完整数据，不跟着屏幕上临时点的筛选走——文本报告要的是这一期完整、正式的记录，
+    // 不该因为看的人之前随手点过一次筛选就悄悄漏掉一部分
+    text: (d, push) => {
+      msReportLevelStatsOf(d.deliveredInRange, DELIVERED_MS_LEVEL_ORDER).forEach(s => push(`- 层级「${s.label}」：${s.n} 个`));
+      d.deliveredInRange.length ? d.deliveredInRange.forEach(m => { const mt = byId('task', m.task); push(`- ${fmtDate(m.actual_date)}　${m.deliverable || '（未填写交付物）'}（${mt ? mt.title : ''}）`); }) : push('- 无');
+    },
+    // 图片导出要跟屏幕上看到的一致：筛选过就导出筛选后的那部分，不然截图跟正文对不上
+    canvas: (d, a) => a.msRows(reportDeliveredMsLevelFilter
+      ? d.deliveredInRange.filter(m => (m.report_level || 'section') === reportDeliveredMsLevelFilter) : d.deliveredInRange,
+      '（无）', false, 'actual_date', 'done') },
 
   { key: 'dutyTree', label: '各职责/工作推进情况', desc: '按职责汇总的进度条，可展开看每项工作',
     group: 'duty', scope: 'all',
@@ -4851,7 +5216,7 @@ const REPORT_MODULES = [
     group: 'people', scope: 'period', table: true,
     html: d => {
       const st = statsByPerson(d.periodTasks);
-      if (!st.length) return '<div class="empty-mini">当期没有可统计的任务</div>';
+      if (!st.length) return '<div class="empty-mini">本期没有可统计的任务</div>';
       if (reportIsTable('personBars')) return dataTable(['姓名', '相关合计', '已完成', '进行中', '逾期', '未开始', '完成率', '牵头', '参与'],
         st.map(s => [s.name, s.total, s.done, s.doing, s.late, s.todo + s.hold, s.rate + '%', s.lead, s.join]));
       const max = Math.max(1, ...st.map(s => s.total));
@@ -4882,39 +5247,96 @@ const REPORT_MODULES = [
       }).join('');
       const roleLegend = `<span style="margin-left:14px"><i style="background:#6a4c93"></i>牵头</span><span><i style="background:#c9a227"></i>参与</span>`;
       return rows + REPORT_STATUS_LEGEND.replace('</div>', roleLegend + '</div>')
-        + `<div class="chart-note">条长是该人牵头或参与的当期任务总量（同一标尺可横向比较）；中间是「已完成/合计 · 完成率」；最右边是牵头/参与比例条，看这个人以牵头为主还是以参与为主。仅指任务条数，不代表工作量；点击某一行可跳到任务页按他筛选。</div>`;
+        + `<div class="chart-note">条长是该人牵头或参与的本期任务总量（同一标尺可横向比较）；中间是「已完成/合计 · 完成率」；最右边是牵头/参与比例条，看这个人以牵头为主还是以参与为主。仅指任务条数，不代表工作量；点击某一行可跳到任务页按他筛选。</div>`;
     },
     text: (d, push) => {
       const st = statsByPerson(d.periodTasks);
       if (!st.length) { push('- 无'); return; }
       st.forEach(s => push(`- ${s.name}：${s.done}/${s.total}（${s.rate}%），逾期 ${s.late}，牵头 ${s.lead} / 参与 ${s.join}`));
+    },
+    // 之前没配这个，图片导出退回 text() 是一行行"姓名：已完成/合计（完成率%），逾期X，牵头X/参与X"
+    // 的纯文字，看不出谁的条更长、谁的完成率更高，这条横条本来就是靠"一眼比长短"传递信息的
+    canvas: (d, a) => {
+      const st = statsByPerson(d.periodTasks);
+      if (!st.length) { a.empty('本期没有可统计的任务'); return; }
+      const max = Math.max(1, ...st.map(s => s.total));
+      st.forEach(s => a.bar(s.name, s, max, 0, false));
+    } },
+
+  /* 图表页"人员工作矩阵"tab 的报告页版本，跟"各职责/工作推进情况"一样标成全量——
+     矩阵看的是"谁在哪项职责/工作上投入多少"，是结构性的归属关系，不是"这段时间做了什么"，
+     没有天然的按周期切分方式，勉强按 periodTasks 筛只会让大部分格子因为凑巧没有当期节点
+     而变空，看不出真实的人员分布。 */
+  { key: 'personMatrix', label: '人员工作矩阵', desc: '职责/工作 × 人员的热力矩阵（牵头权重 3 倍于参与），跟图表页-人员工作矩阵完全一致',
+    group: 'people', scope: 'all',
+    note: () => `点箭头展开看工作 · <span class="toggle-view" data-act="report-matrix-expand-all">全部展开</span> <span class="toggle-view" data-act="report-matrix-collapse-all">全部折叠</span>`,
+    html: d => {
+      const dutyStat = statsByDuty(d.tasks).sort((a, b) => (a.code || '').localeCompare(b.code || ''));
+      const workStat = statsByWork(d.tasks);
+      const people = allPeople().slice().sort((a, b) => a.localeCompare(b, 'zh'));
+      const heat = personDutyWorkHeat(d.tasks);
+      return personMatrixHTML(dutyStat, workStat, people, heat, reportMatrixDutyExpanded, 'report-matrix-duty-toggle')
+        + `<div class="chart-note">格子数字是这个人在这项职责/工作下牵头 + 参与的任务总数，颜色深浅按加权热力算（牵头权重是参与的 3 倍）。点有数字的格子可以跳到任务页按这项职责/工作 + 这个人筛选。</div>`;
+    },
+    text: (d, push) => {
+      const dutyStat = statsByDuty(d.tasks);
+      if (!dutyStat.length) { push('- 无'); return; }
+      const heat = personDutyWorkHeat(d.tasks);
+      dutyStat.forEach(x => {
+        const pm = heat.dutyMap.get(x.code);
+        if (!pm || !pm.size) return;
+        const parts = [...pm.entries()].sort((a, b) => a[0].localeCompare(b[0], 'zh'))
+          .map(([nm, v]) => `${nm}（牵头${v.lead}/参与${v.join}）`).join('、');
+        push(`- ${x.name}：${parts}`);
+      });
+    },
+    // 图片导出之前没配这个，会退回上面的 text()——人一多，一个职责的文字堆成一整句，
+    // 画到图片里直接被截断大半，这才是"导出图片还不太对"的根子。改成真的画一张热力网格，
+    // 见 exportReportImage 里的 matrix() 画法，跟页面上/PDF 里看到的是同一份数据、同一套配色。
+    canvas: (d, a) => {
+      const dutyStat = statsByDuty(d.tasks).sort((a2, b2) => (a2.code || '').localeCompare(b2.code || ''));
+      const workStat = statsByWork(d.tasks);
+      const people = allPeople().slice().sort((a2, b2) => a2.localeCompare(b2, 'zh'));
+      const heat = personDutyWorkHeat(d.tasks);
+      a.matrix(dutyStat, workStat, people, heat, reportMatrixDutyExpanded);
     } },
 
   { key: 'dutyCategoryBars', label: '职责类别分布', desc: '四大类别的任务量横条 + 占比饼图',
     group: 'duty', scope: 'period', table: true,
     html: d => {
       const cat = statsByCategory(d.periodTasks);
-      if (!cat.length) return '<div class="empty-mini">当期没有可统计的任务</div>';
+      if (!cat.length) return '<div class="empty-mini">本期没有可统计的任务</div>';
       if (reportIsTable('dutyCategoryBars')) return dataTable(['类别', '合计', '已完成', '进行中', '逾期', '未开始', '完成率'],
         cat.map(s => [s.name, s.total, s.done, s.doing, s.late, s.todo + s.hold, s.rate + '%']));
       const max = Math.max(1, ...cat.map(s => s.total));
-      const pie = cat.map(c => ({ label: c.name, n: c.total, color: c.color }));
+      const pie = cat.map(c => ({ label: c.name, n: c.total, color: c.color, attrs: dutyFilterAttrs('category', c.key) }));
       return `<div class="chart-flex">
-          <div class="chart-flex-bars">${cat.map(s => hBar(s.name, s, max)).join('')}${REPORT_STATUS_LEGEND}</div>
+          <div class="chart-flex-bars">${cat.map(s => hBar(s.name, s, max, dutyFilterAttrs('category', s.key))).join('')}${REPORT_STATUS_LEGEND}</div>
           <div class="chart-flex-pie">${pieChart(pie, 140, '类别任务占比')}${pieLegend(pie)}</div>
-        </div><div class="chart-note">左边看绝对量与完成情况，右边看占比。</div>`;
+        </div><div class="chart-note">左边看绝对量与完成情况，右边看占比；点击可跳到职责页按类别筛选。</div>`;
     },
     text: (d, push) => {
       const cat = statsByCategory(d.periodTasks);
       if (!cat.length) { push('- 无'); return; }
       cat.forEach(s => push(`- ${s.name}：${s.done}/${s.total}（${s.rate}%），逾期 ${s.late}`));
+    },
+    // 之前没配这个，退回 text() 只剩几行"类别：完成/合计"，横条的长短对比、饼图的占比
+    // 都看不出来了，这两样恰恰是这个模块存在的意义（desc 里写得很明白："横条 + 占比饼图"）
+    canvas: (d, a) => {
+      const cat = statsByCategory(d.periodTasks);
+      if (!cat.length) { a.empty('本期没有可统计的任务'); return; }
+      const max = Math.max(1, ...cat.map(s => s.total));
+      a.twoCol(
+        () => cat.forEach(s => a.bar(s.name, s, max, 0, false)), null,
+        () => a.pie(cat.map(c => ({ label: c.name, n: c.total, color: c.color }))), 150,
+      );
     } },
 
   { key: 'dutyItemBars', label: '职责项分布', desc: '各职责的任务量横条 + 占比饼图（前 6 名 + 其他）',
     group: 'duty', scope: 'period', table: true,
     html: d => {
       const duty = statsByDuty(d.periodTasks);
-      if (!duty.length) return '<div class="empty-mini">当期没有可统计的任务</div>';
+      if (!duty.length) return '<div class="empty-mini">本期没有可统计的任务</div>';
       if (reportIsTable('dutyItemBars')) return dataTable(['职责', '合计', '已完成', '进行中', '逾期', '未开始', '完成率'],
         duty.map(s => [s.name, s.total, s.done, s.doing, s.late, s.todo + s.hold, s.rate + '%']));
       const max = Math.max(1, ...duty.map(s => s.total));
@@ -4922,86 +5344,96 @@ const REPORT_MODULES = [
       const COLORS = ['#2a78d6', '#008300', '#e87ba4', '#eda100', '#1baf7a', '#eb6834'];
       const top = sorted.slice(0, 6), rest = sorted.slice(6);
       const restTotal = rest.reduce((a, x) => a + x.total, 0);
-      const pie = top.map((x, i) => ({ label: x.name, n: x.total, color: COLORS[i] }));
+      const pie = top.map((x, i) => ({ label: x.name, n: x.total, color: COLORS[i], attrs: taskFilterAttrs('_duty', x.code) }));
       if (restTotal > 0) pie.push({ label: `其他 ${rest.length} 项职责`, n: restTotal, color: '#a8a49c' });
       return `<div class="chart-flex">
-          <div class="chart-flex-bars">${duty.map(s => hBar(s.name, s, max)).join('')}${REPORT_STATUS_LEGEND}</div>
+          <div class="chart-flex-bars">${duty.map(s => hBar(s.name, s, max, taskFilterAttrs('_duty', s.code))).join('')}${REPORT_STATUS_LEGEND}</div>
           <div class="chart-flex-pie">${pieChart(pie, 140, '职责项任务占比')}${pieLegend(pie)}</div>
-        </div><div class="chart-note">只显示当期有任务的职责。饼图取任务量前 6 名各给独立颜色，其余合并为「其他」——分类色超过 7-8 种之后，相邻色块就分不清了。</div>`;
+        </div><div class="chart-note">只显示本期有任务的职责。饼图取任务量前 6 名各给独立颜色，其余合并为「其他」——分类色超过 7-8 种之后，相邻色块就分不清了。点击某项职责可跳到任务页按它筛选（"其他"是合并项，不可点）。</div>`;
     },
     text: (d, push) => {
       const duty = statsByDuty(d.periodTasks);
       if (!duty.length) { push('- 无'); return; }
       duty.forEach(s => push(`- ${s.name}：${s.done}/${s.total}（${s.rate}%），逾期 ${s.late}`));
-    } },
-
-  { key: 'taskStatusPie', label: '任务状态占比（含 SPI）', desc: '当期任务的状态饼图，配 SPI 大卡片',
-    group: 'task', scope: 'period', table: true,
-    html: d => {
-      const o = tally(d.periodTasks);
-      if (!o.total) return '<div class="empty-mini">当期没有可统计的任务</div>';
-      const pie = [
-        { label: '已完成', n: o.done, color: 'var(--c-done)' },
-        { label: '进行中', n: o.doing, color: 'var(--c-doing)' },
-        { label: '逾期', n: o.late, color: 'var(--c-late)' },
-        { label: '未开始/挂起', n: o.todo + o.hold, color: 'var(--c-todo)' },
-      ];
-      if (reportIsTable('taskStatusPie')) return dataTable(['状态', '数量'], pie.map(s => [s.label, s.n]));
-      return `<div class="chart-flex">
-          <div class="chart-flex-pie" style="margin:0">${pieChart(pie, 140, '当期任务状态占比')}${pieLegend(pie)}</div>
-          <div class="cards" style="flex:1;min-width:160px;margin-bottom:0">${statCard('SPI', d.spi === null ? '—' : d.spi.toFixed(2), d.spi === null ? '' : (d.spi >= 1 ? 'ok' : 'warn'))}</div>
-        </div><div class="chart-note">SPI = 实际进度 ÷ 计划进度，是围绕 1 的比值不是百分比；没有计划完成时间的任务不参与。</div>`;
     },
-    text: (d, push) => {
-      const o = tally(d.periodTasks);
-      push(`已完成 ${o.done} · 进行中 ${o.doing} · 逾期 ${o.late} · 未开始/挂起 ${o.todo + o.hold} · SPI ${d.spi === null ? '—' : d.spi.toFixed(2)}`);
+    // 之前没配这个，退回 text() 只剩几行"职责：完成/合计"，横条对比、饼图占比都没了；
+    // 饼图"前 6 名 + 其他"的分组逻辑跟 html() 保持一致，颜色也用同一份 COLORS
+    canvas: (d, a) => {
+      const duty = statsByDuty(d.periodTasks);
+      if (!duty.length) { a.empty('本期没有可统计的任务'); return; }
+      const max = Math.max(1, ...duty.map(s => s.total));
+      const sorted = [...duty].sort((a2, b2) => b2.total - a2.total);
+      const COLORS = ['#2a78d6', '#008300', '#e87ba4', '#eda100', '#1baf7a', '#eb6834'];
+      const top = sorted.slice(0, 6), rest = sorted.slice(6);
+      const restTotal = rest.reduce((a2, x) => a2 + x.total, 0);
+      const pieData = top.map((x, i) => ({ label: x.name, n: x.total, color: COLORS[i] }));
+      if (restTotal > 0) pieData.push({ label: `其他 ${rest.length} 项职责`, n: restTotal, color: '#a8a49c' });
+      a.twoCol(
+        () => duty.forEach(s => a.bar(s.name, s, max, 0, false)), null,
+        () => a.pie(pieData), 150,
+      );
     } },
 
-  { key: 'taskDueDist', label: '到期分布', desc: '未完成任务按到期区间的柱状图 + 粗粒度占比饼图',
-    group: 'task', scope: 'period', table: true,
+  /* 到期分布/优先级分布/任务来源分布：以前跟其它「按任务」模块一样喂 periodTasks，
+     但这三个是"现在还有什么活压在手上"的盘点，跟"这一期做了什么"是两个问题——
+     一个逾期很久的任务、一个还没排进本期计划的任务，照样该出现在这里，不然快到期的东西
+     反而因为不在当期窗口内被过滤掉了，起不到预警作用。改成跟"待办总量趋势"一样看全量
+     （d.tasks，不看周期），跟其它仍然按当期口径统计的模块区分开，界面上也会标"全量"。 */
+  { key: 'taskDueDist', label: '到期分布', desc: '未完成任务按到期区间的柱状图 + 粗粒度占比饼图（全量，不分本期）',
+    group: 'task', scope: 'all', table: true,
     html: (d, ctx) => {
-      const buckets = dueBuckets(d.periodTasks), pie = dueSummary(d.periodTasks);
+      const buckets = dueBuckets(d.tasks), pie = dueSummary(d.tasks).map(s => s.key === 'late' ? { ...s, attrs: taskViewAttrs('overdue') } : s);
       if (reportIsTable('taskDueDist')) return dataTable(['区间', '任务数'], buckets.map(b => [b.label, b.n]));
       const w = reportChartWidth(ctx);
       return (pie.length ? `<div class="chart-flex">
           <div class="chart-flex-bars" data-due-fit>${svgScroll(barChart(buckets, Math.max(280, w - 190)))}</div>
           <div class="chart-flex-pie">${pieChart(pie, 130, '到期分布占比')}${pieLegend(pie)}</div>
         </div>` : svgScroll(barChart(buckets, w)))
-        + `<div class="chart-note">只统计未开始与进行中的任务；已挂起不计入逾期。</div>`;
+        + `<div class="chart-note">只统计未开始与进行中的任务；已挂起不计入逾期。「已逾期」可点击跳到任务页。</div>`;
     },
     text: (d, push) => {
-      const buckets = dueBuckets(d.periodTasks);
+      const buckets = dueBuckets(d.tasks);
       if (!buckets.length) { push('- 无'); return; }
       buckets.forEach(b => push(`- ${b.label}：${b.n} 条`));
+    },
+    // 之前没配这个，退回 text() 是一行行"区间：N 条"，柱子高低、逾期占比这两样图形化信息都没了。
+    // 有饼图数据（dueSummary 非空）时跟 html() 一样柱状图+饼图并排，没有时只画柱状图
+    canvas: (d, a) => {
+      const buckets = dueBuckets(d.tasks);
+      const pie = dueSummary(d.tasks);
+      if (pie.length) a.twoCol(() => a.singleBar(buckets), null, () => a.pie(pie), 150);
+      else a.singleBar(buckets);
     } },
 
   /* 原来是一个模块里塞三个并排小栏（优先级饼图 + 来源横条 + 标签横条）。
      拆成三个独立模块之后，用户可以只挑其中一两个放进报告，也可以用「同行」
      开关自己重新拼回并排——比原来那种"要就整块拿走，不要就整块砍掉"的粒度更细。
      图表页-按任务 tab 那边同理拆成三个并排的 panel，两处保持视觉一致（见 renderCharts）。 */
-  { key: 'taskPriorityPie', label: '优先级分布', desc: '当期任务按优先级（高/中/低）的占比饼图',
-    group: 'task', scope: 'period', table: true,
+  { key: 'taskPriorityPie', label: '优先级分布', desc: '按优先级（高/中/低）的占比饼图（全量，不分本期）',
+    group: 'task', scope: 'all', table: true,
     html: d => {
-      const priPie = PRIORITIES.map(p => ({ label: p.label, n: d.periodTasks.filter(t => t.priority === p.v).length, color: p.color }));
+      const priPie = PRIORITIES.map(p => ({ label: p.label, n: d.tasks.filter(t => t.priority === p.v).length, color: p.color, attrs: taskFilterAttrs('priority', p.v) }));
       if (reportIsTable('taskPriorityPie')) return dataTable(['优先级', '数量'], priPie.map(s => [s.label, s.n]));
       return `<div class="chart-flex-pie" style="margin:0 auto">${pieChart(priPie, 110, '优先级占比')}${pieLegend(priPie)}</div>`;
     },
-    text: (d, push) => PRIORITIES.forEach(p => push(`- 优先级「${p.label}」：${d.periodTasks.filter(t => t.priority === p.v).length} 条`)) },
+    text: (d, push) => PRIORITIES.forEach(p => push(`- 优先级「${p.label}」：${d.tasks.filter(t => t.priority === p.v).length} 条`)),
+    canvas: (d, a) => a.pie(PRIORITIES.map(p => ({ label: p.label, n: d.tasks.filter(t => t.priority === p.v).length, color: p.color }))) },
 
-  { key: 'taskSourceBars', label: '任务来源分布', desc: '当期任务按"来源"这个自由填写字段的分布横条',
-    group: 'task', scope: 'period', table: true,
+  { key: 'taskSourceBars', label: '任务来源分布', desc: '按"来源"这个自由填写字段的分布横条（全量，不分本期）',
+    group: 'task', scope: 'all', table: true,
     html: d => {
-      const bars = taskFieldBars('source', d.periodTasks);
+      const bars = taskFieldBars('source', d.tasks).map(b => ({ ...b, attrs: taskFilterAttrs('source', b.value) }));
       if (reportIsTable('taskSourceBars')) return dataTable(['来源', '数量'], bars.map(b => [b.label, b.n]));
       return hBarList(bars) + `<div class="chart-note">来源是自由填写字段，取值不固定，用横向列表而不是饼图，避免文字挤在一起。</div>`;
     },
     text: (d, push) => {
-      const bars = taskFieldBars('source', d.periodTasks);
+      const bars = taskFieldBars('source', d.tasks);
       if (!bars.length) { push('- 无'); return; }
       bars.forEach(b => push(`- 来源「${b.label}」：${b.n} 条`));
-    } },
+    },
+    canvas: (d, a) => a.hbars(taskFieldBars('source', d.tasks)) },
 
-  { key: 'taskTagBars', label: '任务标签分布', desc: '当期任务按"标签"这个自由填写字段的分布横条',
+  { key: 'taskTagBars', label: '任务标签分布', desc: '本期任务按"标签"这个自由填写字段的分布横条',
     group: 'task', scope: 'period', table: true,
     html: d => {
       const bars = taskFieldBars('custom', d.periodTasks);
@@ -5012,22 +5444,41 @@ const REPORT_MODULES = [
       const bars = taskFieldBars('custom', d.periodTasks);
       if (!bars.length) { push('- 无'); return; }
       bars.forEach(b => push(`- 标签「${b.label}」：${b.n} 条`));
-    } },
+    },
+    canvas: (d, a) => a.hbars(taskFieldBars('custom', d.periodTasks)) },
 
   { key: 'workOverview', label: '工作项状态总览', desc: '工作项（不是任务）按状态的占比饼图，配 SPI',
     group: 'duty', scope: 'all', table: true,
     html: d => {
       const works = d.works;
       if (!works.length) return '<div class="empty-mini">暂无工作项</div>';
-      const pie = WORK_STATUS.map(s => ({ label: s.label, n: works.filter(x => x.status === s.v).length, color: s.color }));
+      const pie = WORK_STATUS.map(s => ({ label: s.label, n: works.filter(x => x.status === s.v).length, color: s.color, attrs: workFilterAttrs('status', s.v) }));
       if (reportIsTable('workOverview')) return dataTable(['状态', '数量'], pie.map(s => [s.label, s.n]));
       const spi = computeSPI(d.tasks);
       return `<div class="chart-flex">
           <div class="chart-flex-pie" style="margin:0">${pieChart(pie, 140, '工作状态占比')}${pieLegend(pie)}</div>
           <div class="cards" style="flex:1;min-width:160px;margin-bottom:0">${statCard('SPI', spi === null ? '—' : spi.toFixed(2), spi === null ? '' : (spi >= 1 ? 'ok' : 'warn'))}</div>
-        </div><div class="chart-note">数的是工作项本身的状态，不是工作下面挂了多少任务；SPI 仍按全部任务算。</div>`;
+        </div><div class="chart-note">数的是工作项本身的状态，不是工作下面挂了多少任务；SPI 仍按全部任务算。点击可跳到工作页按状态筛选。</div>`;
     },
-    text: (d, push) => WORK_STATUS.forEach(s => push(`- ${s.label}：${d.works.filter(x => x.status === s.v).length} 项`)) },
+    // 之前漏了 SPI——html() 里明明画了这张卡片，text() 却只顾着念完饼图那四行状态数就完事，
+    // 图片导出退回这条路子时 SPI 直接从报告里消失了，这是本轮反馈里"其它模块也不对"的一种
+    text: (d, push) => {
+      WORK_STATUS.forEach(s => push(`- ${s.label}：${d.works.filter(x => x.status === s.v).length} 项`));
+      const spi = computeSPI(d.tasks);
+      push(`- SPI：${spi === null ? '—' : spi.toFixed(2)}`);
+    },
+    // 之前没配这个，退回 text() 只剩几行"状态：N 项"，饼图占比没了；SPI 也顺带画成卡片样式，
+    // 不再是文字最后一行，跟 html() 里"饼图 + SPI 卡片并排"保持一致
+    canvas: (d, a) => {
+      const works = d.works;
+      if (!works.length) { a.empty('暂无工作项'); return; }
+      const pie = WORK_STATUS.map(s => ({ label: s.label, n: works.filter(x => x.status === s.v).length, color: s.color }));
+      const spi = computeSPI(d.tasks);
+      a.twoCol(
+        () => a.pie(pie), 150,
+        () => a.statBoxes([{ label: '', cards: [{ k: 'SPI', v: spi === null ? '—' : spi.toFixed(2), warn: spi !== null && spi < 1 }] }]), null,
+      );
+    } },
 
   { key: 'worksByYearBars', label: '各年度工作数量', desc: '按年度统计工作项数量（不是任务，是工作项本身）',
     group: 'duty', scope: 'all', table: true,
@@ -5035,51 +5486,57 @@ const REPORT_MODULES = [
       const yearBars = worksByYear();
       if (reportIsTable('worksByYearBars')) return dataTable(['年度', '工作数'], yearBars.map(b => [b.label, b.n]));
       const w = reportChartWidth(ctx);
-      return (yearBars.length ? svgScroll(barChart(yearBars, w)) : '<div class="empty-mini">暂无数据</div>')
+      return (yearBars.length ? `<div data-yearbars-fit>${svgScroll(barChart(yearBars, w))}</div>` : '<div class="empty-mini">暂无数据</div>')
         + `<div class="chart-note">数的是工作项本身的数量，不随统计周期变化。</div>`;
     },
     text: (d, push) => {
       const bars = worksByYear();
       if (!bars.length) { push('- 无'); return; }
       bars.forEach(b => push(`- ${b.label}：${b.n} 项工作`));
-    } },
+    },
+    canvas: (d, a) => a.singleBar(worksByYear()) },
 
   { key: 'worksByDutyBars', label: '各职责工作数量', desc: '按职责统计工作项数量（不是任务，是工作项本身）',
     group: 'duty', scope: 'all', table: true,
     html: () => {
-      const bars = worksByDutyCount();
+      const bars = worksByDutyCount().map(b => ({ ...b, attrs: ` data-act="duty-drill" data-code="${esc(b.code)}"` }));
       if (reportIsTable('worksByDutyBars')) return dataTable(['职责', '工作数'], bars.map(b => [b.label, b.n]));
-      return hBarList(bars) + `<div class="chart-note">只显示已有工作的职责，按职责编号排序；数的是工作项本身的数量，不随统计周期变化。</div>`;
+      return hBarList(bars) + `<div class="chart-note">只显示已有工作的职责，按职责编号排序；数的是工作项本身的数量，不随统计周期变化。点击可跳到工作页按该职责筛选。</div>`;
     },
     text: (d, push) => {
       const bars = worksByDutyCount();
       if (!bars.length) { push('- 无'); return; }
       bars.forEach(b => push(`- ${b.label}：${b.n} 项工作`));
-    } },
+    },
+    canvas: (d, a) => a.hbars(worksByDutyCount()) },
 
-  { key: 'msCompletionPie', label: '里程碑完成情况分布', desc: '当期任务名下所有里程碑的完成/逾期/未到期占比',
+  { key: 'msCompletionPie', label: '里程碑完成情况分布', desc: '本期任务名下所有里程碑的完成/逾期/未到期占比',
     group: 'milestone', scope: 'period', table: true,
     html: d => {
       const pie = msCompletionPie(d.periodTasks);
       if (reportIsTable('msCompletionPie')) return dataTable(['情况', '数量'], pie.map(s => [s.label, s.n]));
       return pie.some(s => s.n > 0)
         ? `<div class="chart-flex-pie" style="margin:0 auto">${pieChart(pie, 140, '里程碑完成情况')}${pieLegend(pie)}</div>
-           <div class="chart-note">统计的是当期任务名下的全部里程碑，不是任务本身的完成情况。</div>`
-        : '<div class="empty-mini">当期任务下面还没有里程碑</div>';
+           <div class="chart-note">统计的是本期任务名下的全部里程碑，不是任务本身的完成情况；"已完成"不看完成日期落在哪一期，跟「本期已交付里程碑」清单的口径不同，两边数字不一定对得上。</div>`
+        : '<div class="empty-mini">本期任务下面还没有里程碑</div>';
     },
-    text: (d, push) => msCompletionPie(d.periodTasks).forEach(s => push(`- ${s.label}：${s.n} 个`)) },
+    text: (d, push) => msCompletionPie(d.periodTasks).forEach(s => push(`- ${s.label}：${s.n} 个`)),
+    canvas: (d, a) => a.pie(msCompletionPie(d.periodTasks)) },
 
-  { key: 'msLevelPie', label: '交付物呈报层级分布', desc: '按里程碑的最高呈报层级（处室/部门/行领导）统计占比',
-    group: 'milestone', scope: 'period', table: true,
+  // 呈报层级是里程碑一填好就基本不变的静态分类，跟"这段时间干了什么"无关，看的是全处所有
+  // 里程碑的层级分布，所以标成全量——跟到期分布/优先级分布/任务来源分布同一个道理
+  { key: 'msLevelPie', label: '交付物呈报层级分布', desc: '按里程碑的最高呈报层级（处室/部门/行领导）统计占比（全量，不分本期）',
+    group: 'milestone', scope: 'all', table: true,
     html: d => {
-      const st = msReportLevelStats(d.periodTasks);
+      const st = msReportLevelStats(d.tasks);
       if (reportIsTable('msLevelPie')) return dataTable(['呈报层级', '数量'], st.map(s => [s.label, s.n]));
       return st.some(s => s.n > 0)
         ? `<div class="chart-flex-pie" style="margin:0 auto">${pieChart(st, 140, '交付物呈报层级分布')}${pieLegend(st)}</div>
            <div class="chart-note">没填层级的按处室领导算，跟完成情况是两个不同维度。</div>`
-        : '<div class="empty-mini">当期任务下面还没有里程碑</div>';
+        : '<div class="empty-mini">还没有里程碑</div>';
     },
-    text: (d, push) => msReportLevelStats(d.periodTasks).forEach(s => push(`- ${s.label}：${s.n} 个`)) },
+    text: (d, push) => msReportLevelStats(d.tasks).forEach(s => push(`- ${s.label}：${s.n} 个`)),
+    canvas: (d, a) => a.pie(msReportLevelStats(d.tasks)) },
 
   { key: 'msGantt', label: '里程碑甘特图', desc: '职责→工作→任务逐级展开的里程碑时间线',
     group: 'milestone', scope: 'all', table: true,
@@ -5100,7 +5557,10 @@ const REPORT_MODULES = [
         push(`- ${fmtDate(m.plan_date)}　${m.deliverable || '（未填写交付物）'}（${t ? t.title : ''}）${m.done === '1' ? ' ✓已交付' : ''}`);
       });
       if (ms.length > REPORT_LIST_LIMIT) push(`- 还有 ${ms.length - REPORT_LIST_LIMIT} 个…`);
-    } },
+    },
+    // 图片导出用的是真正的时间轴甘特图（见 exportReportImage 里的 ganttChart）——跨度条 +
+    // 节点圆点，跟屏幕上/PDF 里看到的是同一套坐标算法，职责/工作展开折叠状态也保持一致
+    canvas: (d, a) => a.ganttChart(d.tasks) },
 
   { key: 'backlogTrend', label: '待办总量趋势', desc: '每个时间点还没完成的任务有多少条（存量，不是流量）',
     group: 'trend', scope: 'all', table: true,
@@ -5112,7 +5572,7 @@ const REPORT_MODULES = [
     html: (d, ctx) => {
       const series = backlogSeries(d.tasks, trendGranularity);
       if (reportIsTable('backlogTrend')) return dataTable(['时间点', '待办总量'], series.map(s => [s.label, s.backlog]));
-      return svgScroll(lineChart(series, reportChartWidth(ctx), '待办任务总量趋势', { aKey: 'backlog', bKey: null, aLabel: '待办总量' }))
+      return `<div data-backlogtrend-fit>${svgScroll(lineChart(series, reportChartWidth(ctx), '待办任务总量趋势', { aKey: 'backlog', bKey: null, aLabel: '待办总量' }))}</div>`
         + `<div class="legend"><span><i style="background:var(--c-doing);border-radius:50%"></i>待办总量（未完成任务数）</span></div>`
         + `<div class="chart-note">看的是存量而不是流量——每个时间点"当天为止还没完成的任务有多少条"。这是一条历史曲线，不随周期翻页变化。</div>`;
     },
@@ -5120,6 +5580,12 @@ const REPORT_MODULES = [
       const series = backlogSeries(d.tasks, trendGranularity);
       if (!series.length) { push('- 无'); return; }
       series.slice(-12).forEach(s => push(`- ${s.label}：待办 ${s.backlog} 条`));
+    },
+    // 之前没配这个，图片导出退回 text() 会把一条曲线拆成十几行"时间点：数字"的流水账，
+    // 数字没丢，但"趋势"这个模块存在的意义——一眼看出涨跌方向——在图片里完全体现不出来
+    canvas: (d, a) => {
+      const series = backlogSeries(d.tasks, trendGranularity);
+      a.trendLine(series, 'backlog', '待办总量');
     } },
 
   { key: 'planDueTrend', label: '各月计划完成量', desc: '从本月起，各月计划完成的任务数与里程碑数',
@@ -5129,8 +5595,8 @@ const REPORT_MODULES = [
       const ms = DB.milestones.filter(m => !m.deleted_at && m.plan_date && ids.has(m.task));
       const series = planDueSeries(d.tasks, ms);
       if (reportIsTable('planDueTrend')) return dataTable(['月份', '计划完成任务数', '计划完成里程碑数'], series.map(s => [s.label, s.tasks, s.milestones]));
-      return svgScroll(groupedBarChart(series, reportChartWidth(ctx),
-          { aKey: 'tasks', bKey: 'milestones', aLabel: '计划完成任务数', bLabel: '计划完成里程碑数', ariaLabel: '按月计划完成的任务数与里程碑数' }))
+      return `<div data-plandue-fit>${svgScroll(groupedBarChart(series, reportChartWidth(ctx),
+          { aKey: 'tasks', bKey: 'milestones', aLabel: '计划完成任务数', bLabel: '计划完成里程碑数', ariaLabel: '按月计划完成的任务数与里程碑数' }))}</div>`
         + `<div class="legend"><span><i style="background:var(--c-doing)"></i>计划完成任务数</span><span><i style="background:var(--c-done)"></i>计划完成里程碑数</span></div>`
         + `<div class="chart-note">从当月起统计到还有计划安排的最后一个月，看的是未来各月的计划分布，不随周期翻页变化。</div>`;
     },
@@ -5140,6 +5606,14 @@ const REPORT_MODULES = [
       const series = planDueSeries(d.tasks, ms);
       if (!series.length) { push('- 无'); return; }
       series.forEach(s => push(`- ${s.label}：计划完成任务 ${s.tasks} 条、里程碑 ${s.milestones} 个`));
+    },
+    // 之前没配这个，图片导出退回 text() 会把"任务数 vs 里程碑数"这种天然要放一起比大小的
+    // 两列数字拆开念成一行行文字，看不出"哪个月任务多、里程碑却少"这种对比关系
+    canvas: (d, a) => {
+      const ids = new Set(d.tasks.map(t => t.id));
+      const ms = DB.milestones.filter(m => !m.deleted_at && m.plan_date && ids.has(m.task));
+      const series = planDueSeries(d.tasks, ms);
+      a.groupedBar(series, 'tasks', 'milestones', '计划完成任务数', '计划完成里程碑数');
     } },
 
   { key: 'dashCards', label: '整体统计卡片', desc: '工作台顶部那两组卡片：任务维度 + 里程碑维度',
@@ -5152,10 +5626,10 @@ const REPORT_MODULES = [
       const msOpen = msVisible.filter(m => m.done !== '1');
       return `<div class="stat-groups">
           <div class="stat-group stat-group-task"><div class="stat-group-label">任务维度</div><div class="cards">
-            ${statCard('未完成任务', open.length)}
-            ${statCard('逾期任务', d.overdue.length, d.overdue.length ? 'warn' : '')}
-            ${statCard('今日到期', d.tasks.filter(t => isOpen(t) && t.plan_date === today).length)}
-            ${statCard('本周到期', d.tasks.filter(t => isOpen(t) && t.plan_date && t.plan_date >= today && t.plan_date <= endOfWeek()).length)}
+            ${statCard('未完成任务', open.length, '', taskViewAttrs('open'))}
+            ${statCard('逾期任务', d.overdue.length, d.overdue.length ? 'warn' : '', taskViewAttrs('overdue'))}
+            ${statCard('今日到期', d.tasks.filter(t => isOpen(t) && t.plan_date === today).length, '', taskViewAttrs('today'))}
+            ${statCard('本周到期', d.tasks.filter(t => isOpen(t) && t.plan_date && t.plan_date >= today && t.plan_date <= endOfWeek()).length, '', taskViewAttrs('week'))}
           </div></div>
           <div class="stat-group stat-group-ms"><div class="stat-group-label">里程碑维度</div><div class="cards">
             ${statCard('未完成里程碑', msOpen.length)}
@@ -5165,10 +5639,41 @@ const REPORT_MODULES = [
           </div></div>
         </div><div class="chart-note">这组卡片反映的是"现在整体什么状况"，跟看哪一期无关，所以不随周期翻页变化。</div>`;
     },
+    // 之前只念了 8 个数字里的 4 个（漏了任务/里程碑各自的"今日到期""本周到期"），
+    // html() 里这两组卡片各是 4 张，text() 却只顾任务维度念了 2 个、里程碑维度念了 2 个，
+    // 图片/纯文本简报里"今天到底有几条要交"这个最常被追问的数字反而看不到
     text: (d, push) => {
+      const today = d.today;
+      const open = d.tasks.filter(isOpen);
       const ids = new Set(d.tasks.map(t => t.id));
-      const msOpen = DB.milestones.filter(m => !m.deleted_at && m.plan_date && ids.has(m.task) && m.done !== '1');
-      push(`未完成任务 ${d.tasks.filter(isOpen).length} 条 · 逾期 ${d.overdue.length} 条 · 未完成里程碑 ${msOpen.length} 个 · 逾期里程碑 ${msOpen.filter(m => m.plan_date < d.today).length} 个`);
+      const msVisible = DB.milestones.filter(m => !m.deleted_at && m.plan_date && ids.has(m.task));
+      const msOpen = msVisible.filter(m => m.done !== '1');
+      push(`【任务维度】未完成 ${open.length} · 逾期 ${d.overdue.length} · 今日到期 ${d.tasks.filter(t => isOpen(t) && t.plan_date === today).length} · 本周到期 ${d.tasks.filter(t => isOpen(t) && t.plan_date && t.plan_date >= today && t.plan_date <= endOfWeek()).length}`);
+      push(`【里程碑维度】未完成 ${msOpen.length} · 逾期 ${msOpen.filter(m => m.plan_date < today).length} · 今日到期 ${msOpen.filter(m => m.plan_date === today).length} · 本周到期 ${msOpen.filter(m => m.plan_date >= today && m.plan_date <= endOfWeek()).length}`);
+    },
+    // 之前没配这个，退回 text() 是两行密密麻麻的"未完成 X · 逾期 Y · 今日到期 Z · 本周到期 W"，
+    // 8 个数字全挤在一起，跟工作台上那种"一眼看清哪个数字对应哪个标签"的卡片完全不像。
+    // 改成真的画成卡片网格，跟 html() 里"两组、每组四张"的结构一致
+    canvas: (d, a) => {
+      const today = d.today;
+      const open = d.tasks.filter(isOpen);
+      const ids = new Set(d.tasks.map(t => t.id));
+      const msVisible = DB.milestones.filter(m => !m.deleted_at && m.plan_date && ids.has(m.task));
+      const msOpen = msVisible.filter(m => m.done !== '1');
+      a.statBoxes([
+        { label: '任务维度', cards: [
+          { k: '未完成任务', v: open.length },
+          { k: '逾期任务', v: d.overdue.length, warn: d.overdue.length > 0 },
+          { k: '今日到期', v: d.tasks.filter(t => isOpen(t) && t.plan_date === today).length },
+          { k: '本周到期', v: d.tasks.filter(t => isOpen(t) && t.plan_date && t.plan_date >= today && t.plan_date <= endOfWeek()).length },
+        ] },
+        { label: '里程碑维度', cards: [
+          { k: '未完成里程碑', v: msOpen.length },
+          { k: '逾期里程碑', v: msOpen.filter(m => m.plan_date < today).length, warn: msOpen.some(m => m.plan_date < today) },
+          { k: '今日到期', v: msOpen.filter(m => m.plan_date === today).length },
+          { k: '本周到期', v: msOpen.filter(m => m.plan_date >= today && m.plan_date <= endOfWeek()).length },
+        ] },
+      ]);
     } },
 
   { key: 'myDesk', label: '我的工作台', desc: '当前使用者牵头的工作数、在办任务清单',
@@ -5188,6 +5693,17 @@ const REPORT_MODULES = [
       if (!me) { push('- 未登录'); return; }
       const mineOpen = d.tasks.filter(t => isMine(t) && isOpen(t));
       push(`牵头 ${d.works.filter(w => w.owner === me).length} 项工作 · 在办 ${mineOpen.length} 条任务 · 逾期 ${mineOpen.filter(isOverdue).length} 条`);
+    },
+    // 之前没配这个，图片导出会退回上面的 text()——那只是一句统计摘要，"在办的到底是哪几条任务"
+    // 完全不见了，而这恰恰是这个模块存在的意义（html() 里明明是一份完整清单）
+    canvas: (d, a) => {
+      const me = DB.settings.me;
+      if (!me) { a.empty('尚未登录，无法显示"我的"内容'); return; }
+      const myWorks = d.works.filter(w => w.owner === me);
+      const mineOpen = d.tasks.filter(t => isMine(t) && isOpen(t))
+        .sort((a2, b2) => (a2.plan_date || '9999').localeCompare(b2.plan_date || '9999'));
+      a.line(`牵头 ${myWorks.length} 项工作 · 在办 ${mineOpen.length} 条任务 · 逾期 ${mineOpen.filter(isOverdue).length} 条`);
+      a.taskRows(mineOpen, '暂无在办任务');
     } },
 
   { key: 'recentActivity', label: '最近动态', desc: '变更日志里最近的若干条操作记录',
@@ -5210,6 +5726,20 @@ const REPORT_MODULES = [
       const feed = (DB.changelog || []).filter(e => ids.has(e.taskId)).slice(-12).reverse();
       if (!feed.length) { push('- 无'); return; }
       feed.forEach(e => push(`- ${fmtLocalDateTime(e.at)}　${e.by || '—'}：${e.summary || ''}`));
+    },
+    // 这个模块本来就是"一条条列出来"的动态流水，text() 那种纯文字跟 html() 的 .li 列表在
+    // 信息结构上没有本质差别，不像饼图/横条那样"看不出图形就丢了信息"，所以之前没被列进
+    // 必须补 canvas 的清单；这里还是给一个专门的 canvas()，只是把日期改成更醒目的靠左弱化色，
+    // 版式跟 rowLine() 那批清单类模块对齐，不再是清一色的纯文字段落
+    canvas: (d, a) => {
+      const ids = new Set(visibleTasks().map(t => t.id));
+      const feed = (DB.changelog || []).filter(e => ids.has(e.taskId)).slice(-12).reverse();
+      if (!feed.length) { a.empty('暂无动态'); return; }
+      feed.forEach(e => {
+        const t = byId('task', e.taskId);
+        const title = t ? (t.deleted_at ? t.title + '（已删除）' : t.title) : '（任务已不存在）';
+        a.rowLine(relTime(e.at), null, `${e.by || '—'}：${e.summary || ''}`, title);
+      });
     } },
 ];
 const REPORT_MODULE_MAP = Object.fromEntries(REPORT_MODULES.map(m => [m.key, m]));
@@ -5228,15 +5758,19 @@ function reportTaskRows(list, emptyMsg, dateCls, dateKey, dateColor) {
         <span class="p">${esc(workName(t.work))} · ${esc(t.owner || '未指派')}</span></div>`).join('')}
     ${list.length > shown.length ? `<div class="empty-mini">还有 ${list.length - shown.length} 条…</div>` : ''}</div>`;
 }
-function reportMsRows(list, emptyMsg, today, dateKey, dateColor) {
+// showLevel（可选）：交付日期后面再加一段呈报层级——只有"本期已交付里程碑"这种关心
+// "交出去的东西该报到哪一级"的场景需要，逾期/即将到期这两个清单不需要，不传就跟原来一样
+function reportMsRows(list, emptyMsg, today, dateKey, dateColor, showLevel) {
   if (!list.length) return `<div class="empty-mini">${esc(emptyMsg)}</div>`;
   const shown = list.slice(0, REPORT_LIST_LIMIT);
+  const levelLabel = v => (REPORT_LEVELS.find(rl => rl.v === (v || 'section')) || REPORT_LEVELS[0]).label;
   return `<div class="mini-list">${shown.map(m => {
     const mt = byId('task', m.task), dt = m[dateKey || 'plan_date'];
     return `<div class="li" data-act="cp-editor" data-id="${esc(m.task)}" title="${esc((m.deliverable || '') + ' · ' + (mt ? mt.title : ''))}">
       <span class="d ${!dateKey && dt && dt < today ? 'due-overdue' : ''}"${dateColor ? ` style="color:${dateColor}"` : ''}>${esc(fmtDate(dt))}</span>
+      ${showLevel ? `<span class="lvl">${esc(levelLabel(m.report_level))}</span>` : ''}
       <span class="t">${esc(m.deliverable || '（未填写交付物）')}</span>
-      <span class="p">${esc(mt ? mt.title : '')}</span></div>`;
+      <span class="p">${esc(mt ? mt.title : '')} · ${esc(mt && mt.owner ? mt.owner : '未指派')}</span></div>`;
   }).join('')}
     ${list.length > shown.length ? `<div class="empty-mini">还有 ${list.length - shown.length} 个…</div>` : ''}</div>`;
 }
@@ -5253,9 +5787,9 @@ function reportMsText(list, push) {
    老数据（DB.reportConfig 为 null）和任何一套自定义存档被删光之后，都回落到这一份，
    所以升级上来的用户什么都不用配就能直接用。 */
 const DEFAULT_REPORT_SECTIONS = [
-  { id: 'sec_goal',   title: '一、当期处室工作目标', modules: ['periodScope', 'periodPlan'] },
-  { id: 'sec_state',  title: '二、当期处室工作进展', modules: ['periodStatus', 'dutyTree'] },
-  { id: 'sec_focus',  title: '三、当期需要关注的工作', modules: ['highPriority', 'overdueTasks', 'overdueMs', 'soonTasks', 'soonMs'] },
+  { id: 'sec_goal',   title: '一、本期处室工作目标', modules: ['periodScope', 'periodPlan'] },
+  { id: 'sec_state',  title: '二、本期处室工作进展', modules: ['periodStatus', 'dutyTree'] },
+  { id: 'sec_focus',  title: '三、本期需要关注的工作', modules: ['highPriority', 'overdueTasks', 'overdueMs', 'soonTasks', 'soonMs'] },
   // "人员工作情况"模块已经被功能更完整的 personBars（各人任务量与完成率）取代，见 REPORT_MODULES 里那段注释
   { id: 'sec_people', title: '四、人员工作情况', modules: ['personBars'] },
 ];
@@ -5287,13 +5821,19 @@ function reportSections() {
   return (p.sections || []).filter(s => s && s.id).map(s => {
     const modules = (s.modules || []).filter(k => REPORT_MODULE_MAP[k]);
     const inline = new Set((s.inline || []).filter(k => REPORT_MODULE_MAP[k]));
+    // 宽度倍数：只认 2 或 3，缺省（含没写、写了 1、写了别的乱七八糟的值）一律当 1 倍，
+    // 不单独存"1"这个占位值——跟 inline 一样，没设置就是最基本的默认状态
+    const widths = {};
+    Object.entries(s.widths || {}).forEach(([k, v]) => {
+      if (modules.includes(k) && (v === 2 || v === 3)) widths[k] = v;
+    });
     const rows = [];
     modules.forEach((k, i) => {
       // 第一个模块永远另起一行——它没有"上一个"可以跟
       if (i > 0 && inline.has(k) && rows.length) rows[rows.length - 1].push(k);
       else rows.push([k]);
     });
-    return { id: s.id, title: s.title || '（未命名区域）', modules, inline: [...inline], rows };
+    return { id: s.id, title: s.title || '（未命名区域）', modules, inline: [...inline], widths, rows };
   });
 }
 /* 保存编排。刻意不进撤销栈（不调 snapshot）：编排是配置不是数据，
@@ -5325,13 +5865,26 @@ function reportConfigPanelHTML() {
      找不到目标模块，也完全看不出选中的那几个是什么顺序、哪几个并排。
      改成上下两块——上面是"这个区域现在有什么"（按实际顺序，能排序/设同行/移除），
      下面是"还能加什么"（按分类折叠，只列没被选进来的）。 */
+  // 同一份报表里，一个模块只该出现一次——不然同一块数字在两个区域里各念一遍，汇报时会很怪。
+  // 这里先把"整份报表已经用掉的模块"汇总成一个集合，下面每个区域的候选列表都拿这份集合去减，
+  // 而不是只减自己区域已选的那几个，这样别的区域用过的模块就不会再冒出来当候选。
+  const usedElsewhere = new Set(sections.flatMap(sec => sec.modules));
   const secRows = sections.map((s, i) => {
     const chosen = s.modules.map((k, j) => {
       const m = REPORT_MODULE_MAP[k];
       const inline = s.inline.includes(k);
+      const width = s.widths[k] || 1;
+      // 宽度倍数：跟同行是各自独立的两件事——不同行也可以设宽度（比如单独占一行时没意义，
+      // 但配起来不冲突），所以不像"同行"那样对第一个模块做特殊限制
+      const widthSel = `<select class="rep-width-sel" data-act="report-mod-width" data-sec="${esc(s.id)}" data-mod="${m.key}" title="在同一行里，这个模块相对其他模块的宽度倍数">
+        <option value="1"${width === 1 ? ' selected' : ''}>1 倍宽度</option>
+        <option value="2"${width === 2 ? ' selected' : ''}>2 倍宽度</option>
+        <option value="3"${width === 3 ? ' selected' : ''}>3 倍宽度</option>
+      </select>`;
       return `<div class="rep-pick">
         <span class="rep-pick-nm" title="${esc(m.desc)}">${esc(m.label)}${m.scope === 'all' ? '<span class="hint"> 全量</span>' : ''}</span>
         <span style="flex:1"></span>
+        ${widthSel}
         <span class="toggle-view${inline ? ' on' : ''}" data-act="report-mod-inline" data-sec="${esc(s.id)}" data-mod="${m.key}"
               title="${j === 0 ? '第一个模块只能自己占一行' : '跟上一个模块并排放在同一行'}"
               ${j === 0 ? 'style="opacity:.3;pointer-events:none"' : ''}>⇥ 同行</span>
@@ -5341,7 +5894,7 @@ function reportConfigPanelHTML() {
       </div>`;
     }).join('');
     const picker = REPORT_GROUPS.map(g => {
-      const avail = REPORT_MODULES.filter(m => m.group === g.key && !s.modules.includes(m.key));
+      const avail = REPORT_MODULES.filter(m => m.group === g.key && !usedElsewhere.has(m.key));
       if (!avail.length) return '';
       return `<div class="rep-grp"><span class="rep-grp-t">${esc(g.label)}</span>${avail.map(m =>
         `<span class="rep-add" data-act="report-mod-add" data-sec="${esc(s.id)}" data-mod="${m.key}"
@@ -5357,7 +5910,7 @@ function reportConfigPanelHTML() {
         <span class="toggle-view" data-act="report-sec-del" data-id="${esc(s.id)}" style="color:var(--overdue)">删除</span>
       </div>
       ${chosen || '<div class="empty-mini">这个区域还没有模块，从下面挑</div>'}
-      <div class="rep-picker">${picker || '<span class="hint">全部模块都已加入这个区域</span>'}</div>
+      <div class="rep-picker">${picker || '<span class="hint">没有更多可加的模块了——要么已经在这个区域，要么已经用在这份报表的其它区域</span>'}</div>
     </div>`;
   }).join('');
   return `<div class="panel no-print"><div class="panel-h"><span>⚙ 报告编排</span>
@@ -5378,6 +5931,15 @@ function reportConfigPanelHTML() {
     </div>` : ''}</div>`;
 }
 
+/* PDF 打印/图片导出用的标题+文件名：处室名+"工作简报"+汇报周期，不能再是笼统的应用名
+   "科技规划处工作管理系统"（那是给整个系统起的名字，不是这份报告的名字，浏览器打印默认会拿
+   document.title 当页眉和另存 PDF 时建议的文件名，不改的话导出来的东西全叫这个名）。
+   正文里已经把完整的统计周期写清楚了（"处室工作简报　·　统计周期：本周（2026-08-04～2026-08-10）"），
+   标题/文件名不需要把那串完整的起止日期再重复一遍——periodLabel（本周/本月…）+ 区间起始日
+   已经够区分"这是哪一次导出"，没必要把两个日期都堆进文件名里。 */
+function reportExportTitle(d) {
+  return `科技规划处工作简报_${d.periodLabel}_${d.rangeStart}`;
+}
 function renderReport() {
   const d = buildReportData(reportPeriod, reportOffset);
   const sections = reportSections();
@@ -5393,18 +5955,30 @@ function renderReport() {
       <span class="s" data-act="report-period-nav" data-step="1" title="往后一期">›</span>
     </span>`;
 
-  /* 一行可以摆多个模块（见 reportSections 的 rows）。宽度分两层管：
-     · 传给模块的 ctx.width 是"这一列大概能用多少像素"，模块里的定宽 SVG 图表按它来画；
-     · 真正的自适应交给 CSS：.rep-row 是 flex-wrap，每个模块 flex:1 1 <基准>，
-       窗口一窄就自动折行，不需要 JS 监听尺寸。所以 ctx.width 只是个够用的估算，
-       不必、也不可能精确——真按窗口实时算就得引 ResizeObserver，为一张图表不值当。 */
+  /* 一行可以摆多个模块（见 reportSections 的 rows），每个模块还能单独设"宽度倍数"（1/2/3 倍，
+     见 s.widths）。宽度分两层管，而且这两层★不能混在一起★——这是上一版真正的 bug 所在：
+     · 传给模块的 ctx.width（colW）只是"这一列大概能用多少像素"，给模块里的定宽 SVG 图表画图用，
+       本来就只是估算，容器实际宽度、字体渲染这些都会让它跟真实值有出入；
+     · 真正决定"同一行内这几个模块各占多宽"的，必须是纯 CSS 的 flex-grow 比例分配
+       （flex:<倍数> 1 0——flex-basis 定成 0，把这一行的全部空间都当"可分配的量"，
+       完全交给浏览器按倍数实时算，不依赖任何 JS 测出来的像素数）。
+       上一版偷懒把 colW 这个估算值直接拿去当 flex-basis 用，一旦 pageW 测不准（页面刚渲染、
+       容器还没定型时很常见），几个模块的 flex-basis 加起来就可能超出容器实际宽度，
+       flex-wrap 一generate 就把后面的模块顶到下一行——这正是"大部分模块同行按钮失效，
+       变成一个模块一行"的真正原因：不是"同行"这个开关坏了，是给同行的模块们分配的
+       "基准宽度"之和比容器本身还宽，浏览器只能按 wrap 规则把它们拆开。 */
   const pageW = (($('#page-report') || {}).clientWidth) || 900;
   const body = sections.map(s => {
     const rowsHTML = s.rows.map(row => {
-      const colW = Math.floor((pageW - 24 * (row.length - 1)) / row.length);
-      const panels = row.map(k => {
+      const weights = row.map(k => (s.widths && s.widths[k]) || 1);
+      const totalWeight = weights.reduce((a, b) => a + b, 0);
+      const rowW = pageW - 24 * (row.length - 1);
+      const panels = row.map((k, i) => {
         const m = REPORT_MODULE_MAP[k];
-        return `<div class="panel rep-col">${reportModHead(m, m.note ? m.note(d) : '')}
+        const w = weights[i];
+        const colW = Math.max(200, Math.floor(rowW * w / totalWeight));   // 只喂给模块自己画图用
+        const flexStyle = row.length > 1 ? ` style="flex:${w} 1 0"` : '';   // 真实布局靠这个，不靠 colW
+        return `<div class="panel rep-col"${flexStyle}>${reportModHead(m, m.note ? m.note(d) : '', m.titleCount ? m.titleCount(d) : null)}
           <div class="panel-b">${m.html(d, { width: colW })}</div></div>`;
       }).join('');
       return row.length > 1 ? `<div class="rep-row">${panels}</div>` : panels;
@@ -5443,8 +6017,71 @@ function renderReport() {
     const dueEl = $('#page-report').querySelector('[data-due-fit]');
     if (dueEl) fitFlexBarChart(dueEl, dueBuckets(d.periodTasks));
   }
+  /* ★ 待办总量趋势/各月计划完成量打印出来还是有横向滚动条 ★
+     跟到期分布同一类问题、但这两个模块之前没有 fitFlexBarChart 那样"插入 DOM 后按真实宽度
+     重画一遍"的补救——它们喂给 lineChart()/groupedBarChart() 的宽度全程只有 reportChartWidth(ctx)
+     这一个估算值（ctx.width 来自 renderReport 顶部按 flex 权重"算"出来的 colW，不是真的量出来
+     的 DOM 宽度），跟真实渲染出来的容器宽度免不了会有几像素的出入。屏幕上看不出来（
+     overflow-x:auto 稍微一滚就补上了），但 Chrome 打印 overflow:auto 的容器时，只要哪怕真的
+     溢出一丁点，就会把这个容器的滚动条也当成页面内容的一部分印出来——这才是"还有横向滚动条
+     出现"的真正原因，不是没重排，是重排完还差那么几像素没对上。
+     用跟到期分布同一个 fitFlexChart() 补上：插入 DOM 之后量一次这一列真实的宽度，差距明显
+     就照实际宽度重新画一遍换上去，各年度工作数量顺带也补一份（同样的根因，只是还没被反馈到）。 */
+  if (!reportIsTable('worksByYearBars')) {
+    const el = $('#page-report').querySelector('[data-yearbars-fit]');
+    if (el) fitFlexChart(el, w => barChart(worksByYear(), w));
+  }
+  if (!reportIsTable('backlogTrend')) {
+    const el = $('#page-report').querySelector('[data-backlogtrend-fit]');
+    if (el) fitFlexChart(el, w => lineChart(backlogSeries(d.tasks, trendGranularity), w, '待办任务总量趋势', { aKey: 'backlog', bKey: null, aLabel: '待办总量' }));
+  }
+  if (!reportIsTable('planDueTrend')) {
+    const el = $('#page-report').querySelector('[data-plandue-fit]');
+    if (el) {
+      const ids = new Set(d.tasks.map(t => t.id));
+      const ms = DB.milestones.filter(m => !m.deleted_at && m.plan_date && ids.has(m.task));
+      fitFlexChart(el, w => groupedBarChart(planDueSeries(d.tasks, ms), w,
+        { aKey: 'tasks', bKey: 'milestones', aLabel: '计划完成任务数', bLabel: '计划完成里程碑数', ariaLabel: '按月计划完成的任务数与里程碑数' }));
+    }
+  }
   $('#status-left').textContent = '报告';
 }
+/* ★ 打印/导出 PDF 时"很多图表显示不完整"的真正根因 ★
+   到期分布/各年度工作数量/待办总量趋势/各月计划完成量这几个模块，图表本体是没有 viewBox 的
+   定宽 SVG（见 reportChartWidth 上面那条注释：“折线/柱状图是定宽 SVG，缩不了”），外面套了层
+   svgScroll()（就是个 overflow-x:auto 的 div）——这是给"窄屏时与其撑破版面，不如自己滚动"用的
+   安全阀，屏幕上没问题，人可以滚动看完；但打印页面没有滚动这回事，浏览器打印时不会展开或
+   分页这类可滚动容器，只按它渲染出来的宽度原样截断，滚动条能看到的那部分打印出来直接消失——
+   这跟人员工作矩阵那次是同一类根因（矩阵那边是表格列宽固定，这边是 SVG 像素宽度固定），
+   只是矩阵表格可以靠"改用不写死列宽、交给浏览器按比例分"这种纯 CSS 手段解决，没有 viewBox
+   的 SVG 做不到——CSS 硬把它塞进更窄的框只会把图裁掉一块，不会等比缩小。
+   真正的病根是这些图表的像素宽度（w / ctx.width / colW，一路往上追都来自 renderReport 里
+   `$('#page-report').clientWidth`）是按屏幕上的宽度量出来的，从来没有为打印页面重新量过、
+   重新画过。用浏览器打印时机制里的 beforeprint/afterprint 这对事件解决：Chrome 在触发
+   beforeprint 之前就已经把打印样式表应用、把布局按打印页面的实际宽度重排过一遍了，这时候
+   再调一次 renderReport()，`$('#page-report').clientWidth` 量到的就是打印页面能用的宽度，
+   所有喂了这个宽度画图的模块（不只到期分布，全部）会照着打印页面的真实尺寸重新画一遍再
+   插进 DOM，打印引擎抓的就是已经画对了尺寸的版本，不会再有内容超出页面被截掉。afterprint
+   时机得再调一次换回来，不然打印对话框关掉之后屏幕上看到的图表宽度会一直停在打印那个窄尺寸上。
+   只在报告页触发——"打印/导出 PDF"这个按钮本来就只长在报告页里，其它页面按 Ctrl+P
+   打印自己的内容，不该被这里的逻辑顺带影响。 */
+/* 打印/导出 PDF 时把浏览器标签页标题临时换成这份报告自己的标题——Chrome 打印页眉、
+   另存 PDF 时弹出的"文件名"输入框，用的都是这一刻的 document.title，不换的话导出来的
+   PDF 页眉和默认文件名会一直是"科技规划处工作管理系统"这个笼统的系统名。打印结束（不管
+   是真的打印了还是取消了，afterprint 都会触发）要马上换回来，不然浏览器标签页会一直
+   显示成"科技规划处工作简报_本周_2026-08-04"，容易让人以为自己点错了页面。 */
+let _reportPrintTitleBak = null;
+window.addEventListener('beforeprint', () => {
+  if (currentPage !== 'report') return;
+  _reportPrintTitleBak = document.title;
+  document.title = reportExportTitle(buildReportData(reportPeriod, reportOffset));
+  renderReport();
+});
+window.addEventListener('afterprint', () => {
+  if (currentPage !== 'report') return;
+  if (_reportPrintTitleBak !== null) { document.title = _reportPrintTitleBak; _reportPrintTitleBak = null; }
+  renderReport();
+});
 // 纯文本简报：跟页面走同一份编排、同一批模块，不再另外维护一份写死的顺序
 function buildReportText() {
   const d = buildReportData(reportPeriod, reportOffset);
@@ -5468,117 +6105,647 @@ function buildReportText() {
    "tainted"，之后再调用 toBlob/toDataURL 会直接抛 SecurityError。
    改成完全不依赖 HTML/CSS 渲染，直接用 canvas 2D 的矩形/文字/测量 API 手工画出报告内容——
    没有任何"外部资源"参与，canvas 不会被污染，toBlob 一定能正常导出。代价是排版逻辑要自己写，
-   不能偷懒直接照抄页面的 HTML/CSS。 */
+   不能偷懒直接照抄页面的 HTML/CSS。
+   ★ 用户反馈"导出图片的排版和效果要和导出 PDF 完全一致"——上面这条"手工画"的路子解决了
+   "内容画不画得出来"，但排版是完全另起的一套：所有模块从上到下摊成一整列纯文字/图表，
+   没有面板边框、没有底色，本该并排的模块（reportSections() 算出来的同一行）到了图片里
+   全部拆成一个模块一整行，页头/区域标题也是另一套配色——跟"打印/导出 PDF"（renderReport()
+   真实生成的 DOM，浏览器按 .panel/.rep-row/.rep-region-title 这些样式排出来的版面）基本是
+   两种东西。canvas 手工绘制没法逐像素克隆浏览器排版引擎，但排版"逻辑"可以照抄：
+   ① 每个模块外面画一个跟 .panel 视觉一致的卡片——边框 var(--border)、底色 var(--surface)、
+      圆角，头部一行照 reportModHead() 的样子摆"标题（计数）"在左、note 提示在右，用的是
+      同一套配色（var(--text2)/var(--text3)）；
+   ② 同一行要并排的模块严格按 renderReport() 里那套"flex 权重分宽度"算法（colW = 行可用宽度
+      按 s.widths 的倍数分摊）算出列宽，真的画成并排两列，不再拆成上下两条整行；
+   ③ 区域标题照 .rep-region-title 的画法——文字 + 下面一条 accent 色分隔线；
+   ④ 清单类模块的截断上限从图片自己单独定的 10 条改成跟页面/PDF 共用同一个
+      REPORT_LIST_LIMIT（20），不会出现"PDF 能看 20 条、图片只给看 10 条"这种同一份数据
+      两种口径的错觉。 */
 async function exportReportImage() {
   try {
     const d = buildReportData(reportPeriod, reportOffset);
-    const W = 860, PAD = 24, LH = 22, GAP = 14;
-    const COL = { text: '#2a2a2a', sub: '#6b6b6b', head: '#12466b', overdue: '#c0392b', done: '#1e7d45',
-      track: '#e2ded8', bar: ['#1e7d45', '#1a6aa8', '#c0392b', '#b0a99c'], barMuted: ['#8fcda8', '#7fb3d9', '#e2a49b', '#c9c0ae'] };
+    const W = 860, PAD = 24, LH = 22;
+    // 面板相关的几个尺寸/颜色都是直接抄 CSS 里 .panel/.panel-h/.rep-row/.rep-region 那几条
+    // 规则的字面值（见 :root 里的 --border/--surface/--text2/--text3/--accent），这样面板
+    // 卡片、标题配色才能跟屏幕上/PDF 里看到的对上，不是另起一套顺眼但对不上号的配色
+    const PANEL_PAD = 10, PANEL_HEAD_H = 28, COL_GAP = 12, ROW_GAP = 12, REGION_GAP = 18;
+    const COL = {
+      text: '#1a1815', text2: '#5a5550', text3: '#9a9590', accent: '#2c5f8a',
+      border: '#ddd9d3', surface: '#faf8f5', pageBg: '#f0ede8',
+      overdue: '#c0392b', done: '#1e7d45', track: '#e2ded8',
+      bar: ['#1e7d45', '#1a6aa8', '#c0392b', '#b0a99c'], barMuted: ['#8fcda8', '#7fb3d9', '#e2a49b', '#c9c0ae'],
+    };
     const truncate = (ctx, text, maxW) => {
       let t = String(text == null ? '' : text);
       if (ctx.measureText(t).width <= maxW) return t;
       while (t.length > 1 && ctx.measureText(t + '…').width > maxW) t = t.slice(0, -1);
       return t + '…';
     };
+    // 模块头部的 note 里常带着"全部展开/全部折叠"这类 <span class="toggle-view">…</span>
+    // 控件——图片是静态的，点不了，但页面/PDF 上这行提示原样都在，canvas 里去掉标签只留
+    // 文字，保留同一句提示，不装作它是可点的
+    const stripTags = s => String(s == null ? '' : s).replace(/<[^>]+>/g, '').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ').trim();
+    // 面板高度要在画边框之前就知道，但内容多高只有真的跑一遍模块的画法才算得出来——
+    // 测量遍（draw=false）先把每个面板的内容空跑一次，把量出来的高度按调用顺序记下来，
+    // 绘制遍（draw=true）直接按同样的顺序取出来用，边框/底色能在内容之前先画好
+    let panelHeightLog = [];
+
     // 跑两遍：第一遍只算总高度不真的画，第二遍按算出来的高度建立正式画布再画——
     // 这样不用提前手动预测内容会有多长
     function layout(ctx, draw) {
-      let y = PAD;
-      const heading = (text) => {
-        if (draw) { ctx.fillStyle = COL.head; ctx.font = 'bold 15px sans-serif'; ctx.fillText(text, PAD, y); }
-        y += LH + 4;
-      };
+      let cur = { x0: PAD, y: PAD, w: W - PAD * 2 };
+      let panelIdx = 0;
+
+      /* ★ 面板内容区第一行文字上方被切掉几个像素：line()/rowLine() 以前是直接把 cur.y
+         当基线（fillText 的 y 参数）用——cur.y 这时候是"这一行的槽位顶部"，字符的上升部分
+         （尤其是数字、大写字母、中文汉字）会往基线上方冒出去，正常情况下这段冒出来的高度
+         落在上一行槽位的下半截空白里，肉眼看不出来；可偏偏第一行没有"上一行"能接住它，
+         直接怼进面板头部那条分隔线里，看着就像文字顶部被切了一刀。bar()/hbars()/statBoxes()
+         这些原语其实都早就在基线前加了 +8/+9/+10 的偏移量，唯独 line() 和 rowLine() 一直是个
+         例外，这次给它们也补上同一个量级的偏移，跟其它原语的画法统一。 */
       const line = (text, opts = {}) => {
         if (draw) {
           ctx.font = opts.bold ? 'bold 13px sans-serif' : '13px sans-serif';
           ctx.fillStyle = opts.color || COL.text;
-          ctx.fillText(truncate(ctx, text, W - PAD * 2 - (opts.indent || 0)), PAD + (opts.indent || 0), y);
+          ctx.fillText(truncate(ctx, text, cur.w - (opts.indent || 0)), cur.x0 + (opts.indent || 0), cur.y + 9);
         }
-        y += opts.gap || LH;
+        cur.y += opts.gap || LH;
       };
       const rowLine = (dateText, dateColor, title, sub) => {
         if (draw) {
           ctx.font = '12.5px sans-serif';
-          ctx.fillStyle = dateColor || COL.sub;
-          ctx.fillText(dateText, PAD, y);
+          ctx.fillStyle = dateColor || COL.text3;
+          ctx.fillText(dateText, cur.x0, cur.y + 9);
           ctx.fillStyle = COL.text;
-          ctx.fillText(truncate(ctx, title, W - PAD * 2 - 90 - 170), PAD + 90, y);
-          ctx.fillStyle = COL.sub;
+          ctx.fillText(truncate(ctx, title, cur.w - 90 - 170), cur.x0 + 90, cur.y + 9);
+          ctx.fillStyle = COL.text3;
           ctx.font = '11.5px sans-serif';
-          ctx.fillText(truncate(ctx, sub, 160), W - PAD - 160, y);
+          ctx.fillText(truncate(ctx, sub, 160), cur.x0 + cur.w - 160, cur.y + 9);
         }
-        y += LH - 2;
+        cur.y += LH - 2;
       };
-      /* ★ 之前这里 barW 顶格算到画布最右边（W - PAD），右边那截"12/34 · 88%"文字
-         就只能从这条线往外画——画到了画布边界之外，导出的图片右侧被截掉一块。
-         页面上的 HTML 版本（见 hBar）不会有这个问题：那边是 flex 布局，track 和
-         数字标签是两个独立元素，浏览器会自动把 track 让出空间给数字站住。
-         canvas 是手工排版，没有自动让位这回事，得自己预留出 NUM_W 这块地方。 */
+      /* ★ barW 顶格算到这一列最右边的话，右边那截"12/34 · 88%"文字就只能从这条线往外画，
+         画到列边界之外——页面上的 HTML 版本（见 hBar）没这个问题：那边是 flex 布局，
+         track 和数字标签是两个独立元素，浏览器会自动把 track 让出空间。canvas 是手工排版，
+         没有自动让位这回事，得自己预留出 NUM_W 这块地方。 */
       const NUM_W = 92;
       const bar = (label, c, max, indent, muted) => {
         const nameW = 190 - indent;
-        const barX = PAD + 200, barW = W - PAD * 2 - 200 - NUM_W - 8, barH = 13;
+        const barX = cur.x0 + 200, barW = cur.w - 200 - NUM_W - 8, barH = 13;
         if (draw) {
           ctx.font = '12px sans-serif';
-          ctx.fillStyle = muted ? COL.sub : COL.text;
-          ctx.fillText(truncate(ctx, label, nameW), PAD + indent, y + 10);
+          ctx.fillStyle = muted ? COL.text3 : COL.text;
+          ctx.fillText(truncate(ctx, label, nameW), cur.x0 + indent, cur.y + 10);
           ctx.fillStyle = COL.track;
-          ctx.fillRect(barX, y, barW, barH);
+          ctx.fillRect(barX, cur.y, barW, barH);
           const colors = muted ? COL.barMuted : COL.bar;
           let cx = barX;
           [c.done, c.doing, c.late, (c.todo || 0) + (c.hold || 0)].forEach((n, i) => {
             const w = max ? n / max * barW : 0;
-            if (w > 0) { ctx.fillStyle = colors[i]; ctx.fillRect(cx, y, w, barH); cx += w; }
+            if (w > 0) { ctx.fillStyle = colors[i]; ctx.fillRect(cx, cur.y, w, barH); cx += w; }
           });
-          ctx.fillStyle = COL.sub; ctx.font = '11px sans-serif';
-          ctx.fillText(truncate(ctx, `${c.done}/${c.total} · ${c.rate}%`, NUM_W), barX + barW + 8, y + 10);
+          ctx.fillStyle = COL.text3; ctx.font = '11px sans-serif';
+          ctx.fillText(truncate(ctx, `${c.done}/${c.total} · ${c.rate}%`, NUM_W), barX + barW + 8, cur.y + 10);
         }
-        y += LH - 4;
+        cur.y += LH - 4;
       };
-      const empty = (text) => line(text, { color: COL.sub });
-      const IMG_LIST_LIMIT = 10;   // 图片里每个清单最多列 10 条，再多图片会长得没法看
-      // 任务/里程碑清单这两种画法各模块都要用，抽成原语挂进 api，模块自己不碰 canvas
+      const empty = (text) => line(text, { color: COL.text3 });
+      // 清单截断上限跟页面/PDF 共用同一个 REPORT_LIST_LIMIT（见 reportTaskRows/reportMsRows），
+      // 不再是图片自己单独定的一个更小的数字
       const taskRows = (list, emptyText, overdueColor, dateKey, colorKey) => {
         if (!list.length) { empty(emptyText); return; }
-        const color = colorKey === 'done' ? COL.done : (overdueColor ? COL.overdue : COL.sub);
-        list.slice(0, IMG_LIST_LIMIT).forEach(t =>
+        const color = colorKey === 'done' ? COL.done : (overdueColor ? COL.overdue : COL.text3);
+        list.slice(0, REPORT_LIST_LIMIT).forEach(t =>
           rowLine(fmtDate(t[dateKey || 'plan_date']), color, t.title, `${workName(t.work)} · ${t.owner || '未指派'}`));
-        if (list.length > IMG_LIST_LIMIT) line(`还有 ${list.length - IMG_LIST_LIMIT} 条…`, { color: COL.sub });
+        if (list.length > REPORT_LIST_LIMIT) line(`还有 ${list.length - REPORT_LIST_LIMIT} 条…`, { color: COL.text3 });
       };
       const msRows = (list, emptyText, overdueColor, dateKey, colorKey) => {
         if (!list.length) { empty(emptyText); return; }
-        const color = colorKey === 'done' ? COL.done : (overdueColor ? COL.overdue : COL.sub);
-        list.slice(0, IMG_LIST_LIMIT).forEach(m => {
+        const color = colorKey === 'done' ? COL.done : (overdueColor ? COL.overdue : COL.text3);
+        list.slice(0, REPORT_LIST_LIMIT).forEach(m => {
           const mt = byId('task', m.task);
           rowLine(fmtDate(m[dateKey || 'plan_date']), color, m.deliverable || '（未填写交付物）', mt ? mt.title : '');
         });
-        if (list.length > IMG_LIST_LIMIT) line(`还有 ${list.length - IMG_LIST_LIMIT} 个…`, { color: COL.sub });
+        if (list.length > REPORT_LIST_LIMIT) line(`还有 ${list.length - REPORT_LIST_LIMIT} 个…`, { color: COL.text3 });
       };
-      const api = { line, empty, bar, rowLine, taskRows, msRows };
-
-      line(`处室工作简报`, { bold: true, gap: LH + 2 });
-      line(`统计周期：${d.periodLabel}　${d.rangeStart} ～ ${d.rangeEnd}`, { color: COL.sub, gap: LH + GAP });
-
-      /* 图片导出跟页面走同一份编排、同一批模块（见 REPORT_MODULES 的 canvas 出口）。
-         以前这里是写死的一套顺序，结果就是"页面上改了、导出的图还是老样子"，
-         改成由编排驱动之后，三个出口（页面/文本/图片）永远说的是同一件事。 */
-      reportSections().forEach(s => {
-        line(s.title, { bold: true, gap: LH + 2 });
-        s.modules.forEach(k => {
-          const m = REPORT_MODULE_MAP[k];
-          heading(m.label);
-          /* canvas 出口是可选的：饼图/折线/甘特这些用不上 bar/rowLine 那几个原语，
-             硬要为二十几个模块各写一遍 canvas 排版既啰嗦又容易跟页面版本走偏。
-             没写 canvas 的一律退回"把 text() 那几行画出来"——图形没了，但数字一条不少，
-             而且永远跟纯文本简报保持一致，不会出现三个出口各说各话。 */
-          if (m.canvas) m.canvas(d, api);
-          else m.text(d, t => line(String(t), { color: COL.text }));
-          y += GAP;
+      /* 人员工作矩阵：格子颜色用跟屏幕上完全一样的算法算（weight = 牵头×3 + 参与），
+         列宽按人数自动摊分（这跟 PDF 那次"列宽不写死、交给浏览器按比例分"是同一个思路，
+         只是这里没有浏览器布局引擎可用，只能自己算），人员名字竖着画——横着写人一多
+         根本排不下，这也是打印那次矩阵的同一类问题，画布上正好用旋转文字的办法解决。
+         职责展开/折叠状态跟屏幕上、PDF 里保持一致（拿的是同一个 expandedSet）。 */
+      const matrix = (dutyStat, workStat, people, heat, expandedSet) => {
+        if (!dutyStat.length) { empty('暂无数据'); return; }
+        if (!people.length) { empty('还没有任何人员'); return; }
+        const labelW = 130, headH = 46, rowH = 15;
+        const availW = cur.w - labelW;
+        const colW = Math.max(9, availW / people.length);
+        const cellOf = (pm, person) => {
+          const v = (pm && pm.get(person)) || { lead: 0, join: 0 };
+          const n = v.lead + v.join;
+          if (!n) return null;
+          const weight = v.lead * 3 + v.join;
+          const ratio = Math.min(1, weight / heat.maxWeight);
+          return { n, color: `rgba(44,95,138,${(0.16 + ratio * 0.74).toFixed(2)})` };
+        };
+        const drawCells = (pm, rowY) => {
+          people.forEach((p, i) => {
+            const cell = cellOf(pm, p);
+            if (!cell) return;
+            const cx = cur.x0 + labelW + i * colW;
+            ctx.fillStyle = cell.color;
+            ctx.fillRect(cx + 1, rowY + 1, colW - 2, rowH - 2);
+            ctx.fillStyle = COL.text;
+            ctx.font = 'bold 9px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText(String(cell.n), cx + colW / 2, rowY + rowH - 5);
+            ctx.textAlign = 'left';
+          });
+        };
+        if (draw) {
+          ctx.font = '9px sans-serif';
+          ctx.fillStyle = COL.text;
+          people.forEach((p, i) => {
+            const cx = cur.x0 + labelW + i * colW + colW / 2;
+            ctx.save();
+            ctx.translate(cx, cur.y + headH - 4);
+            ctx.rotate(-Math.PI / 2);
+            ctx.textAlign = 'left';
+            ctx.fillText(truncate(ctx, p, headH - 8), 0, 0);
+            ctx.restore();
+          });
+        }
+        cur.y += headH;
+        dutyStat.forEach(x => {
+          const dutyWorks = workStat.filter(w => w.duty === x.code).sort((a, b) => (a.code || '').localeCompare(b.code || ''));
+          const isOpen = expandedSet.has(x.code);
+          if (draw) {
+            ctx.font = '10px sans-serif';
+            ctx.fillStyle = COL.text;
+            ctx.fillText(truncate(ctx, x.name, labelW - 6), cur.x0, cur.y + rowH - 4);
+            drawCells(heat.dutyMap.get(x.code), cur.y);
+          }
+          cur.y += rowH;
+          if (isOpen) {
+            dutyWorks.forEach(w => {
+              if (draw) {
+                ctx.font = '9.5px sans-serif';
+                ctx.fillStyle = COL.text3;
+                ctx.fillText(truncate(ctx, w.name, labelW - 16), cur.x0 + 12, cur.y + rowH - 4);
+                drawCells(heat.workMap.get(w.id), cur.y);
+              }
+              cur.y += rowH;
+            });
+          }
         });
+      };
+      // 折线图（待办总量趋势）：画法照抄 lineChart() 的坐标算法（网格线/坐标轴/折线/点一一
+      // 对应），只是把 SVG 元素换成 ctx 的绘图调用
+      const trendLine = (series, aKey, aLabel) => {
+        if (!series.length) { empty('无'); return; }
+        const h = 130, padL = 34, padR = 10, padT = 8, padB = 20;
+        const w = cur.w, iw = w - padL - padR, ih = h - padT - padB;
+        const maxV = Math.max(1, ...series.map(s => s[aKey]));
+        const niceMax = Math.ceil(maxV / 5) * 5 || 5;
+        const x = i => padL + (series.length === 1 ? iw / 2 : i / (series.length - 1) * iw);
+        const yv = v => padT + ih - v / niceMax * ih;
+        if (draw) {
+          ctx.save();
+          ctx.translate(cur.x0, cur.y);
+          ctx.strokeStyle = COL.border; ctx.lineWidth = 1; ctx.font = '9px sans-serif'; ctx.fillStyle = COL.text3; ctx.textAlign = 'right';
+          for (let i = 0; i <= 5; i++) {
+            const v = niceMax / 5 * i, yy = yv(v);
+            ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(padL + iw, yy); ctx.stroke();
+            ctx.fillText(String(v), padL - 6, yy + 3);
+          }
+          const step = series.length > 12 ? Math.ceil(series.length / 12) : 1;
+          ctx.font = '8px sans-serif'; ctx.textAlign = 'center';
+          series.forEach((s, i) => { if (i % step === 0) ctx.fillText(truncate(ctx, s.label, iw / Math.min(series.length, 12)), x(i), h - 4); });
+          ctx.strokeStyle = COL.bar[1]; ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          series.forEach((s, i) => { const px = x(i), py = yv(s[aKey]); if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py); });
+          ctx.stroke();
+          ctx.fillStyle = COL.bar[1];
+          series.forEach((s, i) => { ctx.beginPath(); ctx.arc(x(i), yv(s[aKey]), 2, 0, Math.PI * 2); ctx.fill(); });
+          ctx.textAlign = 'left';
+          ctx.restore();
+        }
+        cur.y += h;
+      };
+      // 分组柱状图（各月计划完成量）：照抄 groupedBarChart() 的两组柱子并排算法
+      const groupedBar = (series, aKey, bKey, aLabel, bLabel) => {
+        if (!series.length) { empty('无'); return; }
+        const h = 130, padL = 30, padR = 10, padT = 8, padB = 20;
+        const w = cur.w, iw = w - padL - padR, ih = h - padT - padB;
+        const maxV = Math.max(1, ...series.map(s => Math.max(s[aKey], s[bKey])));
+        const niceMax = Math.ceil(maxV / 4) * 4 || 4;
+        const bw = iw / series.length;
+        const yv = v => padT + ih - v / niceMax * ih;
+        if (draw) {
+          ctx.save();
+          ctx.translate(cur.x0, cur.y);
+          ctx.strokeStyle = COL.border; ctx.lineWidth = 1; ctx.font = '9px sans-serif'; ctx.fillStyle = COL.text3; ctx.textAlign = 'right';
+          for (let i = 0; i <= 4; i++) {
+            const v = niceMax / 4 * i, yy = yv(v);
+            ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(padL + iw, yy); ctx.stroke();
+            ctx.fillText(String(v), padL - 6, yy + 3);
+          }
+          const groupW = bw * 0.7, barW = groupW / 2 - 2;
+          ctx.textAlign = 'center';
+          series.forEach((s, i) => {
+            const gx = padL + i * bw + (bw - groupW) / 2;
+            const aH = Math.max(s[aKey] ? 1 : 0, ih - (yv(s[aKey]) - padT));
+            const bH = Math.max(s[bKey] ? 1 : 0, ih - (yv(s[bKey]) - padT));
+            ctx.fillStyle = COL.bar[1];
+            ctx.fillRect(gx, padT + ih - aH, barW, aH);
+            ctx.fillStyle = COL.bar[0];
+            ctx.fillRect(gx + barW + 3, padT + ih - bH, barW, bH);
+            ctx.fillStyle = COL.text3; ctx.font = '8px sans-serif';
+            if (series.length <= 12 || i % 2 === 0) ctx.fillText(truncate(ctx, s.label, groupW + 8), gx + groupW / 2, h - 4);
+          });
+          ctx.textAlign = 'left';
+          ctx.restore();
+        }
+        cur.y += h;
+      };
+      /* 里程碑甘特图：第一版（msTreeOutline）只画了一份职责→工作→任务的纯文字缩进大纲，
+         没有 viewBox 的 SVG 甘特图确实没法直接照抄，但"甘特图"本来就该是"时间轴 + 跨度条 +
+         节点"这种图形，光靠缩进列表看不出"哪条快到期、哪条已经逾期"，用户反馈"都是文字"
+         说的正是这个——内容没丢，但图形没了。这次真的画一条时间轴：坐标算法照抄
+         milestoneTreeHTML()（同一套 lo/hi 边界、同一个 pct() 换算），每一行是"名称 + 跨度条
+         + 节点圆点（按逾期/7天内/后续/已完成分色）+ 完成数"，职责/工作展开折叠状态用的也是
+         同一个 reportMsDutyExpanded/reportMsWorkExpanded，跟屏幕上/PDF 里折叠成什么样、
+         图片里就是什么样，不会出现"页面上折叠着、图片里却全展开"这种三处不一致。
+         今天这条竖线贯穿整个甘特区域——要提前算好总行数才能一次性画完整条竖线，所以先把
+         要画的行摊平成一个数组，而不是像原来那样边遍历树边画。 */
+      const ganttChart = tasks => {
+        const { msByTask, byDutyWork } = msTreeGroups(tasks);
+        if (!byDutyWork.size) { empty('还没有里程碑'); return; }
+        const allOffs = [...msByTask.values()].flat().map(m => daysFromToday(m.plan_date));
+        let lo = Math.max(Math.min(0, ...allOffs) - 5, twoMonthsAgoOffset()), hi = Math.max(...allOffs) + 5;
+        if (hi - lo < 60) hi = lo + 60;
+
+        const nameW = 170, cntW = 42, rowH = 15, axisH = 16;
+        const trackX0 = cur.x0 + nameW, trackW = Math.max(40, cur.w - nameW - cntW);
+        const xOf = off => trackX0 + Math.min(1, Math.max(0, (off - lo) / (hi - lo))) * trackW;
+        const STATUS_COLOR = { late: '#c0392b', soon: '#e0900a', norm: '#1a6aa8', done: '#1e7d45' };
+        const statusOf = m => m.done === '1' ? 'done' : daysFromToday(m.plan_date) < 0 ? 'late' : daysFromToday(m.plan_date) <= 7 ? 'soon' : 'norm';
+
+        // 按 职责→工作→任务 摊平成一份行列表，展开/折叠规则跟 milestoneTreeHTML() 一致：
+        // 折叠的那一级自己聚合展示（有跨度条+节点），展开之后交给下一级，自己只剩表头（无跨度条）
+        const rows = [];
+        [...byDutyWork.keys()].sort((c1, c2) => (c1 || '').localeCompare(c2 || '')).forEach(code => {
+          const duty = byId('duty', code);
+          const wm = byDutyWork.get(code);
+          const tasksUnderDuty = [...wm.values()].flat();
+          const msUnderDuty = tasksUnderDuty.flatMap(t => msByTask.get(t.id) || []);
+          const dOpen = reportMsDutyExpanded.has(code);
+          rows.push({ level: 0, name: duty ? duty.name : '（未归属职责）', trackMs: dOpen ? [] : msUnderDuty, countMs: msUnderDuty });
+          if (dOpen) {
+            [...wm.keys()].sort((wa, wb) => {
+              const a = byId('work', wa), b = byId('work', wb);
+              return ((a && a.code) || '').localeCompare((b && b.code) || '');
+            }).forEach(workId => {
+              const w = byId('work', workId);
+              const taskList = wm.get(workId);
+              const msUnderWork = taskList.flatMap(t => msByTask.get(t.id) || []);
+              const wOpen = reportMsWorkExpanded.has(workId);
+              rows.push({ level: 1, name: w ? w.name : '（未归属工作）', trackMs: wOpen ? [] : msUnderWork, countMs: msUnderWork });
+              if (wOpen) {
+                taskList.slice().sort((a, b) => (a.code || '').localeCompare(b.code || '')).forEach(t => {
+                  const ms = msByTask.get(t.id) || [];
+                  rows.push({ level: 2, name: t.title, trackMs: ms, countMs: ms });
+                });
+              }
+            });
+          }
+        });
+
+        if (draw) {
+          const ticks = [];
+          for (let d = lo; d <= hi; d++) { const ds = offsetDate(d); if (ds.endsWith('-01')) ticks.push({ d, label: (+ds.slice(5, 7)) + '月' }); }
+          ctx.font = '9px sans-serif'; ctx.fillStyle = COL.text3; ctx.textAlign = 'center';
+          ticks.forEach(t => ctx.fillText(t.label, xOf(t.d), cur.y + 11));
+          ctx.textAlign = 'left';
+          // 今天竖线：贯穿轴下面所有行，跟屏幕上"│竖线为今天"是同一件事
+          ctx.strokeStyle = COL.accent; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(xOf(0), cur.y + axisH); ctx.lineTo(xOf(0), cur.y + axisH + rows.length * rowH); ctx.stroke();
+        }
+        cur.y += axisH;
+
+        rows.forEach(r => {
+          const indent = r.level * 12;
+          if (draw) {
+            ctx.font = r.level === 0 ? 'bold 10px sans-serif' : (r.level === 2 ? '9px sans-serif' : '9.5px sans-serif');
+            ctx.fillStyle = r.level === 2 ? COL.text3 : COL.text;
+            ctx.fillText(truncate(ctx, r.name, nameW - indent - 4), cur.x0 + indent, cur.y + 10);
+            const trackY = cur.y + 7;
+            ctx.strokeStyle = COL.border; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(trackX0, trackY); ctx.lineTo(trackX0 + trackW, trackY); ctx.stroke();
+            const visible = r.trackMs.filter(m => daysFromToday(m.plan_date) >= lo);
+            if (visible.length) {
+              const offs = visible.map(m => daysFromToday(m.plan_date));
+              ctx.strokeStyle = COL.text3; ctx.lineWidth = 2;
+              ctx.beginPath(); ctx.moveTo(xOf(Math.min(...offs)), trackY); ctx.lineTo(xOf(Math.max(...offs)), trackY); ctx.stroke();
+              visible.forEach(m => {
+                ctx.fillStyle = STATUS_COLOR[statusOf(m)];
+                ctx.beginPath(); ctx.arc(xOf(daysFromToday(m.plan_date)), trackY, 3, 0, Math.PI * 2); ctx.fill();
+              });
+            }
+            ctx.font = '9px sans-serif'; ctx.fillStyle = COL.text3; ctx.textAlign = 'right';
+            ctx.fillText(`${r.countMs.filter(m => m.done === '1').length}/${r.countMs.length}`, cur.x0 + cur.w, cur.y + 10);
+            ctx.textAlign = 'left';
+          }
+          cur.y += rowH;
+        });
+
+        if (draw) {
+          const legend = [['已完成', STATUS_COLOR.done], ['7天内', STATUS_COLOR.soon], ['逾期', STATUS_COLOR.late], ['后续', STATUS_COLOR.norm]];
+          ctx.font = '9px sans-serif';
+          let lx = cur.x0;
+          legend.forEach(([label, color]) => {
+            ctx.fillStyle = color; ctx.beginPath(); ctx.arc(lx + 4, cur.y + 6, 3, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = COL.text3; ctx.fillText(label, lx + 10, cur.y + 9);
+            lx += 10 + ctx.measureText(label).width + 14;
+          });
+        }
+        cur.y += 16;
+      };
+      /* 报告页/图表页里不少模块用的是"占比饼图"（pieChart()+pieLegend()）或者纯色横条列表
+         （hBarList()）——之前这两类模块统统没配 canvas()，图片导出退回 text() 之后，饼图变成
+         几行"标签：数字"，横条列表也一样，看不出占比、看不出谁多谁少，跟屏幕上/PDF 里明明
+         画着图的样子完全对不上，这是用户反馈"有的模块连图表都没有了，都是排列混乱的文字"
+         的真正原因。这里补齐这两类通用画法，尽量让能复用的模块都配上 canvas()。
+         data 项里的颜色可能是 var(--c-done) 这种 CSS 变量引用（msCompletionPie/dueSummary
+         就是），canvas 的 fillStyle 认不出 var()，先转成字面色值。 */
+      const CSS_VAR_COLORS = { '--c-late': '#c0392b', '--c-soon': '#e0900a', '--c-doing': '#1a6aa8', '--c-done': '#1e7d45', '--c-track': '#e2ded8', '--c-todo': '#b0a99c', '--done': '#27ae60', '--overdue': '#c0392b' };
+      const resolveColor = c => {
+        const m = /^var\((--[\w-]+)\)$/.exec(String(c || ''));
+        return m ? (CSS_VAR_COLORS[m[1]] || '#999') : c;
+      };
+      // 占比饼图：坐标算法照抄 pieChart()（同一个圆心角计算，同一批扇区），图例照抄 pieLegend()
+      // （色块 + 文字 + 数量），只是从 SVG 换成 ctx 的圆弧填色
+      const pie = data => {
+        const list = data.map(x => ({ label: x.label, n: x.n, color: resolveColor(x.color) })).filter(x => x.n > 0);
+        if (!list.length) { empty('暂无数据'); return; }
+        const size = Math.max(70, Math.min(130, cur.w - 6));
+        const cx = cur.x0 + cur.w / 2, cy0 = cur.y + size / 2, r = size / 2 - 2;
+        const total = list.reduce((a, x) => a + x.n, 0) || 1;
+        if (draw) {
+          let angle = -Math.PI / 2;
+          list.forEach(x => {
+            const frac = x.n / total, a0 = angle, a1 = angle + frac * Math.PI * 2; angle = a1;
+            ctx.beginPath(); ctx.moveTo(cx, cy0); ctx.arc(cx, cy0, r, a0, a1); ctx.closePath();
+            ctx.fillStyle = x.color; ctx.fill();
+          });
+          // 占比标签：跟 pieChart() 一样，太窄的扇区（<6%）不标，避免文字互相压住
+          angle = -Math.PI / 2;
+          ctx.font = 'bold 10px sans-serif'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
+          list.forEach(x => {
+            const frac = x.n / total, a0 = angle, a1 = angle + frac * Math.PI * 2; angle = a1;
+            const pct = Math.round(frac * 100);
+            if (pct >= 6) { const mid = (a0 + a1) / 2; ctx.fillText(pct + '%', cx + r * 0.62 * Math.cos(mid), cy0 + r * 0.62 * Math.sin(mid) + 3); }
+          });
+          ctx.textAlign = 'left';
+        }
+        cur.y += size + 10;
+        list.forEach(x => {
+          if (draw) {
+            ctx.fillStyle = x.color; ctx.fillRect(cur.x0, cur.y - 8, 9, 9);
+            ctx.font = '10.5px sans-serif'; ctx.fillStyle = COL.text;
+            ctx.fillText(truncate(ctx, `${x.label} ${x.n}`, cur.w - 14), cur.x0 + 13, cur.y);
+          }
+          cur.y += 14;
+        });
+      };
+      // 单色纵向柱状图：坐标算法照抄 barChart()（网格线/柱子/柱顶数字/底部标签一一对应），
+      // 支持每根柱子按 cls（bar-late/bar-soon/bar-norm/bar-done）取不同颜色，
+      // 跟页面上到期分布那种"逾期红、本周内橙、其它蓝"的分色一致
+      const BAR_CLS_COLOR = { 'bar-late': '#c0392b', 'bar-soon': '#e0900a', 'bar-norm': '#1a6aa8', 'bar-done': '#1e7d45' };
+      const singleBar = items => {
+        if (!items.length) { empty('暂无数据'); return; }
+        const h = 130, padL = 30, padR = 10, padT = 10, padB = 22;
+        const w = cur.w, iw = w - padL - padR, ih = h - padT - padB;
+        const maxV = Math.max(1, ...items.map(b => b.n));
+        const niceMax = Math.ceil(maxV / 4) * 4 || 4;
+        const bw = iw / items.length;
+        const yv = v => padT + ih - v / niceMax * ih;
+        if (draw) {
+          ctx.save();
+          ctx.translate(cur.x0, cur.y);
+          ctx.strokeStyle = COL.border; ctx.lineWidth = 1; ctx.font = '9px sans-serif'; ctx.fillStyle = COL.text3; ctx.textAlign = 'right';
+          for (let i = 0; i <= 4; i++) {
+            const v = niceMax / 4 * i, yy = yv(v);
+            ctx.beginPath(); ctx.moveTo(padL, yy); ctx.lineTo(padL + iw, yy); ctx.stroke();
+            ctx.fillText(String(v), padL - 6, yy + 3);
+          }
+          ctx.textAlign = 'center';
+          items.forEach((b, i) => {
+            const bx = padL + i * bw + bw * 0.18, bwid = bw * 0.64;
+            const bh = Math.max(b.n ? 2 : 0, ih - (yv(b.n) - padT));
+            ctx.fillStyle = BAR_CLS_COLOR[b.cls] || BAR_CLS_COLOR['bar-norm'];
+            ctx.fillRect(bx, padT + ih - bh, bwid, bh);
+            if (b.n) { ctx.fillStyle = COL.text3; ctx.font = '9px sans-serif'; ctx.fillText(String(b.n), bx + bwid / 2, padT + ih - bh - 3); }
+            ctx.fillStyle = COL.text3; ctx.font = '8.5px sans-serif';
+            ctx.fillText(truncate(ctx, b.label, bw), bx + bwid / 2, h - 6);
+          });
+          ctx.textAlign = 'left';
+          ctx.restore();
+        }
+        cur.y += h;
+      };
+      // 横向列表式条形图：照抄 hBarList()——标签在左，条在中间（单色，不分状态），数字在右
+      const hbars = bars => {
+        if (!bars.length) { empty('暂无数据'); return; }
+        const max = Math.max(1, ...bars.map(b => b.n));
+        const nameW = 150, numW = 40, barX = cur.x0 + nameW, barW = cur.w - nameW - numW - 8, barH = 11;
+        bars.forEach(b => {
+          if (draw) {
+            ctx.font = '11.5px sans-serif'; ctx.fillStyle = COL.text;
+            ctx.fillText(truncate(ctx, b.label, nameW - 6), cur.x0, cur.y + 9);
+            ctx.fillStyle = COL.track; ctx.fillRect(barX, cur.y + 1, barW, barH);
+            const bw = max ? b.n / max * barW : 0;
+            if (bw > 0) { ctx.fillStyle = '#1a6aa8'; ctx.fillRect(barX, cur.y + 1, bw, barH); }
+            ctx.fillStyle = COL.text3; ctx.font = '10.5px sans-serif';
+            ctx.fillText(String(b.n), barX + barW + 6, cur.y + 10);
+          }
+          cur.y += 16;
+        });
+      };
+      // 卡片网格：照抄 statCard() 那种"边框卡片，上面小字标签、下面大字数值"的样子，
+      // groups: [{label, cards:[{k,v,warn}]}]——dashCards 是"两组、每组四张"，workOverview
+      // 那种只有一张卡（SPI）也走这条路，列数按这一组实际卡片数来，不写死 4 列，
+      // 不然卡少的时候会有一堆空着的列宽白白占地方
+      const statBoxes = groups => {
+        const boxGap = 8;
+        groups.forEach(g => {
+          if (g.label && draw) { ctx.font = '10.5px sans-serif'; ctx.fillStyle = COL.text3; ctx.fillText(g.label, cur.x0, cur.y + 8); }
+          if (g.label) cur.y += 16;
+          const cols = Math.max(1, Math.min(4, g.cards.length));
+          const boxW = (cur.w - boxGap * (cols - 1)) / cols, boxH = 44;
+          g.cards.forEach((c, i) => {
+            const bx = cur.x0 + i * (boxW + boxGap);
+            if (draw) {
+              ctx.fillStyle = COL.surface; ctx.fillRect(bx, cur.y, boxW, boxH);
+              ctx.strokeStyle = COL.border; ctx.lineWidth = 1; ctx.strokeRect(bx, cur.y, boxW, boxH);
+              ctx.font = '9.5px sans-serif'; ctx.fillStyle = COL.text3; ctx.textAlign = 'center';
+              ctx.fillText(truncate(ctx, c.k, boxW - 6), bx + boxW / 2, cur.y + 16);
+              ctx.font = 'bold 15px sans-serif'; ctx.fillStyle = c.warn ? COL.overdue : COL.text;
+              ctx.fillText(String(c.v), bx + boxW / 2, cur.y + 34);
+              ctx.textAlign = 'left';
+            }
+          });
+          cur.y += boxH + 10;
+        });
+      };
+      /* 两栏并排：照抄 .chart-flex 那种"柱状/横条在一边、饼图在另一边"的布局，用的还是
+         P77 面板里那套"临时把 cur 换成子区域、跑完再换回来"的手法。leftW/rightW 传其中一个
+         固定宽度、另一个传 null 表示"用剩下的空间"——dutyCategoryBars/taskDueDist 是"柱状图
+         灵活宽、饼图固定 150"，workOverview 是反过来"饼图固定 150、卡片灵活宽"，两种都要支持。 */
+      const twoCol = (leftFn, leftW, rightFn, rightW) => {
+        const gap = 16;
+        if (leftW == null) leftW = cur.w - rightW - gap;
+        if (rightW == null) rightW = cur.w - leftW - gap;
+        const startY = cur.y, x0 = cur.x0, w0 = cur.w;
+        cur = { x0, y: startY, w: leftW };
+        leftFn();
+        const leftBottom = cur.y;
+        cur = { x0: x0 + leftW + gap, y: startY, w: rightW };
+        rightFn();
+        const rightBottom = cur.y;
+        cur = { x0, y: Math.max(leftBottom, rightBottom), w: w0 };
+      };
+      const api = { line, empty, bar, rowLine, taskRows, msRows, matrix, trendLine, groupedBar, ganttChart, pie, singleBar, hbars, statBoxes, twoCol };
+
+      const roundRectPath = (x, y, w, h, r) => {
+        if (ctx.roundRect) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); return; }
+        const rr = Math.min(r, w / 2, h / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + rr, y);
+        ctx.arcTo(x + w, y, x + w, y + h, rr);
+        ctx.arcTo(x + w, y + h, x, y + h, rr);
+        ctx.arcTo(x, y + h, x, y, rr);
+        ctx.arcTo(x, y, x + w, y, rr);
+        ctx.closePath();
+      };
+      /* 面板：跟页面上 .panel 视觉一致——边框+底色+圆角，头部一行（标题/计数靠左、note 靠右）
+         跟正文之间隔一条分隔线。headerFn/contentFn 传 null 表示"没有这部分"（比如页头那块
+         按钮是 no-print，图片/PDF 里本来就没有 panel-b；区域为空时那块占位没有头部）。
+         contentFn 在自己的一块子区域里跑——子区域的 x0/y/w 通过临时换掉外层 cur 来实现，
+         模块自己调用的 a.line/a.taskRows/a.matrix 等等完全不用感知这一层，还是老样子调用。 */
+      function panel(x, y, w, headerFn, contentFn) {
+        const hasHeader = !!headerFn, headH = hasHeader ? PANEL_HEAD_H : 0;
+        const contentX = x + PANEL_PAD, contentW = w - PANEL_PAD * 2;
+        if (!contentFn) {
+          const panelH = headH || PANEL_PAD * 2;
+          if (draw) {
+            ctx.fillStyle = COL.surface; roundRectPath(x, y, w, panelH, 6); ctx.fill();
+            ctx.strokeStyle = COL.border; ctx.lineWidth = 1; roundRectPath(x, y, w, panelH, 6); ctx.stroke();
+            if (hasHeader) headerFn(contentX, y + PANEL_PAD, contentW);
+          }
+          return y + panelH;
+        }
+        const contentStartY = y + headH + PANEL_PAD;
+        let panelH;
+        if (!draw) {
+          const saved = cur;
+          cur = { x0: contentX, y: contentStartY, w: contentW };
+          contentFn();
+          panelH = (cur.y - y) + PANEL_PAD;
+          cur = saved;
+          panelHeightLog.push(panelH);
+        } else {
+          panelH = panelHeightLog[panelIdx++];
+          ctx.fillStyle = COL.surface; roundRectPath(x, y, w, panelH, 6); ctx.fill();
+          ctx.strokeStyle = COL.border; ctx.lineWidth = 1; roundRectPath(x, y, w, panelH, 6); ctx.stroke();
+          if (hasHeader) {
+            headerFn(contentX, y + PANEL_PAD, contentW);
+            ctx.strokeStyle = COL.border; ctx.lineWidth = 1;
+            ctx.beginPath(); ctx.moveTo(x, y + headH); ctx.lineTo(x + w, y + headH); ctx.stroke();
+          }
+          const saved = cur;
+          cur = { x0: contentX, y: contentStartY, w: contentW };
+          contentFn();
+          cur = saved;
+        }
+        return y + panelH;
+      }
+      // 模块面板头部：标题（计数）靠左、note（全量提示 + 模块自己的 note，去掉链接标签只留
+      // 文字）靠右——跟 reportModHead() 摆的是同一批信息，只是从 HTML 换成手工画两段文字
+      const moduleHeaderFn = m => (hx, hy, hw) => {
+        const count = m.titleCount ? m.titleCount(d) : null;
+        const label = m.label + (count != null ? `（${count}）` : '');
+        ctx.font = 'bold 12.5px sans-serif';
+        ctx.fillStyle = COL.text2;
+        const labelText = truncate(ctx, label, hw);
+        ctx.fillText(labelText, hx, hy + 9);
+        const noteParts = [];
+        if (m.scope === 'all') noteParts.push('全量 · 不随周期变化');
+        if (m.note) noteParts.push(stripTags(m.note(d)));
+        const noteRaw = noteParts.join(' · ');
+        if (noteRaw) {
+          const labelW = ctx.measureText(labelText).width;
+          const noteMaxW = hw - labelW - 12;
+          if (noteMaxW > 30) {
+            ctx.font = '10.5px sans-serif'; ctx.fillStyle = COL.text3; ctx.textAlign = 'right';
+            ctx.fillText(truncate(ctx, noteRaw, noteMaxW), hx + hw, hy + 8);
+            ctx.textAlign = 'left';
+          }
+        }
+      };
+      /* canvas 出口是可选的：饼图这类用不上 bar/rowLine 那几个原语，硬要为每个模块各写一遍
+         canvas 排版既啰嗦又容易跟页面版本走偏。没写 canvas 的一律退回"把 text() 那几行画出来"——
+         图形没了，但数字一条不少，而且永远跟纯文本简报保持一致，不会出现三个出口各说各话。 */
+      const moduleContentFn = m => () => {
+        if (m.canvas) m.canvas(d, api);
+        else m.text(d, t => line(String(t), { color: COL.text }));
+      };
+
+      // 页头面板：跟屏幕/PDF 上"处室工作简报"那块面板视觉一致，只有一行标题——周期切换/翻期
+      // 按钮和下面的导出按钮都是 no-print，图片/PDF 里本来就不出现，这里也不画
+      const headerText = `📋 处室工作简报　·　统计周期：${d.periodLabel}（${d.rangeStart} ～ ${d.rangeEnd}）`;
+      cur.y = panel(cur.x0, cur.y, cur.w, (hx, hy, hw) => {
+        ctx.font = 'bold 13px sans-serif';
+        ctx.fillStyle = COL.text2;
+        ctx.fillText(truncate(ctx, headerText, hw), hx, hy + 9);
+      }, null) + REGION_GAP;
+
+      /* 图片导出跟页面走同一份编排、同一批模块（见 REPORT_MODULES 的 canvas 出口），连"同一行
+         并排几个模块"这件事也照抄 reportSections() 算出来的 s.rows/s.widths，不再拆成一个
+         模块一整行——三个出口（页面/文本/图片）不仅数据一致，版面结构也一致。 */
+      reportSections().forEach(s => {
+        if (draw) {
+          ctx.font = 'bold 14px sans-serif';
+          ctx.fillStyle = COL.text;
+          ctx.fillText(truncate(ctx, s.title, cur.w), cur.x0, cur.y + 11);
+          ctx.strokeStyle = COL.accent; ctx.lineWidth = 2;
+          ctx.beginPath(); ctx.moveTo(cur.x0, cur.y + 18); ctx.lineTo(cur.x0 + cur.w, cur.y + 18); ctx.stroke();
+        }
+        cur.y += 26;
+
+        if (!s.rows.length) {
+          cur.y = panel(cur.x0, cur.y, cur.w, null, () => line('这个区域还没有勾选任何模块', { color: COL.text3 })) + ROW_GAP;
+        } else {
+          s.rows.forEach(row => {
+            const weights = row.map(k => (s.widths && s.widths[k]) || 1);
+            const totalWeight = weights.reduce((a, b) => a + b, 0);
+            const rowW = cur.w - COL_GAP * (row.length - 1);
+            const rowY = cur.y;
+            let colX = cur.x0, rowBottom = rowY;
+            row.forEach((k, i) => {
+              const m = REPORT_MODULE_MAP[k];
+              const w = weights[i];
+              const colW = Math.max(180, Math.floor(rowW * w / totalWeight));
+              const bottom = panel(colX, rowY, colW, moduleHeaderFn(m), moduleContentFn(m));
+              rowBottom = Math.max(rowBottom, bottom);
+              colX += colW + COL_GAP;
+            });
+            cur.y = rowBottom + ROW_GAP;
+          });
+        }
+        cur.y += REGION_GAP - ROW_GAP;
       });
 
-      return y + PAD;
+      return cur.y + PAD;
     }
 
     const measureCanvas = document.createElement('canvas');
@@ -5591,7 +6758,7 @@ async function exportReportImage() {
     canvas.height = totalH * scale;
     const ctx = canvas.getContext('2d');
     ctx.scale(scale, scale);
-    ctx.fillStyle = '#fff';
+    ctx.fillStyle = COL.pageBg;
     ctx.fillRect(0, 0, W, totalH);
     layout(ctx, true);
 
@@ -5599,7 +6766,7 @@ async function exportReportImage() {
       if (!blob) { showSnack('生成图片失败，建议改用"打印/导出 PDF"'); return; }
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `处室工作简报_${todayStr()}.png`;
+      a.download = `${reportExportTitle(d)}.png`;
       a.click();
       showSnack('图片已生成，请留意浏览器的下载提示');
     });
@@ -5895,18 +7062,14 @@ function renderLogs() {
 // 不然每敲一个字就重画一次整页，输入框会丢焦点，字打到一半光标跳没了
 function bindLogsTextSearch() {
   const el = $('#logs-text');
-  if (!el) return;
-  let timer = null;
-  el.addEventListener('input', () => {
-    clearTimeout(timer);
+  bindComposableSearch(el, () => {
+    // 光标位置在真正要重绘的这一刻取，才是用户当下的位置
     const pos = el.selectionStart;
-    timer = setTimeout(() => {
-      UI.logs.text = el.value;
-      UI.logs.page = 1;
-      renderLogs();
-      const again = $('#logs-text');
-      if (again) { again.focus(); again.setSelectionRange(pos, pos); }
-    }, 150);
+    UI.logs.text = el.value;
+    UI.logs.page = 1;
+    renderLogs();
+    const again = $('#logs-text');
+    if (again) { again.focus(); again.setSelectionRange(pos, pos); }
   });
 }
 
@@ -5960,12 +7123,18 @@ function localCachePanelHTML() {
 }
 
 function renderData() {
+  /* ★ 每个数字都必须点得进去看到对应的清单 ★
+     以前"已删除任务"直接数 DB.tasks，而任务页的「已删除」视图数的是过滤后的池子，两边口径不同，
+     结果就是"数据概况说有 166 条、点进去一条没有"——数字对不上清单，比数字本身不准更难排查。
+     现在统一走 taskPoolFor + 视图自己的 match，跟任务页那几个视图用的是同一套判据，
+     从机制上杜绝这类分叉再次出现。 */
+  const countTaskView = k => taskPoolFor(k).filter(TASK_VIEW_MAP[k].match).length;
   const counts = {
     职责: DB.duties.filter(d => !d.deleted_at).length,
     工作: DB.works.filter(w => !w.deleted_at).length,
     里程碑: DB.milestones.filter(m => !m.deleted_at).length,
-    任务: DB.tasks.filter(t => !t.deleted_at).length,
-    已删除任务: DB.tasks.filter(t => t.deleted_at).length,
+    任务: countTaskView('all'),
+    已删除任务: countTaskView('deleted'),
   };
   const testN = DB.tasks.filter(t => t.custom === '测试').length;
   let size = 0;
@@ -6017,7 +7186,8 @@ function renderData() {
         <div class="hint">备份文件名形如 <code>工作管理备份_20260728_020000.json</code>，只增不覆盖，需要时可在上面"从备份恢复"里选回来。
         开关和间隔会记到共享数据文件里，换台电脑、换个管理员看到的都是同一份设置；只有"备份文件夹"这一项没法跨设备用
         （文件夹句柄这东西天生只认得本机），<b>只存在你这台电脑</b>上，换台电脑要重新选一次。
-        浏览器的文件写入授权刷新页面后会失效，届时自动备份会先跳过，你点一次"立即备份一次"就能重新授权并接着自动跑。</div>
+        浏览器的文件写入授权刷新页面后会失效，届时自动备份会先跳过一轮——不过不用特意去点"立即备份一次"，
+        跳过之后你在页面上随便点一下（点哪里都行），授权会自动要回来，下一轮就接着正常跑。</div>
       </div>` : ''}
     </div></div>
 
@@ -6085,31 +7255,42 @@ function renderData() {
       <span class="hint" style="margin-left:8px">编号沿用，里程碑日期顺延一年，任务不复制</span>
     </div></div>
 
-    <div class="panel"><div class="panel-h"><span>数据体检</span></div><div class="panel-b">
+    <div class="panel"><div class="panel-h"><span>数据体检</span>
+      <span class="hint">${hc.issues.length
+        ? ['error', 'warn', 'info'].filter(l => hc.counts[l]).map(l => `${HEALTH_LEVELS[l].icon} ${hc.counts[l]}`).join(' &nbsp; ')
+        : '✅ 全部正常'}</span></div><div class="panel-b">
       ${hc.issues.length
-        ? hc.issues.map(i => {
-            const open = _healthExpanded.has(i.k);
-            const items = i.items || [];
-            return `<div class="health-row">
-              <div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12.5px">
-                <span style="color:${i.fix ? 'var(--overdue)' : 'var(--text2)'}">${i.fix ? '⚠' : 'ℹ'}</span>
-                <span style="flex:1">${esc(i.msg)}</span>
-                ${items.length ? `<span class="toggle-view" data-act="health-toggle-detail" data-k="${i.k}">${open ? '收起' : '查看明细'}（${items.length}）</span>` : ''}
-                ${i.k === 'noWork' ? `<button class="btn" data-act="orphan-assign">批量指派…</button>` : ''}
-                ${i.k === 'noDate' ? `<button class="btn" data-act="health-nav-nodate">去补上…</button>` : ''}
-                ${i.fix ? `<button class="btn" data-act="health-fix" data-k="${i.k}">${esc(i.fix)}</button>` : ''}
-                ${i.purgeFix ? `<button class="btn" data-act="health-purge" data-k="${i.k}" style="color:var(--overdue)">${esc(i.purgeFix)}</button>` : ''}
-              </div>
-              ${open ? `<div class="health-detail">${items.map(it =>
-                it.act ? `<div class="health-detail-item clickable" data-act="${it.act}" data-id="${esc(it.id)}">${esc(it.label)}</div>`
-                       : `<div class="health-detail-item">${esc(it.label)}</div>`).join('')}</div>` : ''}
-            </div>`;
+        ? ['error', 'warn', 'info'].filter(lv => hc.issues.some(i => i.level === lv)).map(lv => {
+            const L = HEALTH_LEVELS[lv];
+            return `<div style="margin-bottom:6px">
+              <div class="hint" style="margin:6px 0 2px">${L.icon} <b>${L.label}</b> · ${esc(L.desc)}</div>
+              ${hc.issues.filter(i => i.level === lv).map(i => {
+                const open = _healthExpanded.has(i.k);
+                const items = i.items || [];
+                return `<div class="health-row">
+                  <div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12.5px">
+                    <span style="flex:1">${esc(i.msg)}</span>
+                    ${items.length ? `<span class="toggle-view" data-act="health-toggle-detail" data-k="${i.k}">${open ? '收起' : '查看明细'}（${items.length}）</span>` : ''}
+                    ${i.k === 'noWork' ? `<button class="btn" data-act="orphan-assign">批量指派…</button>` : ''}
+                    ${i.k === 'noDate' ? `<button class="btn" data-act="health-nav-nodate">去补上…</button>` : ''}
+                    ${i.fix ? `<button class="btn" data-act="health-fix" data-k="${i.k}" title="${i.undoable ? '修复后 Ctrl+Z 可撤销' : '不可撤销'}">${esc(i.fix)}${i.undoable ? '' : ' ⚠'}</button>` : ''}
+                    ${i.purgeFix ? `<button class="btn" data-act="health-purge" data-k="${i.k}" style="color:var(--overdue)" title="不可撤销，需先连共享文件夹并备份">${esc(i.purgeFix)} ⚠</button>` : ''}
+                  </div>
+                  ${open ? `<div class="health-detail">${items.map(it =>
+                    it.act ? `<div class="health-detail-item clickable" data-act="${it.act}" data-id="${esc(it.id)}">${esc(it.label)}</div>`
+                           : `<div class="health-detail-item">${esc(it.label)}</div>`).join('')}</div>` : ''}
+                </div>`;
+              }).join('')}</div>`;
           }).join('')
         : '<div class="hint">✅ 未发现引用断裂或编号冲突。</div>'}
-      <div class="chart-note">体检检查：任务/里程碑指向的工作是否存在、任务的里程碑是否属于本工作、
-      同年度编号是否重复、未完成任务是否缺计划完成时间。标 ⚠ 的可一键修复，修复后 Ctrl+Z 可撤销；
-      "查看明细"能在动手之前先核实具体是哪些数据。</div>
+      <div class="chart-note">体检只做两件事：<b>查</b>出引用断裂、状态不一致这类客观错误，以及把它们<b>指</b>给你看。
+      它永远不会自己动数据——每一项都要你亲手点一次，点之前还会先弹出"将要处理哪些记录"的清单让你核对。
+      带 ⚠ 的按钮表示这一步<b>不可撤销</b>，其余修复完都能 Ctrl+Z 退回来。
+      <br>另外：体检<b>不碰回收站</b>。那些是你自己删掉的东西，该不该真清掉由你在上面的回收站里决定，
+      体检不替你做主——这条边界就是"体检不会误删有效数据"的根本保证。</div>
     </div></div>
+
+    ${recycleBinPanelHTML()}
 
     <div class="panel"><div class="panel-h">清理</div><div class="panel-b">
       <div class="hint">当前有 <b>${testN}</b> 条标记为「测试」的任务（标签字段 = 测试）——本程序自己不会生成任何测试数据，
@@ -6153,6 +7334,9 @@ const ACTIONS = {
   undo: () => undoLast(),
 
   'task-view': d => { UI.tasks.view = d.view; UI.tasks.sel.clear(); $('#tasks-scroll').scrollTop = 0; renderShell(); renderPage(); },
+  // 工作/职责的"已停用/已删除"恢复入口视图（切视图要清筛选：停用清单里的分面跟正常清单不是一回事）
+  'work-view': d => { UI.works.view = d.view; UI.works.filters = {}; renderShell(); renderPage(); },
+  'duty-view': d => { UI.duties.view = d.view; UI.duties.filters = {}; renderShell(); renderPage(); },
   'task-filter': d => { UI.tasks.filters[d.field] = d.val; UI.tasks.sel.clear(); $('#tasks-scroll').scrollTop = 0; renderShell(); renderPage(); },
 
   /* --- 两级树筛选 --- */
@@ -6261,6 +7445,23 @@ const ACTIONS = {
     UI.tasks.search = '';
     goto('tasks');
   },
+  // 报告页各统计模块通用的下钻：按任意任务字段（状态/优先级/来源/标签/所属职责…）筛到任务页
+  'report-filter-tasks': d => {
+    UI.tasks.view = 'all';
+    UI.tasks.filters = { [d.field]: d.val };
+    UI.tasks.search = '';
+    goto('tasks');
+  },
+  // 同上，落到工作页（工作项状态占比之类按工作项本身统计的模块用这个）
+  'report-filter-works': d => {
+    UI.works.filters = { [d.field]: d.val };
+    goto('works');
+  },
+  // 同上，落到职责页（职责类别分布这种按职责自身字段统计的模块用这个）
+  'report-filter-duties': d => {
+    UI.duties.filters = { [d.field]: d.val };
+    goto('duties');
+  },
 
   'work-filter': d => { UI.works.filters[d.field] = d.val; renderPage(); },
   'duty-filter': d => { UI.duties.filters[d.field] = d.val; renderPage(); },
@@ -6362,7 +7563,7 @@ const ACTIONS = {
     const w = byId('work', d.id); if (!w) return;
     const taskIds = DB.tasks.filter(t => t.work === w.id && !t.deleted_at).map(t => t.id);
     const n = taskIds.length;
-    confirmModal('停用工作', `停用「${w.code} ${w.name}」？${n ? `该工作下有 ${n} 条任务将连同它们的里程碑一并删除（可在"已删除任务"里恢复）。` : ''}`, '停用', async () => {
+    confirmModal('停用工作', `停用「${w.code} ${w.name}」？${n ? `该工作下有 ${n} 条任务将连同它们的里程碑一并删除。` : ''}以后在工作页左侧切到「已停用」，点 ↩ 就能把它连同这些任务一起恢复。`, '停用', async () => {
       snapshot();
       await Repo.bulk(() => {
         softDelete('work', d.id);
@@ -6371,6 +7572,26 @@ const ACTIONS = {
       });
       renderShell(); renderPage(); showSnack('已停用');
     }, true);
+  },
+  /* 恢复停用的工作，连同当初被连带删除的任务一起回来。
+     没有这个入口的话，"停用工作"就是个不可逆动作——工作本身在工作页看不见了、
+     它名下的任务也全被删了，人却没有任何地方能把这一步撤回来（除非当场 Ctrl+Z）。
+     只带回"跟这次停用一起被删的"任务：判据是任务的 deleted_at 不早于工作的 deleted_at，
+     这样在停用之前就已经单独删掉的那些任务，不会被这次恢复顺带捞回来。 */
+  'work-restore': d => {
+    if (!requirePermission('manage_duty_work')) return;
+    const w = byId('work', d.id); if (!w || !w.deleted_at) return;
+    const backIds = DB.tasks.filter(t => t.work === w.id && t.deleted_at && t.deleted_at >= w.deleted_at).map(t => t.id);
+    const n = backIds.length;
+    confirmModal('恢复工作', `恢复「${w.code} ${w.name}」？${n ? `其下 ${n} 条随它一起被删除的任务（含里程碑）也会一并恢复。` : ''}`, '恢复', async () => {
+      snapshot();
+      await Repo.bulk(() => {
+        undelete('work', d.id);
+        backIds.forEach(id => cascadeRestoreTask(id));
+        pushChangeLog('work', d.id, `恢复了工作「${w.code} ${w.name}」${n ? `（连同其下 ${n} 条任务）` : ''}`);
+      });
+      renderShell(); renderPage(); showSnack('已恢复');
+    });
   },
   'duty-new': () => { if (requirePermission('manage_duty_work')) openDutyForm(); },
   'duty-del': d => {
@@ -6383,6 +7604,15 @@ const ACTIONS = {
       await Repo.upsert('duty', dt);
       renderPage(); showSnack('已删除');
     }, true);
+  },
+  // 删除职责只是软删除它自己（其下的工作变成"未归属职责"，并没有被删），所以恢复也只恢复它自己
+  'duty-restore': async d => {
+    if (!requirePermission('manage_duty_work')) return;
+    const dt = byId('duty', d.code); if (!dt || !dt.deleted_at) return;
+    snapshot(); undelete('duty', d.code);
+    pushChangeLog('duty', d.code, `恢复了职责「${dt.code} ${dt.name}」`);
+    await Repo.upsert('duty', dt);
+    renderPage(); showSnack('已恢复');
   },
   // 里程碑现在直接在任务详情弹窗里编辑，不再有单独的里程碑管理弹窗——
   // 工作台时间线、报告页这些地方点里程碑，都改成打开任务详情（openTaskDetail 自己会处理只读/权限门禁）
@@ -6813,6 +8043,19 @@ const ACTIONS = {
       const s = reportPresetIn(cfg).sections.find(x => x.id === d.sec); if (!s) return;
       s.modules = (s.modules || []).filter(k => k !== d.mod);
       s.inline = (s.inline || []).filter(k => k !== d.mod);   // 顺手清掉它的同行标记
+      if (s.widths) delete s.widths[d.mod];                   // 宽度倍数同理，不留孤儿设置
+    });
+  },
+  // 宽度倍数：select 是"只认 change"的老陷阱（见 CHANGE_ONLY_ACTS 那段注释），
+  // 选 1 倍就是回到默认，直接删掉这条设置，不单独存一条"1"占位
+  'report-mod-width': (d, el) => {
+    if (!requirePermission('config_report')) { renderReport(); return; }
+    const val = Number(el && el.value);
+    saveReportConfig(cfg => {
+      const s = reportPresetIn(cfg).sections.find(x => x.id === d.sec); if (!s) return;
+      if (!s.widths) s.widths = {};
+      if (val === 2 || val === 3) s.widths[d.mod] = val;
+      else delete s.widths[d.mod];
     });
   },
   'report-mod-move': d => {
@@ -6898,6 +8141,40 @@ const ACTIONS = {
     renderCharts();
   },
   'chart-duty-collapse-all': () => { chartDutyExpanded.clear(); renderCharts(); },
+  'chart-matrix-duty-toggle': (d, el, e) => {
+    if (e) e.stopPropagation();
+    if (chartMatrixDutyExpanded.has(d.code)) chartMatrixDutyExpanded.delete(d.code); else chartMatrixDutyExpanded.add(d.code);
+    renderCharts();
+  },
+  'chart-matrix-expand-all': () => {
+    chartMatrixDutyExpanded = new Set(statsByDuty(visibleTasks().filter(t => !t.deleted_at)).map(x => x.code));
+    renderCharts();
+  },
+  'chart-matrix-collapse-all': () => { chartMatrixDutyExpanded.clear(); renderCharts(); },
+  'report-matrix-duty-toggle': (d, el, e) => {
+    if (e) e.stopPropagation();
+    if (reportMatrixDutyExpanded.has(d.code)) reportMatrixDutyExpanded.delete(d.code); else reportMatrixDutyExpanded.add(d.code);
+    renderReport();
+  },
+  'report-matrix-expand-all': () => {
+    reportMatrixDutyExpanded = new Set(statsByDuty(visibleTasks().filter(t => !t.deleted_at)).map(x => x.code));
+    renderReport();
+  },
+  'report-matrix-collapse-all': () => { reportMatrixDutyExpanded.clear(); renderReport(); },
+  // "本期已交付里程碑"模块：点饼图扇区/图例按呈报层级筛下面的清单，就地筛、不跳页——
+  // 再点一次同一个层级就取消筛选。跟"跳到任务页"那批下钻不是一回事，这里就是想在报告里
+  // 直接看"这个层级都交了什么"，跳走反而要重新定位一次
+  'report-delivered-ms-level-filter': d => {
+    reportDeliveredMsLevelFilter = reportDeliveredMsLevelFilter === d.level ? '' : d.level;
+    renderReport();
+  },
+  // 人员工作矩阵的热力格子：点击按"这项职责/工作 + 这个人"两个条件一起筛，跳到任务页
+  'matrix-cell-filter': d => {
+    UI.tasks.view = 'all';
+    UI.tasks.filters = d.work ? { work: d.work, _person: d.person } : { _duty: d.duty, _person: d.person };
+    UI.tasks.search = '';
+    goto('tasks');
+  },
   'ms-duty-toggle': (d, el, e) => {
     if (e) e.stopPropagation();
     if (msDutyExpanded.has(d.code)) msDutyExpanded.delete(d.code); else msDutyExpanded.add(d.code);
@@ -7071,9 +8348,59 @@ const ACTIONS = {
     UI.tasks.search = '';
     goto('tasks');
   },
-  'health-fix': d => { if (requirePermission('bulk_ops')) fixHealth(d.k); },
+  /* 修复前先干跑预览：把"将要发生什么、动多少条、能不能撤销"摆出来，确认了才动手。
+     以前是点一下直接就改，批量动几十上百条数据却没有任何回头的余地。 */
+  'health-fix': d => {
+    if (!requirePermission('bulk_ops')) return;
+    const p = fixHealthPreview(d.k);
+    if (!p || !p.n) { showSnack('没有需要修复的数据'); return; }
+    const list = p.items.length
+      ? `\n\n将要处理：\n· ${p.items.join('\n· ')}${p.more ? `\n· …还有 ${p.more} 条` : ''}` : '';
+    confirmModal('确认修复',
+      `${p.what}。\n共 ${p.n} 条。`
+      + (p.undoable ? '这一步可以 Ctrl+Z 撤销。' : '⚠ 这一步不可撤销。')
+      + list,
+      '执行修复', () => fixHealth(d.k));
+  },
   // 彻底删除是不可撤销的，权限门槛跟"清空全部数据"看齐，比一般体检修复更高
   'health-purge': d => { if (requirePermission('system_admin')) purgeHealth(d.k); },
+  /* --- 回收站 --- */
+  // 展开/收起某一类的明细，纯 UI 状态，不动数据也不需要权限
+  'recycle-toggle': d => { _recycleOpen = _recycleOpen === d.entity ? '' : d.entity; renderPage(); },
+  'recycle-purge': () => purgeRecycleBin(),
+  'recycle-keep-change': async (d, el) => {
+    if (!requirePermission('system_admin')) return;
+    const v = Math.max(1, Math.floor(Number(el.value) || 0)) || DEFAULT_RECYCLE_KEEP_DAYS;
+    await updateShareConfig({ recycleKeepDays: v });   // 走共享配置，全处一套口径
+    renderPage();
+    showSnack(`回收站保留期已设为 ${v} 天`);
+  },
+  /* 从回收站里单条恢复。任务走 cascadeRestoreTask（连带恢复它名下的里程碑）、
+     工作走跟 'work-restore' 同一套（连带恢复随它一起被删的任务），保持跟各自页面上
+     那个 ↩ 按钮完全一致的行为——同一件事在两个地方点，结果必须一样。 */
+  'recycle-restore': async d => {
+    if (!requirePermission(d.entity === 'task' ? 'edit_others_task' : 'manage_duty_work')) return;
+    snapshot();
+    if (d.entity === 'task') {
+      const t = cascadeRestoreTask(d.id); if (!t) return;
+      pushChangeLog('task', d.id, `从回收站恢复了任务「${t.title}」`);
+      await Repo.upsert('task', t);
+    } else if (d.entity === 'work') {
+      const w = byId('work', d.id); if (!w || !w.deleted_at) return;
+      const backIds = DB.tasks.filter(t => t.work === w.id && t.deleted_at && t.deleted_at >= w.deleted_at).map(t => t.id);
+      await Repo.bulk(() => {
+        undelete('work', d.id);
+        backIds.forEach(id => cascadeRestoreTask(id));
+        pushChangeLog('work', d.id, `从回收站恢复了工作「${w.code} ${w.name}」${backIds.length ? `（连同其下 ${backIds.length} 条任务）` : ''}`);
+      });
+    } else if (d.entity === 'duty') {
+      const dt = byId('duty', d.id); if (!dt || !dt.deleted_at) return;
+      undelete('duty', d.id);
+      pushChangeLog('duty', d.id, `从回收站恢复了职责「${dt.code} ${dt.name}」`);
+      await Repo.upsert('duty', dt);
+    }
+    renderShell(); renderPage(); showSnack('已恢复');
+  },
   // 只是"看不看得见明细"的开关，不动数据，不需要权限门槛——谁能看数据页就能展开看
   'health-toggle-detail': d => {
     if (_healthExpanded.has(d.k)) _healthExpanded.delete(d.k); else _healthExpanded.add(d.k);
@@ -7136,11 +8463,6 @@ const ACTIONS = {
       if (btn.textContent === '处理中…') btn.textContent = label;
     }
   },
-  'status-done-only': async () => {
-    const t = _statusOnlyTask; _statusOnlyTask = null;
-    closeModal();
-    if (t) await commitTaskStatus(t, 'done', false);
-  },
 };
 
 // 编辑后：判断只刷一行还是整页重绘
@@ -7163,7 +8485,7 @@ function afterEdit(entity, id, fieldKey) {
 // - report-preset-switch 是 select，理由跟上面两条完全一样
 //   （报告模块的增删改现在是一排可点的文字按钮，走普通 click 分发，不在这张名单里）
 const CHANGE_ONLY_ACTS = ['account-role-change', 'perm-toggle', 'backup-toggle', 'backup-interval-change', 'logs-who',
-  'report-preset-switch'];
+  'report-preset-switch', 'recycle-keep-change', 'report-mod-width'];
 document.addEventListener('click', e => {
   if (e.target.closest('.col-resize')) return;
   const el = e.target.closest('[data-act]');
@@ -7193,10 +8515,15 @@ document.addEventListener('change', e => {
   if (bt) ACTIONS['backup-toggle'](bt.dataset, bt, e);
   const bi = e.target.closest('[data-act="backup-interval-change"]');
   if (bi) ACTIONS['backup-interval-change'](bi.dataset, bi, e);
+  // 回收站保留期同理：进了 CHANGE_ONLY_ACTS 就必须在这里补上 change 分支，否则又是"改了跟没改一样"
+  const rk = e.target.closest('[data-act="recycle-keep-change"]');
+  if (rk) ACTIONS['recycle-keep-change'](rk.dataset, rk, e);
   const lw = e.target.closest('[data-act="logs-who"]');
   if (lw) ACTIONS['logs-who'](lw.dataset, lw, e);
   const rp = e.target.closest('[data-act="report-preset-switch"]');
   if (rp) ACTIONS['report-preset-switch'](rp.dataset, rp, e);
+  const rw = e.target.closest('[data-act="report-mod-width"]');
+  if (rw) ACTIONS['report-mod-width'](rw.dataset, rw, e);
   if (e.target.classList.contains('cp-chk')) updateCpProgressPreview();   // 勾选/取消里程碑完成状态，实时刷新进度预览
 });
 document.addEventListener('dblclick', e => {
@@ -7513,8 +8840,15 @@ async function spCommitSingle(val) {
   }
   if (entity === 'task' && field === 'status') {
     closeSelectPopup();
-    if (val === 'done' && hasIncompleteCheckpoints(r)) confirmCompleteCheckpointsThenStatus(r);
-    else await commitTaskStatus(r, val, false);
+    if (val === 'done') {
+      const cpIncompleteN = DB.milestones.filter(m => m.task === r.id && !m.deleted_at && m.done !== '1').length;
+      if (doneAutoFillNeeded(r.plan_date, r.actual_date, cpIncompleteN)) {
+        openDoneAutoFillModal(!r.plan_date, !r.actual_date, cpIncompleteN,
+          () => commitTaskStatus(r, 'done', true));
+        return;
+      }
+    }
+    await commitTaskStatus(r, val, false);
     return;
   }
   closeSelectPopup();
@@ -7531,7 +8865,7 @@ async function finishSpCommitSingle(entity, id, field, val) {
 }
 // 任务下是否还有没标完成的里程碑
 function hasIncompleteCheckpoints(t) { return DB.milestones.some(m => m.task === t.id && !m.deleted_at && m.done !== '1'); }
-// 真正落地"改状态"这个动作：跟原来单击循环切换时的副作用保持一致——变成已完成要顺带填实际完成时间、
+// 真正落地"改状态"这个动作：跟原来单击循环切换时的副作用保持一致——变成已完成要顺带填计划/实际完成时间、
 // 没有里程碑时进度直接设 100，有里程碑时按里程碑完成比例重算；alsoCompleteCheckpoints 为真时连里程碑一起标完成
 async function commitTaskStatus(t, newStatus, alsoCompleteCheckpoints) {
   snapshot();
@@ -7543,29 +8877,40 @@ async function commitTaskStatus(t, newStatus, alsoCompleteCheckpoints) {
   }
   t.status = newStatus;
   if (newStatus === 'done') {
+    // 计划完成时间、实际完成时间都补成今天——标"已完成"却缺日期，会让"本期涉及范围"
+    // "本期完成进度"这类按日期归期的统计把这条任务漏掉，见 buildReportData 里的口径说明
+    t.plan_date = t.plan_date || todayStr();
     t.actual_date = t.actual_date || todayStr();
     if (hasCheckpoints(t)) recalcProgress(t); else t.progress = 100;
   } else {
     t.actual_date = '';
   }
-  pushLog(t.id, diffTask(before, t, ['status', 'actual_date', 'progress']));
+  pushLog(t.id, diffTask(before, t, ['status', 'plan_date', 'actual_date', 'progress']));
   await Repo.upsert('task', t);
   afterEdit('task', t.id, 'status');
 }
-// 选"已完成"但里程碑还没全部标完成：问一句要不要一并标完成——"仅改状态"这个额外按钮嵌在弹窗正文里，
-// 跟标准的"取消"（整个不改）、确定（一并标完成）区分开，是个三选一
-let _statusOnlyTask = null;
-function confirmCompleteCheckpointsThenStatus(t) {
-  const n = DB.milestones.filter(m => m.task === t.id && !m.deleted_at && m.done !== '1').length;
-  _statusOnlyTask = t;
-  openModal('标记任务为已完成', `
-    <p>这个任务下还有 <b>${n}</b> 个里程碑没有标记为完成。</p>
-    <div style="margin-top:8px"><button type="button" class="btn" data-act="status-done-only">仅改任务状态，不动里程碑</button></div>`,
-    '一并标记里程碑为已完成', async () => {
-      closeModal();
-      const t2 = _statusOnlyTask; _statusOnlyTask = null;
-      if (t2) await commitTaskStatus(t2, 'done', true);
-    });
+/* 标记任务为"已完成"时的自动补全确认：计划完成时间、实际完成时间没填就自动填今天；
+   里程碑没勾完就一并勾完——不提供"只补日期、不动里程碑"的选项，否则确认完还是会
+   出现"任务已完成、里程碑却没完成"这种矛盾状态。任务页列表直接改状态、任务详情弹窗
+   保存，两条路径共用这一套判断和这个弹窗，行为保持一致（以前列表那条路径只在里程碑
+   没完成时才问一句，详情弹窗那条路径压根不问，日期也是悄悄自动补的——两条路径不一致，
+   且都没管过计划完成时间）。onConfirm() 不带参数，调用方拿到确认后统一按"日期+里程碑
+   都补齐"来处理。 */
+function doneAutoFillNeeded(planDate, actualDate, cpIncompleteN) {
+  return !planDate || !actualDate || cpIncompleteN > 0;
+}
+function openDoneAutoFillModal(planMissing, actualMissing, cpIncompleteN, onConfirm) {
+  const fillParts = [];
+  if (planMissing) fillParts.push('计划完成时间');
+  if (actualMissing) fillParts.push('实际完成时间');
+  const dateMsg = fillParts.length
+    ? `<p>${fillParts.join('、')}还没填，确定后会自动填成今天（${esc(todayStr())}）。</p>` : '';
+  const cpMsg = cpIncompleteN
+    ? `<p>这个任务下还有 <b>${cpIncompleteN}</b> 个里程碑没有标记为完成，确定后会一并标记为已完成。</p>` : '';
+  openModal('标记任务为已完成', `${dateMsg}${cpMsg}`, '确定', async () => {
+    closeModal();
+    await onConfirm();
+  });
 }
 
 // 多选弹层里手打了姓名但没按回车就直接点"确定"：先把输入框里还没提交的内容并进选中项，
@@ -8261,12 +9606,37 @@ function openTaskDetail(id, draft) {
         if (!isNew && ownerChangeNeedsWarning(t, pendingOwner)) { confirmOwnerChange(doSave); return; }
         await doSave();
       };
-      const orderIssue = findCpOrderIssue(cpData);
-      if (orderIssue) {
-        confirmModal('里程碑顺序看起来不太对', `${orderIssue}，仍然要保存吗？`, '仍然保存', proceedAfterOrderCheck, true);
-        return;
+      const proceedToSave = async () => {
+        const orderIssue = findCpOrderIssue(cpData);
+        if (orderIssue) {
+          confirmModal('里程碑顺序看起来不太对', `${orderIssue}，仍然要保存吗？`, '仍然保存', proceedAfterOrderCheck, true);
+          return;
+        }
+        await proceedAfterOrderCheck();
+      };
+      /* 在详情弹窗里把状态改成"已完成"（新建任务也算：草稿状态一开始就是 done 的话同样要问）：
+         计划/实际完成时间缺了就自动补今天，里程碑没勾完就一并勾完（不提供只补日期、不动
+         里程碑的选项，否则确认完还是会出现"任务已完成、里程碑却没完成"这种矛盾状态）——
+         跟任务页列表直接改状态走的是同一套判断（doneAutoFillNeeded/openDoneAutoFillModal），
+         行为保持一致。用 collected/cpData 里"即将保存"的值判断，而不是 t 上的旧值：
+         用户可能刚在表单里把计划完成时间填上、或者刚把最后一个里程碑勾完，这些还没真正落库，
+         但已经不该再被当成"缺了"。 */
+      const finalStatus = 'status' in collected ? collected.status : t.status;
+      if (finalStatus === 'done' && t.status !== 'done') {
+        const planMissing = !(('plan_date' in collected) ? collected.plan_date : t.plan_date);
+        const actualMissing = !(('actual_date' in collected) ? collected.actual_date : t.actual_date);
+        const cpIncompleteN = cpData.filter(c => c.done !== '1').length;
+        if (planMissing || actualMissing || cpIncompleteN) {
+          openDoneAutoFillModal(planMissing, actualMissing, cpIncompleteN, async () => {
+            if (planMissing) collected.plan_date = todayStr();
+            if (actualMissing) collected.actual_date = todayStr();
+            cpData.forEach(c => { c.done = '1'; });
+            await proceedToSave();
+          });
+          return;
+        }
       }
-      await proceedAfterOrderCheck();
+      await proceedToSave();
     });
   bindDutyWorkCascade();
   setTimeout(() => { const el = $('#td-title'); if (el) { el.focus(); el.select(); } }, 60);
@@ -8401,6 +9771,47 @@ function openOrphanAssign() {
   }, 40);
 }
 
+/* =============================================================
+   数据体检
+   =============================================================
+   ★ 三条铁律（这是"体检不会误删有效数据"的全部依据）★
+
+   1) 体检本身永远只读。healthCheck() 只查不改，任何修复都必须是用户显式点一次按钮的独立动作。
+   2) 体检只认【客观事实】，不做任何启发式猜测。判据全是"这条记录指向的东西存不存在"
+      这种可证伪的问题，不存在"看起来像是没用了"这类主观判断——这是防误删最根本的一道防线。
+   3) 用户自己删掉的东西（软删除记录）不归体检管。那是回收站的地盘（见 recycleBin），
+      由用户按保留期显式清理。体检去动那些数据，就变成了"体检误删"——正是要避免的事。
+
+   分级：
+   · error 🔴 引用断裂 / 状态不一致——数据本身是坏的，该修
+   · warn  🟡 重复、日期矛盾、进度与状态对不上——不一定是错，但值得看一眼
+   · info  ⚪ 纯提示（未归属、缺日期），没有"修复"这一说，只是让人知道有这么回事
+
+   undoable：这一项的修复动作能不能 Ctrl+Z 退回来。软删除/改字段类都能；
+   彻底删除类不能，所以它们额外要走连接检查 + 备份检查 + 二次确认（见 purgeHealth）。 */
+const HEALTH_META = {
+  orphanTask:        { level: 'error', undoable: true },
+  orphanMs:          { level: 'error', undoable: false },   // 彻底删除，退不回来
+  taskOfDeletedWork: { level: 'error', undoable: true },
+  msOfDeletedTask:   { level: 'error', undoable: true },
+  badDuty:           { level: 'error', undoable: true },
+  dupCode:           { level: 'error', undoable: true },
+  dupTask:           { level: 'warn',  undoable: true },
+  dupWork:           { level: 'warn',  undoable: true },
+  dupMs:             { level: 'warn',  undoable: true },
+  msLateThanTask:    { level: 'warn',  undoable: true },
+  progressMismatch:  { level: 'warn',  undoable: true },
+  noDateHasMs:       { level: 'warn',  undoable: true },
+  noWork:            { level: 'info',  undoable: true },
+  noDate:            { level: 'info',  undoable: true },
+};
+const HEALTH_LEVELS = {
+  error: { icon: '🔴', label: '需要修复', desc: '引用断裂或状态不一致，数据本身是坏的' },
+  warn:  { icon: '🟡', label: '建议查看', desc: '不一定是错，但值得核对一眼' },
+  info:  { icon: '⚪', label: '仅供了解', desc: '只是告诉你有这么回事，没有"修复"一说' },
+};
+function healthMeta(k) { return HEALTH_META[k] || { level: 'warn', undoable: true }; }
+
 /* ---- 数据体检：找出引用断裂与明显异常 ---- */
 /* ★ 体检结果里"哪些数据有问题"要能看得到，不只是一个数字 ★
    以前每一项体检结果只有一句话 + 一个数（"12 条任务指向了不存在的工作"），要修复只能整批点下去，
@@ -8471,10 +9882,15 @@ function healthCheck() {
      这批数据是"删任务不连带删里程碑"留下的历史遗留（现在删任务已经会连带删了，见 cascadeSoftDeleteTask）——
      它们在界面上完全点不到，却照样算进数据页的里程碑总数、也照样进甘特图和统计，属于纯粹的脏数据。
 
-     ★ 曾经只是软删除，这里改成了跟 orphanMs 一样的彻底删除 ★ 原来这里点"修复"只是给它盖个
-     deleted_at，跟它自己的判定条件"就是要活着（!m.deleted_at）"矛盾——盖完之后它确实不再算进
-     统计了，但记录原样留在共享文件里，文件体积一点没少，跟 orphanMs 当初改成彻底删除是同一个
-     问题、同一个原因（见上面 orphanMs 那段注释），这里补齐成一致的处理方式。 */
+     ★ 处理方式来回改过一次，最终定在"软删除"，理由值得记下来 ★
+     中间一版嫌软删除不省体积，把它改成了跟 orphanMs 一样的彻底删除。这是错的：
+     orphanMs 的所属任务记录是真的没了，那些里程碑再也没有任何入口能碰到，删掉不损失什么；
+     而这一类的所属任务只是被【软删除】，它还躺在「已删除任务」里、随时可以 ↩ 恢复，
+     而 cascadeRestoreTask() 恢复任务时是要连带把它名下的里程碑一起恢复的——
+     一旦这里彻底删掉，任务恢复回来就是个空壳，里程碑再也回不来了，这是实打实的数据损失。
+     结论：里程碑的状态跟随它的所属任务。任务软删除 → 里程碑也软删除（跟着一起可恢复）；
+     任务记录彻底不存在 → 才轮到 orphanMs 那条彻底删除。
+     省体积不靠体检偷偷删可恢复的数据，靠回收站按保留期显式清理（见 recycleBin）。 */
   const msOfDeletedTask = DB.milestones.filter(m => {
     if (m.deleted_at || !m.task) return false;
     const t = byId('task', m.task);
@@ -8482,7 +9898,7 @@ function healthCheck() {
   });
   if (msOfDeletedTask.length) issues.push({ k: 'msOfDeletedTask', n: msOfDeletedTask.length,
     msg: `${msOfDeletedTask.length} 个里程碑的所属任务已被删除，但它们自己还留着（界面上点不到，却仍算进统计）`,
-    fix: null, purgeFix: '彻底删除这些里程碑',
+    fix: '把这些里程碑也标记为已删除（跟随所属任务，任务恢复时会一起回来）',
     items: msOfDeletedTask.map(m => {
       const t = byId('task', m.task);
       return { label: `${m.plan_date || '（无日期）'} · ${m.deliverable || '（未填写交付物）'} · 属于「${t ? t.title : '？'}」（已删除）` };
@@ -8614,9 +10030,53 @@ function healthCheck() {
     fix: '按当前进度自动纠正状态', items: progressMismatch.map(t => ({ id: t.id, act: 'focus-task',
       label: `${taskItem(t).label}（进度 ${t.progress || 0}% · 状态 ${(TASK_STATUS.find(s => s.v === t.status) || {}).label || t.status}）` })) });
 
+  /* 分级和"能不能撤销"在这里统一挂上，而不是让十几个 issues.push 各自去写——
+     漏写一处就会出现一条没有等级、渲染时不知道该摆在哪一档的体检项。
+     排序也在这里做：🔴 在最上面，人一眼先看到真正坏掉的东西，⚪ 那些垫底。 */
+  const order = { error: 0, warn: 1, info: 2 };
+  issues.forEach(i => {
+    const m = healthMeta(i.k);
+    i.level = m.level;
+    i.undoable = i.purgeFix ? false : m.undoable;   // 带彻底删除的一律算不可撤销
+  });
+  issues.sort((a, b) => order[a.level] - order[b.level]);
   return { issues, orphanTasks, orphanMs, msLateMap, noDateHasMsMap, dupMsIds, progressMismatch, msOfDeletedTask,
-    dupTaskIds, dupWorkIds, taskOfDeletedWork };
+    dupTaskIds, dupWorkIds, taskOfDeletedWork,
+    counts: {
+      error: issues.filter(i => i.level === 'error').length,
+      warn: issues.filter(i => i.level === 'warn').length,
+      info: issues.filter(i => i.level === 'info').length,
+    } };
 }
+
+/* 干跑预览：这一次修复到底会动哪些记录、动完之后是什么样。
+   批量修复最怕的就是"点下去之前不知道会发生什么"——尤其是删除类的。
+   这里不改任何数据，只把 healthCheck 已经算出来的那批记录翻译成人话，
+   点了"修复"先弹这个，确认之后才真的执行（见 ACTIONS['health-fix']）。 */
+function fixHealthPreview(kind) {
+  const r = healthCheck();
+  const issue = (r.issues || []).find(i => i.k === kind);
+  if (!issue) return null;
+  const meta = healthMeta(kind);
+  const VERB = {
+    orphanTask: '把这些任务的「所属工作」清空，变成未归属',
+    taskOfDeletedWork: '把这些任务连同它们名下的里程碑一起标记为已删除（进回收站，可恢复）',
+    msOfDeletedTask: '把这些里程碑标记为已删除（跟随所属任务，任务恢复时会一起回来）',
+    dupTask: '保留每组里创建最早的那条，其余连同里程碑一起标记为已删除（进回收站，可恢复）',
+    dupWork: '保留每组里创建最早的那项，其余标记为已删除（进回收站，可恢复）',
+    dupMs: '每组只保留创建最早的那个，其余标记为已删除，并重算受影响任务的进度',
+    msLateThanTask: '把这些任务的「计划完成时间」顺延到它最晚的那个里程碑日期',
+    noDateHasMs: '用最后一个里程碑的日期，补上这些任务空着的「计划完成时间」',
+    progressMismatch: '按当前进度自动纠正状态（跟手工改进度时的联动规则完全一致）',
+  };
+  return {
+    kind, n: issue.n, level: issue.level, undoable: meta.undoable,
+    what: VERB[kind] || issue.fix || '',
+    items: (issue.items || []).slice(0, HEALTH_PREVIEW_LIMIT).map(it => it.label),
+    more: Math.max(0, (issue.items || []).length - HEALTH_PREVIEW_LIMIT),
+  };
+}
+const HEALTH_PREVIEW_LIMIT = 20;
 
 async function fixHealth(kind) {
   const r = healthCheck();
@@ -8626,7 +10086,8 @@ async function fixHealth(kind) {
     // taskOfDeletedWork：工作停用现在会直接连带删任务（见 'work-del'），这里清理的是改动前
     // 遗留下来的历史数据，处理方式要跟新政策一致——连同里程碑一起软删除，不再是清空 work 字段
     if (kind === 'taskOfDeletedWork') r.taskOfDeletedWork.forEach(t => cascadeSoftDeleteTask(t.id));
-    // msOfDeletedTask 现在走彻底删除（见 purgeHealth/PURGE_HEALTH_KINDS），不再是这里的软删除分支
+    // 软删除，不是彻底删除——它的所属任务还能恢复，恢复时要连带把这些里程碑带回来（见 healthCheck 里那段注释）
+    if (kind === 'msOfDeletedTask') r.msOfDeletedTask.forEach(m => { m.deleted_at = new Date().toISOString(); stampMeta(m); });
     // 重复的任务连它自己的里程碑一起删掉，否则会留下一堆 msOfDeletedTask 那类的孤儿里程碑
     if (kind === 'dupTask') {
       r.dupTaskIds.forEach(id => cascadeSoftDeleteTask(id));
@@ -8689,9 +10150,10 @@ async function fixHealth(kind) {
    任何一台还没同步的机器都会把它们原样推回来——那就成了"删了个寂寞"。 */
 const PURGE_HEALTH_KINDS = {
   orphanMs: { field: 'orphanMs', entity: 'milestone', label: '无主里程碑', detail: '它们的所属任务记录已经不存在' },
-  // 跟 orphanMs 的区别只在于"所属任务"是记录彻底没了，还是记录还在但被软删除了——
-  // 界面上一样打不开、一样只占体积，但描述不能照抄 orphanMs 那句，任务记录明明还在
-  msOfDeletedTask: { field: 'msOfDeletedTask', entity: 'milestone', label: '所属任务已删除的里程碑', detail: '它们的所属任务已经被删除，界面上没有能打开这些里程碑的入口' },
+  /* 这里刻意【只有】orphanMs 一项。曾经把 msOfDeletedTask 也放进来过，是个错误：
+     那一类的所属任务只是软删除、还能从「已删除任务」里恢复，恢复时要连带带回里程碑，
+     彻底删掉就再也带不回来了（详见 healthCheck 里 msOfDeletedTask 那段注释）。
+     能进这张表的判据只有一条：这条记录已经【没有任何界面入口能触及】，删了不损失可恢复性。 */
 };
 async function purgeHealth(kind) {
   const cfg = PURGE_HEALTH_KINDS[kind]; if (!cfg) return;
@@ -8701,12 +10163,22 @@ async function purgeHealth(kind) {
   }
   const list = healthCheck()[cfg.field] || [];
   if (!list.length) { showSnack('没有需要清理的数据'); return; }
+  // 跟清空回收站同一道闸：不可撤销的操作，必须先有一份能退回去的备份
+  const bk = backupState();
+  if (!bk.last) {
+    showSnack('还从来没有导出过备份。这一步不可撤销，请先在上面「备份」里导出一份再来清理', { priority: true });
+    return;
+  }
   const pk = schema(cfg.entity).pk;
   const ids = list.map(r => r[pk]);
+  // 干跑预览：把将要删掉的东西摆出来，别让人对着一个数字点确认
+  const preview = list.slice(0, HEALTH_PREVIEW_LIMIT)
+    .map(r => cfg.entity === 'milestone' ? `${r.plan_date || '（无日期）'} · ${r.deliverable || '（未填写交付物）'}` : String(r[pk]));
   confirmModal('彻底删除',
     `确认从共享数据里彻底删除这 ${ids.length} 个${cfg.label}？`
     + `${cfg.detail}，界面上打不开也恢复不了，留着只占文件体积。`
-    + `这一步不可撤销（Ctrl+Z 也退不回来），删除前建议先在本页导出一份备份。`,
+    + `这一步不可撤销（Ctrl+Z 也退不回来）——刚才检查过，你最近一次备份是 ${relTime(bk.last)}。`
+    + `\n\n将要删除：\n· ${preview.join('\n· ')}${ids.length > preview.length ? `\n· …还有 ${ids.length - preview.length} 条` : ''}`,
     '彻底删除', async () => {
       snapshot();
       await Repo.bulk(() => {
@@ -8714,8 +10186,152 @@ async function purgeHealth(kind) {
         pushChangeLog(cfg.entity, '', `数据体检：彻底删除了 ${ids.length} 个${cfg.label}（${cfg.detail}）`);
       });
       renderPage();
-      showSnack(`已彻底删除 ${ids.length} 个${cfg.label}`);
+      showSnack(`已彻底删除 ${ids.length} 个${cfg.label}`, { undo: false });
     }, true);
+}
+
+/* =============================================================
+   回收站：软删除记录的统一去处
+   =============================================================
+   ★ 为什么要有这个东西 ★
+   处里反映"清了很多东西，数据文件还是那么大"。原因是：软删除只是给记录盖一个 deleted_at，
+   记录本身原封不动留在共享文件里。这本身没错——那是"回收站"该有的行为，删错了能捞回来。
+   出问题的是没有任何地方把这件事说清楚：软删除的记录散在各个实体里，看不见、数不着，
+   也没有一个正规的"清空回收站"入口，于是大家只能指望数据体检去清，而体检一旦去清这些
+   还能恢复的数据，就变成了"体检误删有效数据"——这正是要避免的事。
+
+   所以把职责划分清楚：
+   · 数据体检 只管【引用断裂】这类客观错误，永远不碰用户自己删掉的东西；
+   · 回收空间 走这里，按保留期显式清理，用户看得见、数得着、能挑着恢复。
+
+   保留期默认 90 天，存进共享文件（全处一套口径）；只清"删除时间早于保留期"的记录，
+   最近删的一律不动——刚删错的那条永远还在。 */
+const DEFAULT_RECYCLE_KEEP_DAYS = 90;
+const RECYCLE_DETAIL_LIMIT = 30;   // 明细最多铺这么多条，回收站有几百条时页面才不会没法看
+const RECYCLE_ENTITIES = [
+  { entity: 'task',      label: '任务',   pk: 'id',   nameOf: r => `${r.code ? r.code + ' ' : ''}${r.title || '（无标题）'}` },
+  { entity: 'milestone', label: '里程碑', pk: 'id',   nameOf: r => `${r.plan_date || '（无日期）'} · ${r.deliverable || '（未填写交付物）'}` },
+  { entity: 'work',      label: '工作',   pk: 'id',   nameOf: r => `${r.code || ''} ${r.name || '（无名称）'}`.trim() },
+  { entity: 'duty',      label: '职责',   pk: 'code', nameOf: r => `${r.code || ''} ${r.name || '（无名称）'}`.trim() },
+];
+// 存在 shareConfig 里随共享文件同步，全处一套口径（见 effectiveShareCfg 里那段注释）
+function recycleKeepDays() { return effectiveShareCfg().recycleKeepDays; }
+// 早于这个时刻删掉的，才算"过了保留期、可以清理"
+function recycleCutoff(days) {
+  return new Date(Date.now() - (days || recycleKeepDays()) * 86400000).toISOString();
+}
+/* 回收站现状。返回每类实体：总条数、已过保留期可清理的条数、占多少字节。
+   字节数按 JSON 序列化长度估算——这正是它在共享文件里实际占的体积，
+   给"清了到底能省多少"一个诚实的答案，而不是让人凭感觉猜。 */
+function recycleBin(days) {
+  const cutoff = recycleCutoff(days);
+  return RECYCLE_ENTITIES.map(cfg => {
+    const all = coll(cfg.entity).filter(r => r && r.deleted_at);
+    const purgeable = all.filter(r => r.deleted_at < cutoff);
+    const bytes = all.reduce((a, r) => a + JSON.stringify(r).length, 0);
+    return { ...cfg, all, purgeable, bytes };
+  });
+}
+function recycleTotals(days) {
+  const rows = recycleBin(days);
+  return {
+    rows,
+    total: rows.reduce((a, r) => a + r.all.length, 0),
+    purgeable: rows.reduce((a, r) => a + r.purgeable.length, 0),
+    bytes: rows.reduce((a, r) => a + r.bytes, 0),
+  };
+}
+/* 清空回收站里已过保留期的记录。
+   这是本系统里少数几个不可撤销的操作之一，四道闸一个都不能少：
+   1) 必须已连共享文件夹——本机缓存不一定是全处的完整数据；
+   2) 必须已经备份过（从没导出过就直接拦下来，这一步删掉就真没了）；
+   3) 二次确认，把条数、保留期、能省多少体积写清楚；
+   4) 彻底删除留墓碑，否则别人还没同步的机器会把它们原样推回来。
+   任务/工作走级联，连它们名下的里程碑一起彻底删——否则清完任务会留下一堆无主里程碑，
+   等于把一种垃圾换成了另一种。 */
+async function purgeRecycleBin(days) {
+  if (!requirePermission('system_admin')) return;
+  if (!_fileHandle) {
+    showSnack('请先连接共享文件夹再清空回收站——没连上时本机看到的不一定是全处的完整数据，可能误删', { priority: true });
+    return;
+  }
+  const keep = days || recycleKeepDays();
+  const { rows, purgeable, bytes } = recycleTotals(keep);
+  if (!purgeable) { showSnack(`没有超过 ${keep} 天的已删除记录`); return; }
+  const bk = backupState();
+  if (!bk.last) {
+    showSnack('还从来没有导出过备份。这一步不可撤销，请先在上面「备份」里导出一份再来清空', { priority: true });
+    return;
+  }
+  const detail = rows.filter(r => r.purgeable.length).map(r => `${r.label} ${r.purgeable.length} 条`).join('、');
+  const saveKB = (rows.reduce((a, r) => a + r.purgeable.reduce((b, x) => b + JSON.stringify(x).length, 0), 0) / 1024).toFixed(0);
+  confirmModal('清空回收站',
+    `确认彻底删除 ${keep} 天前删掉的这些记录？共 ${purgeable} 条（${detail}），预计减小约 ${saveKB} KB。`
+    + `${keep} 天内删的一条都不会动。这一步不可撤销，Ctrl+Z 也退不回来——刚才检查过，你最近一次备份是 ${relTime(bk.last)}。`,
+    '彻底删除', async () => {
+      snapshot();
+      await Repo.bulk(() => {
+        let n = 0;
+        rows.forEach(r => r.purgeable.forEach(rec => {
+          // 任务/工作要连带把名下的里程碑一起彻底删，不然清完只剩一地无主里程碑
+          if (r.entity === 'task') cascadeRemoveHardTask(rec[r.pk]);
+          else removeHard(r.entity, rec[r.pk]);
+          n++;
+        }));
+        pushChangeLog('task', '', `清空回收站：彻底删除了 ${n} 条超过 ${keep} 天的已删除记录（${detail}）`);
+      });
+      renderPage();
+      // 确认框里明说了不可撤销，提示条上就不能再挂一个撤销按钮（见 showSnack 里那段注释）
+      showSnack(`已彻底删除 ${purgeable} 条`, { undo: false });
+    }, true);
+}
+// 回收站面板当前展开的是哪一类（纯 UI 状态，不持久化）
+let _recycleOpen = '';
+function recycleBinPanelHTML() {
+  const keep = recycleKeepDays();
+  const cutoff = recycleCutoff(keep);
+  const { rows, total, purgeable, bytes } = recycleTotals(keep);
+  const canPurge = hasPermission('system_admin');
+  const bk = backupState();
+  const body = total
+    ? rows.filter(r => r.all.length).map(r => {
+        const open = _recycleOpen === r.entity;
+        // 按删除时间倒序、只铺前若干条：回收站可能有几百条，全列出来页面就没法看了
+        const show = [...r.all].sort((a, b) => (b.deleted_at || '').localeCompare(a.deleted_at || '')).slice(0, RECYCLE_DETAIL_LIMIT);
+        return `<div class="health-row">
+          <div style="display:flex;align-items:center;gap:8px;padding:3px 0;font-size:12.5px">
+            <span style="flex:1">${esc(r.label)}：<b>${r.all.length}</b> 条已删除
+              <span class="hint">（其中 ${r.purgeable.length} 条已超过 ${keep} 天 · 约占 ${(r.bytes / 1024).toFixed(0)} KB）</span></span>
+            <span class="toggle-view" data-act="recycle-toggle" data-entity="${r.entity}">${open ? '收起' : '查看明细'}</span>
+          </div>
+          ${open ? `<div class="health-detail">${show.map(rec => `
+            <div class="health-detail-item" style="display:flex;align-items:center;gap:8px">
+              <span style="flex:1">${esc(r.nameOf(rec))}
+                <span class="hint">· ${rec.deleted_at ? relTime(rec.deleted_at) + '删除' : ''}${rec.deleted_at < cutoff ? ' · 已过保留期' : ''}</span></span>
+              ${r.entity === 'milestone' ? '<span class="hint">到所属任务里恢复</span>'
+                : `<span class="toggle-view" data-act="recycle-restore" data-entity="${r.entity}" data-id="${esc(rec[r.pk])}">恢复</span>`}
+            </div>`).join('')}${r.all.length > show.length
+              ? `<div class="health-detail-item hint">还有 ${r.all.length - show.length} 条没有列出</div>` : ''}</div>` : ''}
+        </div>`;
+      }).join('')
+    : '<div class="hint">✅ 回收站是空的。</div>';
+
+  return `<div class="panel"><div class="panel-h"><span>回收站</span>
+      <span class="hint">共 ${total} 条 · 约占 ${(bytes / 1024).toFixed(0)} KB</span></div><div class="panel-b">
+    ${body}
+    ${canPurge ? `<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--border)">
+      <div class="form-row"><label>保留期（天）</label>
+        <input type="number" min="1" step="1" style="width:80px" data-act="recycle-keep-change" value="${keep}">
+        <span class="hint" style="margin-left:6px">删除超过这么多天的才允许被彻底清理，之内的一律不动</span></div>
+      <div style="margin-top:6px">
+        <button class="btn"${purgeable ? ' style="color:var(--overdue)"' : ' disabled'} data-act="recycle-purge">清空 ${keep} 天前删除的（${purgeable} 条）</button>
+        ${!bk.last ? '<span class="hint" style="margin-left:8px;color:var(--overdue)">⚠ 还没导出过备份，先备份再清</span>' : ''}
+      </div></div>` : ''}
+    <div class="chart-note">这里装的是<b>被人删掉的记录</b>：它们不算进任何统计，但仍留在共享文件里占体积——
+    这就是"删了很多、文件还是很大"的原因。留着是为了删错能捞回来，所以只有超过保留期的才允许彻底清理，
+    而且这一步不可撤销，需要先连上共享文件夹、并且导出过备份。
+    数据体检不会碰这里的任何东西：这些是你自己删的，该不该真清掉由你决定，不该由体检替你做主。</div>
+  </div></div>`;
 }
 
 /* ---- 备份状态 ---- */
@@ -8879,13 +10495,28 @@ let snackTimer = null;
    窗口内任何普通 showSnack 调用直接放弃——不需要去改遍布全文件的几十处"已保存"调用点，
    这一处改完，所有调用点自动都对。 */
 let _snackPriorityUntil = 0;
+// 快照与提示之间隔多久还算"这条提示对应那次改动"。留 5 秒：足够覆盖 await 落盘的耗时，
+// 又短到不会把几分钟前那次操作的撤销按钮，安到一条无关提示上
+const SNACK_UNDO_WINDOW_MS = 5000;
 function showSnack(msg, opts) {
   const now = Date.now();
   if (!(opts && opts.priority) && now < _snackPriorityUntil) return;
   if (opts && opts.priority) _snackPriorityUntil = now + 1500;
   $('#snack-msg').textContent = msg;
-  // "撤销"按钮只在撤销栈里真的有东西时才露出来——不然点了会显示"没有可撤销的操作了"，等于白给个假按钮
-  $('#undo-btn').classList.toggle('hidden', undoStack.length === 0);
+  /* ★ "撤销"按钮只在【这一条提示确实对应一次刚刚发生的、可撤销的改动】时才出现 ★
+     以前只看撤销栈空不空，于是任何一条提示都会带上撤销按钮——改个设置、导出成功、
+     "这一轮备份跳过了"这种纯告知，甚至"彻底删除完成"这种明说了不可撤销的操作，
+     统统带一个撤销按钮。这比"给个点了没用的假按钮"糟得多：栈里存的是更早某次
+     毫不相干的操作，点下去会真的把那次改动回退掉，用户完全预料不到。
+     现在要两个条件同时成立：
+     ① 栈里确实有东西；
+     ② 就在刚才（SNACK_UNDO_WINDOW_MS 内）真的拍过一次快照——也就是这条提示背后
+        确实跟着一次可撤销的写操作，而不是一条纯告知。
+     明说不可撤销的那几处（彻底删除、清空回收站）再额外传 undo:false 兜底。 */
+  const undoable = (!opts || opts.undo !== false)
+    && undoStack.length > 0
+    && (now - _lastSnapshotAt) < SNACK_UNDO_WINDOW_MS;
+  $('#undo-btn').classList.toggle('hidden', !undoable);
   $('#snackbar').classList.add('show');
   clearTimeout(snackTimer);
   snackTimer = setTimeout(hideSnack, 3500);
@@ -9115,6 +10746,41 @@ function startAutoReload() {
    所以拆成两个独立的定时器：这个只管备份，开机不管共享文件连没连上都无条件启动。 */
 let _backupTimer = null;
 let _backupInFlight = false;   // 避免两个定时器（或定时器+手动点击）在极小概率下同时触发写两次
+/* ★ 同一台机器开着好几个标签页时，一次会写出好几份几乎一样的备份 ★
+   _backupInFlight 只是同一个标签页内部的锁，管不到别的标签页。而每个标签页都有
+   自己的 _backupTimer、自己内存里的那份 DB：A 标签页备份完把 autoBackupAt 写进本机存档，
+   B、C 标签页内存里的 DB 还是旧的，它们各自的定时器到点后照样判定"该备份了"，
+   于是同一个时间点前后写出两三份文件——各标签页定时器的起点不同，所以文件名的时间戳
+   差一两分钟，正是处里看到的现象。
+
+   localStorage 是同源标签页共享的，拿它当一把跨标签页的锁：一个备份周期内只准成功一次。
+   读—判—写这三步中间没有任何 await，在单个标签页里是原子的；写完再读回来核对 token，
+   把"两个标签页同时写"这种极端情况也挡掉。 */
+const BACKUP_LOCK_KEY = 'todo_v4_backup_lock';
+const _tabToken = Math.random().toString(36).slice(2) + '-' + Date.now();
+function backupSlotStamp() {
+  return JSON.stringify({ at: new Date().toISOString(), by: _tabToken });
+}
+function claimBackupSlot(hours) {
+  const windowMs = Math.max(1, Number(hours) || 24) * 3600 * 1000;
+  try {
+    const raw = localStorage.getItem(BACKUP_LOCK_KEY);
+    if (raw) {
+      const last = Date.parse((JSON.parse(raw) || {}).at);
+      // 距离"上一次有标签页备份过"还不到一个备份周期 —— 别重复写了
+      if (!isNaN(last) && Date.now() - last < windowMs) return false;
+    }
+    const mine = backupSlotStamp();
+    localStorage.setItem(BACKUP_LOCK_KEY, mine);
+    return localStorage.getItem(BACKUP_LOCK_KEY) === mine;   // 后写的覆盖先写的，只有最后一个算抢到
+  } catch (e) {
+    return true;   // localStorage 不可用（隐私模式等）时退回旧行为：宁可多备一份，也不能不备
+  }
+}
+// 手动备份成功后也要占掉这个周期，否则紧跟着的定时器会再自动写一份
+function markBackupSlotUsed() {
+  try { localStorage.setItem(BACKUP_LOCK_KEY, backupSlotStamp()); } catch (e) {}
+}
 async function backupTick() {
   if (_backupInFlight) return;
   _backupInFlight = true;
@@ -9204,6 +10870,12 @@ function effectiveShareCfg() {
     // 不用每台设备各自设一遍。备份目标文件夹的句柄没法跨设备用，那个仍然留在本机 settings 里。
     autoBackupEnabled: !!c.autoBackupEnabled,
     autoBackupHours: Math.max(BACKUP_MIN_HOURS, Number(c.autoBackupHours) || 24),
+    // 回收站保留期同理放这里同步：这是"全处对多久以前的删除算过期"的统一口径，
+    // 不该每台电脑各设一个——甲的机器认为 30 天该清、乙的认为 180 天，同一份共享数据会互相打架
+    // 先判有没有有效值、再夹取值范围。反过来写（Math.max(1, …) || 默认值）是个陷阱：
+    // 没配过时 Math.max(1, 0) 得到 1，而 1 是真值，|| 后面的默认值永远轮不到，
+    // 保留期会静悄悄变成"1 天"——比默认值激进得多，正是这种地方会误删数据
+    recycleKeepDays: Number(c.recycleKeepDays) > 0 ? Math.max(1, Math.floor(Number(c.recycleKeepDays))) : DEFAULT_RECYCLE_KEEP_DAYS,
   };
 }
 // 改共享文件夹设置的这几个动作（备份开关/间隔/文件名）共用同一条更新路径：
@@ -9335,7 +11007,8 @@ function backupDue() {
   return (Date.now() - last) >= c.hours * 3600 * 1000;
 }
 /* 真正写一份备份出去。manual=true 是管理员点"立即备份一次"，这时候有用户手势，
-   授权失效可以当场要回来；自动触发时没有手势，只能悄悄跳过，等下次手动或下次点击。
+   授权失效可以当场要回来；自动触发时没有手势，只能悄悄跳过，同时挂上"下次随便点一下页面
+   就静默要回授权"这个监听（armBackupPermAutoRestore），不用非得等管理员想起来去点那个按钮。
    返回是否真的写成功了。 */
 async function runBackup(manual) {
   if (!roleAtLeast('admin')) { if (manual) showSnack('只有管理员能做这个备份'); return false; }
@@ -9346,20 +11019,25 @@ async function runBackup(manual) {
   try { perm = await dir.queryPermission({ mode: 'readwrite' }); } catch (e) {}
   if (perm !== 'granted') {
     if (!manual) {
-      // 没有用户手势，requestPermission 调不了，只能先跳过这一轮，等下一轮或管理员手动点一次。
+      // 没有用户手势，requestPermission 调不了，只能先跳过这一轮；同时挂上一次性的点击监听，
+      // 管理员接下来在页面上随便点一下（不用特意去点"立即备份一次"）就会顺势把授权静默要回来，
+      // 下一轮定时器再跑的时候就不会再跳过了——见 armBackupPermAutoRestore。
       // 以前这里是纯静默 return，跳过的事实完全没人知道，配合过去"备份定时器可能压根没启动"的
       // bug，会让人以为定期备份在正常跑、实际上已经很久没写过——所以现在至少弹一句节流过的提示，
       // 不刷屏（20 分钟内最多提一次），但不会再彻底沉默
+      _backupPermLapsed = true;
+      armBackupPermAutoRestore();
       const now = Date.now();
       if (now - _lastBackupAuthWarnAt > 1200000) {
         _lastBackupAuthWarnAt = now;
-        showSnack('⚠ 定期备份这一轮跳过了：备份文件夹的写入授权已失效，请点「立即备份一次」重新授权');
+        showSnack('⚠ 定期备份这一轮跳过了：备份文件夹的写入授权已失效，之后随便点一下页面就会自动要回授权');
       }
       return false;
     }
     try { perm = await dir.requestPermission({ mode: 'readwrite' }); } catch (e) {}
     if (perm !== 'granted') { showSnack('没有拿到备份文件夹的写入授权'); return false; }
   }
+  _backupPermLapsed = false;   // 走到这说明授权是好的（本来就有，或者刚要回来了），别再挂着等点击了
   try {
     const name = `工作管理备份_${stamp()}.json`;
     const fh = await dir.getFileHandle(name, { create: true });
@@ -9368,6 +11046,7 @@ async function runBackup(manual) {
     await w.close();
     DB.settings.autoBackupAt = new Date().toISOString();
     DB.settings.lastBackupAt = DB.settings.autoBackupAt;   // 顺便消掉"很久没备份了"的提醒
+    markBackupSlotUsed();   // 占掉这个备份周期，别的标签页的定时器就不会再写一份
     await Repo.persist(DB);
     if (manual) { renderPage(); showSnack('已备份：' + name); }
     return true;
@@ -9379,7 +11058,47 @@ async function runBackup(manual) {
 // 开机和每轮定时同步时都问一句：到点了就顺手备份一次
 async function maybeAutoBackup() {
   if (!backupDue()) return;
+  // 再问一句"这个备份周期是不是已经有别的标签页做过了"——backupDue 看的是本标签页
+  // 内存里的 DB，看不到隔壁标签页刚写完的那一份（见 claimBackupSlot 的注释）
+  if (!claimBackupSlot(backupCfg().hours)) return;
   await runBackup(false);
+}
+/* 开机时就先把备份文件夹的授权状态摸一遍底，不用等到备份真正到期那一刻才发现授权早就失效了——
+   到期时定时器没有用户手势、只能干跳过，之前反反复复出问题就是这个：管理员开着页面一整天，
+   中间点了无数次别的东西，但因为授权失效这件事要等真到点了才会被发现，早就错过了能顺手把
+   授权要回来的时间窗口。开机就查一遍、发现失效就立刻挂监听，之后随便一次点击都能把它捡回来，
+   真正到点时授权大概率已经是好的了。跟共享文件那条 armPermissionAutoRestore 是同一个思路，
+   两者互不干扰（分别管各自的文件句柄）。 */
+async function checkBackupPermOnBoot() {
+  if (!roleAtLeast('admin')) return;
+  let dir = null;
+  try { dir = await idbGetBackupDir(); } catch (e) {}
+  if (!dir) return;
+  let perm = 'denied';
+  try { perm = await dir.queryPermission({ mode: 'readwrite' }); } catch (e) {}
+  if (perm !== 'granted') { _backupPermLapsed = true; armBackupPermAutoRestore(); }
+}
+// 用户在页面上第一次点击时顺势把备份文件夹的授权要回来（一次性，成功与否都不再重复挂，
+// 避免同一次刷新里反复弹出浏览器原生授权框骚扰管理员）。要回来之后，如果这次备份本来就该
+// 到期了却因为授权问题跳过了，顺手就地补上这一次，不用干等下一轮定时器。
+function armBackupPermAutoRestore() {
+  if (!_backupPermLapsed) return;
+  const once = async () => {
+    document.removeEventListener('click', once, true);
+    if (!_backupPermLapsed || _backupPermRestoring) return;
+    _backupPermRestoring = true;
+    try {
+      let dir = null;
+      try { dir = await idbGetBackupDir(); } catch (e) { return; }
+      if (!dir) { _backupPermLapsed = false; return; }
+      let perm = 'denied';
+      try { perm = await dir.requestPermission({ mode: 'readwrite' }); } catch (e) { return; }
+      if (perm !== 'granted') return;
+      _backupPermLapsed = false;
+      if (backupDue()) await runBackup(false);
+    } finally { _backupPermRestoring = false; }
+  };
+  document.addEventListener('click', once, true);
 }
 
 /* ---- 刷新页面后把读写授权要回来 ----
@@ -9939,6 +11658,9 @@ async function boot() {
        没有这个字段的是这次改动之前写的老缓存，同样算"来路不明"。 */
     _localCacheAppVersion = (saved.settings && saved.settings.localAppVersion) || '';
     _localCacheStale = _localCacheAppVersion !== APP_VERSION;
+    // 换了版本 = 这份缓存跟共享文件之间隔了一段时间，接下来那次合并是"追平"而不是事故，
+    // 放行一次熔断告警，免得每次发版全处都被同一句吓一跳（见 noteMergeAlerts）
+    _skipDamageAlertOnce = _localCacheStale;
     DB = Object.assign(DB, saved);
     DB.settings = Object.assign({ me: '', role: 'manager', year: new Date().getFullYear() }, saved.settings || {});
     ['duty', 'work', 'milestone', 'task'].forEach(e => coll(e).forEach(r => normalize(e, r)));
@@ -9975,6 +11697,7 @@ async function boot() {
   goto(currentPage);
 
   maybeAutoBackup();   // 管理员开了定期备份、且距上次够久了，开机就顺手存一份（不阻塞界面）
+  checkBackupPermOnBoot();   // 不等到真正到期才发现授权失效——开机就先摸一遍底，尽早挂上点击监听
   // ★ 不管共享文件这次开机连没连上，备份定时器都要启动 ★ 见 startAutoBackupTimer 的注释：
   // 这两件事本来就毫不相干，绑在一起是之前"到点没自动备份"的真正原因
   startAutoBackupTimer();

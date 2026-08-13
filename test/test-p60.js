@@ -6,8 +6,8 @@
    ③ 停用工作，跟用户确认后从"任务变未归属"改成"任务连同里程碑一起删除"——
       跟当年"停用工作不会删任务，只会变未归属"这句承诺正好反过来，是一次刻意的产品语义变更，
       不是 bug 修复；'work-del' 本身和历史遗留数据的体检修复口径都要跟着改。
-   ④ 数据体检"所属任务已删除的里程碑"（msOfDeletedTask）以前点"修复"只是软删除，
-      跟它自己"必须还活着"的判定条件矛盾，文件体积一点没少；改成跟 orphanMs 一样彻底删除。
+   ④ 数据体检"所属任务已删除的里程碑"（msOfDeletedTask）的清理口径。中间一版改成过彻底删除，
+      后来推翻改回软删除——它的所属任务还能恢复，恢复时要连带带回里程碑，彻底删就毁掉了这条路。
    用法：node test/test-p60.js */
 const fs = require('fs');
 const path = require('path');
@@ -101,38 +101,41 @@ async function main() {
   ok('工作本身没有被动（停用是用户自己的决定，体检不该替他撤销）', !!S.byId('work', w4.id).deleted_at);
   ok('修复后体检不再报这一项', !S.healthCheck().issues.some(i => i.k === 'taskOfDeletedWork'));
 
-  /* ====================== ④：msOfDeletedTask 改为彻底删除 ====================== */
-  section('④：msOfDeletedTask 这一项体检不再提供"一键修复"（软删除），改成"彻底删除"');
-  ok('★PURGE_HEALTH_KINDS 里有 msOfDeletedTask 这一项了', /msOfDeletedTask:\s*\{[^}]*entity:\s*'milestone'/.test(html));
-  ok('fixHealth() 里已经没有 msOfDeletedTask 的软删除分支了',
-    !/kind === 'msOfDeletedTask'\) r\.msOfDeletedTask\.forEach\(m => \{ m\.deleted_at/.test(html));
+  /* ====================== ④：msOfDeletedTask 的清理口径 ====================== */
+  /* ★ 这一项后来被推翻了，改回软删除 ★ 当时只盯着"省体积"，忽略了一件更重要的事：
+     这一类的所属任务只是【软删除】，还躺在「已删除任务」里能 ↩ 恢复，而 cascadeRestoreTask()
+     恢复任务时要连带把它名下的里程碑一起带回来——彻底删掉之后，任务恢复回来就是个空壳，
+     里程碑再也回不来了，这是实打实的数据损失。省体积应该走回收站按保留期显式清理，
+     不该让体检偷偷删掉还能恢复的数据。下面的断言相应改成验证新口径（详见 test-p62/p63）。 */
+  section('④：msOfDeletedTask 最终定为软删除，彻底删除只保留给 orphanMs');
+  ok('★PURGE_HEALTH_KINDS 里【没有】msOfDeletedTask（彻底删除会毁掉任务的可恢复性）',
+    !/msOfDeletedTask:\s*\{[^}]*entity:\s*'milestone'/.test(html));
+  ok('★PURGE_HEALTH_KINDS 里仍然有 orphanMs（那一类的任务记录真的不存在，删了不损失什么）',
+    /orphanMs:\s*\{[^}]*entity:\s*'milestone'/.test(html));
+  ok('★fixHealth() 里恢复了 msOfDeletedTask 的软删除分支',
+    /kind === 'msOfDeletedTask'\) r\.msOfDeletedTask\.forEach\(m => \{ m\.deleted_at/.test(html));
 
-  section('④：实测——历史遗留的"任务已删、里程碑还活着"数据，体检报的是 purgeFix 不是 fix');
+  section('④：实测——体检报的是软删除式 fix，不是 purgeFix');
   const aliveMsOf = id => S.DB.milestones.filter(m => m.task === id && !m.deleted_at).length;
   const t = S.DB.tasks.find(x => !x.deleted_at && aliveMsOf(x.id) > 0);
+  const n0 = aliveMsOf(t.id);
   const msIds = S.DB.milestones.filter(m => m.task === t.id && !m.deleted_at).map(m => m.id);
   S.softDelete('task', t.id); S.rebuildIndex();
   const issue = S.healthCheck().issues.find(i => i.k === 'msOfDeletedTask');
   ok('体检发现了这批数据', !!issue, issue);
-  ok('★不再带（软删除式的）fix', !(issue && issue.fix));
-  ok('★带 purgeFix（彻底删除）', !!(issue && issue.purgeFix));
+  ok('★带软删除式的 fix', !!(issue && issue.fix));
+  ok('★不带 purgeFix', !(issue && issue.purgeFix));
 
-  section('④：实测——purgeHealth 需要先连共享文件夹这道闸，没连上时不动手');
-  const beforeMsCount = S.DB.milestones.length;
-  S.purgeHealth('msOfDeletedTask');   // 没连文件夹，应该被挡在门口，弹提示、不动数据
-  await tick();
-  ok('★没连共享文件夹时，milestones 数组一条没少（防止本机数据不全时误删）', S.DB.milestones.length === beforeMsCount);
-
-  section('④：实测——连上共享文件夹后，purgeHealth 真的把记录整条拿掉，不是又盖一次软删除');
-  const store = { text: '', mtime: 1, writes: 0 };
-  S.setFileHandle(makeStoreHandle(store)); S.setEverConnected(true);
-  S.purgeHealth('msOfDeletedTask');
-  await S.modalCallback(); await tick();
-  ok('★这些里程碑的记录整条没了（不是 deleted_at 被盖了一下）', !S.DB.milestones.some(m => msIds.includes(m.id)));
-  ok('★留了墓碑（否则还没同步的设备会把它们原样推回来）',
-    msIds.every(id => (S.DB.purged || []).some(p => p.entity === 'milestone' && p.id === id)));
+  section('④：实测——修复是软删除：记录还在、不留墓碑，任务恢复时里程碑能一起回来');
+  const purgedBefore = (S.DB.purged || []).length;
+  await S.fixHealth('msOfDeletedTask');
+  ok('这批里程碑不再算进统计', aliveMsOf(t.id) === 0);
+  ok('★记录还在（软删除，不是抹掉）', msIds.every(id => !!S.byId('milestone', id)));
+  ok('★一条墓碑都没新增（墓碑是彻底删除才做的事）', (S.DB.purged || []).length === purgedBefore);
   ok('体检里这一项不再报了', !S.healthCheck().issues.some(i => i.k === 'msOfDeletedTask'));
-  ok('确实写进了共享文件（store.writes 有增加，不是只改了本机内存）', store.writes > 0);
+  S.cascadeRestoreTask(t.id); S.rebuildIndex();
+  ok('★★恢复所属任务后，里程碑全部跟着回来了（这正是不能彻底删的原因）', aliveMsOf(t.id) === n0,
+    { 期望: n0, 实际: aliveMsOf(t.id) });
 
   restore();
   console.log('\n' + '='.repeat(46));

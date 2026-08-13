@@ -124,6 +124,9 @@ async function main() {
 
   section('③：连上之后彻底删除 —— 记录真的没了，而且留下墓碑');
   S.setFileHandle({ name: 'p55-share.json' });
+  // P64 起，不可撤销的清理还要求"至少备份过一次"（见 purgeHealth 里那道闸）——
+  // 这里先造一个"备份过"的状态，否则会被第二道闸挡在门口
+  S.DB.settings.lastBackupAt = new Date(Date.now() - 86400000).toISOString();
   await S.purgeHealth('orphanMs');
   ok('先弹确认框，不会点一下就直接删', q('#modal-body').innerHTML.includes('彻底删除'));
   ok('确认框里写清楚了不可撤销', q('#modal-body').innerHTML.includes('不可撤销'));
@@ -150,7 +153,8 @@ async function main() {
   section('③：彻底清理的权限门槛比一般体检修复高（跟"清空全部数据"看齐）');
   ok('health-purge 走 system_admin，不是 bulk_ops',
     /'health-purge':[^\n]*requirePermission\('system_admin'\)/.test(html));
-  ok('一般体检修复仍然是 bulk_ops', /'health-fix':[^\n]*requirePermission\('bulk_ops'\)/.test(html));
+  // P64 起 health-fix 展开成多行了（加了干跑预览），不能再用 [^\n]* 限定在同一行
+  ok('一般体检修复仍然是 bulk_ops', /'health-fix':[\s\S]{0,200}?requirePermission\('bulk_ops'\)/.test(html));
 
   /* ====================== ④ 报告页按钮位置 ====================== */
   section('④：粒度按钮和翻期按钮包在同一个容器里，不会被 space-between 拉到标题两边');
@@ -197,7 +201,7 @@ async function main() {
   const defSecs = S.reportSections();
   ok('★没有任何配置时也拿得到四段（向后兼容，老共享文件不用改一个字）', defSecs.length === 4, defSecs.length);
   ok('四段标题就是用户要的那四段',
-    defSecs.map(s => s.title).join('|') === '一、当期处室工作目标|二、当期处室工作进展|三、当期需要关注的工作|四、人员工作情况',
+    defSecs.map(s => s.title).join('|') === '一、本期处室工作目标|二、本期处室工作进展|三、本期需要关注的工作|四、人员工作情况',
     defSecs.map(s => s.title));
   ok('第一段是"涉及多少 + 计划完成多少"', defSecs[0].modules.join(',') === 'periodScope,periodPlan');
   ok('第二段含整体进度（SPI 在这里）', defSecs[1].modules.includes('periodStatus'));
@@ -237,24 +241,27 @@ async function main() {
   S.renderReport();
   const rh = q('#page-report').innerHTML;
   ok('四个区域标题都渲染出来了',
-    ['一、当期处室工作目标', '二、当期处室工作进展', '三、当期需要关注的工作', '四、人员工作情况'].every(t => rh.includes(t)));
+    ['一、本期处室工作目标', '二、本期处室工作进展', '三、本期需要关注的工作', '四、人员工作情况'].every(t => rh.includes(t)));
   ok('区域用了 .rep-region-title 这个样式', rh.includes('rep-region-title'));
-  ok('模块以面板形式挂在区域下面', rh.includes('当期涉及范围') && rh.includes('当期完成进度'));
+  ok('模块以面板形式挂在区域下面', rh.includes('本期涉及范围') && rh.includes('本期完成进度'));
   ok('高优先级那条任务的标题直接看得到', rh.includes('本期计划完成'));
   ok('管理员能看到「报告编排」配置面板入口', rh.includes('data-act="report-config-toggle"'));
 
   section('⑤：三个出口说的是同一件事（页面 / 纯文本 / 导出图片都跟着编排走）');
   const txt = S.buildReportText();
   ok('★纯文本里也是同样四段、同样顺序',
-    ['一、当期处室工作目标', '二、当期处室工作进展', '三、当期需要关注的工作', '四、人员工作情况'].every(t => txt.includes(t))
-    && txt.indexOf('一、当期处室工作目标') < txt.indexOf('四、人员工作情况'));
+    ['一、本期处室工作目标', '二、本期处室工作进展', '三、本期需要关注的工作', '四、人员工作情况'].every(t => txt.includes(t))
+    && txt.indexOf('一、本期处室工作目标') < txt.indexOf('四、人员工作情况'));
   // "人员工作情况"这个模块 key 已经被 personBars 取代，文本里带的模块名跟着变了
-  ok('文本里带上了模块名', txt.includes('【当期涉及范围】') && txt.includes('【各人任务量与完成率】'));
+  ok('文本里带上了模块名', txt.includes('【本期涉及范围】') && txt.includes('【各人任务量与完成率】'));
   await S.exportReportImage();
   ok('导出图片这条路径不抛异常（沙盒里没有真 canvas，优雅降级出提示）', !!q('#snack-msg').textContent);
-  // P57：canvas 出口可选之后，这一行变成"有 canvas 用 canvas，没有就退回 text"，但仍然是由编排驱动的
+  // P57：canvas 出口可选之后，这一行变成"有 canvas 用 canvas，没有就退回 text"，但仍然是由编排驱动的。
+  // P77 起模块内容的取用逻辑被抽成 moduleContentFn（供并排布局的 panel() 复用），不再直接写在
+  // reportSections().forEach 的循环体里，但 reportSections() 驱动 + canvas-或-text 兜底这两件事没变
   ok('图片导出的排版也由编排驱动，不是另写一套写死的顺序',
-    /reportSections\(\)\.forEach\(s => \{[\s\S]{0,800}if \(m\.canvas\) m\.canvas\(d, api\);[\s\S]{0,120}else m\.text\(/.test(html));
+    /reportSections\(\)\.forEach\(s => \{[\s\S]{0,1200}moduleContentFn\(m\)/.test(html)
+    && /if \(m\.canvas\) m\.canvas\(d, api\);[\s\S]{0,120}else m\.text\(/.test(html));
 
   section('⑤：配置面板 —— 区域增删改名移位');
   S.setReportConfigOpen(true);
@@ -268,8 +275,10 @@ async function main() {
     S.REPORT_MODULES.every(m => cfgH.includes(`data-mod="${m.key}"`)));
   ok('已经在编排里的模块出现在"已选"那一段（带移除按钮）',
     /data-act="report-mod-remove"[^>]*data-mod="periodScope"/.test(cfgH));
+  // P66：一个模块只该出现一次，personBars 已经用在第四段了，不会再冒出来当候选——
+  // 换一个默认编排里哪个区域都没用到的模块（doneTasks）来验证"没选的模块出现在添加器里"
   ok('没选的模块出现在添加器里（带＋号）',
-    /data-act="report-mod-add"[^>]*data-mod="personBars"/.test(cfgH));
+    /data-act="report-mod-add"[^>]*data-mod="doneTasks"/.test(cfgH));
   ok('添加器按分类分组，分类标题都在', S.REPORT_GROUPS.every(g => cfgH.includes(g.label)));
   ok('第一个区域的"上移"是禁用状态', /data-act="report-sec-move"[^>]*data-step="-1"[^>]*opacity:\.3/.test(cfgH));
 
@@ -324,12 +333,12 @@ async function main() {
   // 在新存档里删掉一段，验证不会串到默认存档去
   await S.ACTIONS['report-sec-move']({ id: newPresetSecIds[0], step: '1' });
   await tick(20);
-  ok('改新存档不影响默认存档', S.reportPresets().find(p => p.id === defId).sections[0].title === '一、当期处室工作目标');
+  ok('改新存档不影响默认存档', S.reportPresets().find(p => p.id === defId).sections[0].title === '一、本期处室工作目标');
 
   await S.ACTIONS['report-preset-switch']({}, { value: defId });
   await tick(20);
   ok('切回默认存档', S.activeReportPreset().id === defId);
-  ok('页面跟着切回默认编排', S.reportSections()[0].title === '一、当期处室工作目标');
+  ok('页面跟着切回默认编排', S.reportSections()[0].title === '一、本期处室工作目标');
 
   S.ACTIONS['report-preset-rename']();
   q('#prompt-input').value = '周例会版';
@@ -355,7 +364,7 @@ async function main() {
   await S.ACTIONS['modal-ok']();
   await tick(20);
   ok('★恢复默认后回到那四段', S.reportSections().map(s => s.title).join('|')
-    === '一、当期处室工作目标|二、当期处室工作进展|三、当期需要关注的工作|四、人员工作情况');
+    === '一、本期处室工作目标|二、本期处室工作进展|三、本期需要关注的工作|四、人员工作情况');
   ok('第一段的模块也还原了', S.reportSections()[0].modules.join(',') === 'periodScope,periodPlan');
 
   section('⑤：认不出来的模块 key 直接跳过，不让整页报告渲染不出来');
@@ -363,7 +372,7 @@ async function main() {
   ok('★脏 key 被滤掉，其它模块照常', !S.reportSections()[0].modules.includes('未来版本才有的模块')
     && S.reportSections()[0].modules.includes('periodScope'));
   S.renderReport();
-  ok('页面照样渲染得出来', q('#page-report').innerHTML.includes('一、当期处室工作目标'));
+  ok('页面照样渲染得出来', q('#page-report').innerHTML.includes('一、本期处室工作目标'));
 
   section('⑤：config_report 权限 —— 默认只有管理员能改编排');
   ok('权限项存在且在"操作"组', S.PERMISSIONS.some(p => p.key === 'config_report' && p.group === '操作'));
@@ -379,7 +388,7 @@ async function main() {
   ok('处室领导默认没有这个权限', !S.hasPermission('config_report'));
   S.renderReport();
   ok('★没权限的人看不到「报告编排」面板', !q('#page-report').innerHTML.includes('data-act="report-sec-add"'));
-  ok('但报告本身照样看得见（只是改不了编排）', q('#page-report').innerHTML.includes('一、当期处室工作目标'));
+  ok('但报告本身照样看得见（只是改不了编排）', q('#page-report').innerHTML.includes('一、本期处室工作目标'));
   const secsBefore = S.reportSections().length;
   S.setSnackPriorityUntil(0); q('#snack-msg').textContent = '';
   S.ACTIONS['report-sec-add']();

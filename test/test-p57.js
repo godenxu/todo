@@ -38,7 +38,7 @@ async function main() {
   // 这里的清单换成拆分后的 key，其余不变
   const need = {
     personBars: '图表页-按人', dutyCategoryBars: '图表页-按职责(类别)', dutyItemBars: '图表页-按职责(职责项)',
-    taskStatusPie: '图表页-按任务(状态总览)', taskDueDist: '图表页-到期分布',
+    taskDueDist: '图表页-到期分布',
     taskPriorityPie: '图表页-优先级分布', taskSourceBars: '图表页-来源分布', taskTagBars: '图表页-标签分布',
     workOverview: '图表页-按工作(总览)', worksByYearBars: '图表页-按工作(年度)', worksByDutyBars: '图表页-按工作(职责)',
     msCompletionPie: '图表页-里程碑完成情况', msLevelPie: '图表页-呈报层级', msGantt: '图表页-里程碑甘特图',
@@ -66,7 +66,7 @@ async function main() {
     ['backlogTrend', 'planDueTrend', 'msGantt', 'recentActivity', 'dashCards', 'myDesk']
       .every(k => S.REPORT_MODULE_MAP[k].scope === 'all'));
   ok('★当期口径那几个标的是 period',
-    ['periodScope', 'periodStatus', 'personBars', 'taskStatusPie', 'msCompletionPie']
+    ['periodScope', 'periodStatus', 'personBars', 'msCompletionPie']
       .every(k => S.REPORT_MODULE_MAP[k].scope === 'period'));
 
   section('①：所有模块的 html/text 都跑得通，不会因为某个模块炸掉整页报告');
@@ -97,14 +97,17 @@ async function main() {
   ok('★标了 all 的"整体统计卡片"明说自己不随周期变化', dashHtml.includes('不随周期'));
 
   section('①：canvas 出口是可选的，没写的自动退回用 text 画（图片导出不会漏内容）');
-  ok('确实有一批模块没写 canvas（否则这条兜底就是白写的）',
-    S.REPORT_MODULES.some(m => !m.canvas));
+  // P78 之前：确实有一批模块没写 canvas，这条断言验证的是"这条兜底真的有存在的必要"。
+  // P78 之后：29 个模块全部配齐了 canvas()（用户反馈"有的模块连图表都没有了，都是排列
+  // 混乱的文字"，把所有退回 text() 兜底的模块都补上了对应的图形画法，见 test-p78.js）——
+  // 所以"确实有模块没写 canvas"这个前提已经不成立了，但兜底分支本身的代码（万一将来又有
+  // 新模块一时没配 canvas）还在，仍然要测它存在
   ok('★导出图片的代码里有 "有 canvas 用 canvas、没有就用 text" 这条兜底',
     /if \(m\.canvas\) m\.canvas\(d, api\);[\s\S]{0,160}else m\.text\(/.test(html));
   S.DB.reportConfig = null;
   await S.saveReportConfig(cfg => {
     const s = S.reportPresetIn(cfg).sections[0];
-    s.modules = ['backlogTrend', 'msGantt'];   // 两个都没有 canvas
+    s.modules = ['backlogTrend', 'msGantt'];   // P78 起两个都有 canvas 了，这里只是复用两个现成的模块 key，不特意验证兜底分支
   });
   await tick();
   q('#snack-msg').textContent = '';
@@ -214,7 +217,7 @@ async function main() {
   ok('★出现了 .rep-row 并排容器', rh.includes('class="rep-row"'));
   ok('并排的模块带 rep-col（flex 子项）', rh.includes('panel rep-col'));
   ok('三个模块都渲染出来了',
-    rh.includes('当期涉及范围') && rh.includes('当期工作计划量') && rh.includes('当期完成进度'));
+    rh.includes('本期涉及范围') && rh.includes('本期工作计划量') && rh.includes('本期完成进度'));
   ok('★窄屏自适应靠 CSS 而不是 JS：rep-row 是 flex-wrap，子项有 flex-basis',
     /\.rep-row \{[^}]*flex-wrap: wrap/.test(html) && /\.rep-row > \.rep-col \{[^}]*flex: 1 1 \d+px/.test(html));
   ok('flex 子项设了 min-width:0，否则里面一张定宽 SVG 就能把整行撑破',
@@ -233,11 +236,13 @@ async function main() {
   ok('第一个模块的"同行"是禁用的',
     /data-act="report-mod-inline"[^>]*data-mod="periodScope"[^>]*[\s\S]{0,120}opacity:\.3/.test(cfgH));
   ok('★添加器按分类分组，每个分类标题都在', S.REPORT_GROUPS.every(g => cfgH.includes(g.label)));
-  ok('没选的模块出现在添加器里', /data-act="report-mod-add"[^>]*data-mod="personBars"/.test(cfgH));
+  // P66：一个模块只该出现一次，personBars 已经用在第四段（人员工作情况）了，不会再冒出来当候选——
+  // 换一个默认编排里哪个区域都没用到的模块（doneTasks）来验证"没选的模块出现在添加器里"
+  ok('没选的模块出现在添加器里', /data-act="report-mod-add"[^>]*data-mod="doneTasks"/.test(cfgH));
   // 必须限定到"这个区域"的添加器：别的区域没选 periodScope，它们的添加器里当然还offer它
   ok('已选的模块不会又出现在同一个区域的添加器里（避免重复添加）',
     !cfgH.includes(`data-act="report-mod-add" data-sec="${secId}" data-mod="periodScope"`),
-    cfgH.includes(`data-act="report-mod-add" data-sec="${secId}" data-mod="personBars"`));
+    cfgH.includes(`data-act="report-mod-add" data-sec="${secId}" data-mod="doneTasks"`));
 
   section('②：改编排仍然要 config_report 权限');
   S.DB.users.push({ name: 'P57员工', role: 'staff', salt: '', hash: '', iterations: 0 });

@@ -94,16 +94,16 @@ async function main() {
   ok('★reportModHead 函数存在', typeof S.reportModHead === 'function');
 
   section('③：所有跟图表页/工作台有"看图表/看数据表"按钮对应的报告模块，都标了 table:true');
-  const TABLE_MODULES = ['personBars', 'dutyCategoryBars', 'dutyItemBars', 'taskStatusPie', 'taskDueDist',
+  const TABLE_MODULES = ['personBars', 'dutyCategoryBars', 'dutyItemBars', 'periodStatus', 'taskDueDist',
     'taskPriorityPie', 'taskSourceBars', 'taskTagBars', 'workOverview', 'worksByYearBars', 'worksByDutyBars',
     'msCompletionPie', 'msLevelPie', 'msGantt', 'backlogTrend', 'planDueTrend'];
   TABLE_MODULES.forEach(k => ok(`★${k}.table === true`, S.REPORT_MODULE_MAP[k].table === true));
 
   section('③：reportModHead 渲染出的按钮，位置在面板头（跟图表页 panelHead 视觉一致）');
-  const headOut = S.reportModHead(S.REPORT_MODULE_MAP.taskStatusPie, '');
+  const headOut = S.reportModHead(S.REPORT_MODULE_MAP.periodStatus, '');
   ok('★面板头里有"看数据表"按钮（初始未开表格态）', headOut.includes('看数据表'));
   ok('按钮的 data-act 是 chart-view（跟图表页共用同一套开关逻辑）', headOut.includes('data-act="chart-view"'));
-  ok('★按钮的 data-id 带 rep_ 前缀（跟图表页自己的 chartTableView id 空间隔离）', headOut.includes('data-id="rep_taskStatusPie"'));
+  ok('★按钮的 data-id 带 rep_ 前缀（跟图表页自己的 chartTableView id 空间隔离）', headOut.includes('data-id="rep_periodStatus"'));
   ok('面板头包在 panel-h 里', headOut.startsWith('<div class="panel-h">'));
 
   section('③：★关键防撞车——workOverview 这个 key 报告页和图表页都在用，两边的看数据表状态必须互不影响');
@@ -122,7 +122,7 @@ async function main() {
     personBars: ['姓名', '相关合计', '已完成', '进行中', '逾期', '未开始', '完成率', '牵头', '参与'],
     dutyCategoryBars: ['类别', '合计', '已完成', '进行中', '逾期', '未开始', '完成率'],
     dutyItemBars: ['职责', '合计', '已完成', '进行中', '逾期', '未开始', '完成率'],
-    taskStatusPie: ['状态', '数量'],
+    periodStatus: ['状态', '数量'],
     taskDueDist: ['区间', '任务数'],
     taskPriorityPie: ['优先级', '数量'],
     taskSourceBars: ['来源', '数量'],
@@ -193,7 +193,6 @@ async function main() {
   S.DB.reportConfig = null;
   S.goto('report');
   repH = q('#page-report').innerHTML;
-  const hadTable = /taskStatusPie/, m0 = S.REPORT_MODULE_MAP.taskStatusPie;
   // 找一个默认编排里真的存在的 table:true 模块来实测点击效果，比写死某个 key 更稳
   const sections0 = S.reportSections();
   let targetKey = null;

@@ -82,12 +82,12 @@ async function main() {
   S.goto('report');
   const reportHtml = q('#page-report').innerHTML;
   /* P55 之后写死的"本期总览"面板没有了，取而代之的是可配置编排里的
-     「当期涉及范围」「当期工作计划量」「当期完成进度」三个模块——数字变多了、分得更细了，
+     「本期涉及范围」「本期工作计划量」「本期完成进度」三个模块——数字变多了、分得更细了，
      但"报告页的统计数字用跟工作台同一套大卡片样式"这条约定没变，这里改成验证这个。
      P59 把面板头换成了 reportModHead()（统一加"全量"标记/note/看数据表按钮的位置），
      标题到 panel-b 之间的间隔比以前写死的 panel-h 标记长一些，{0,40} 放宽一点 */
   ok('当期统计模块仍然用 .cards/.card 这套跟工作台一样的卡片样式',
-    /当期涉及范围[\s\S]{0,120}<div class="panel-b">\s*<div class="cards">/.test(reportHtml));
+    /本期涉及范围[\s\S]{0,120}<div class="panel-b">\s*<div class="cards">/.test(reportHtml));
   ok('statCard 生成的卡片带 k/v 两层结构', S.statCard('测试指标', 5).includes('class="k"') && S.statCard('测试指标', 5).includes('class="v'));
 
   section('里程碑计划日期晚于任务计划完成时间：保存时自动顺延任务的计划完成时间');

@@ -4,7 +4,7 @@
    ③ 各年度/各职责工作数量拆成两个模块（报告页可选、图表页同一行并排两个独立面板）
    ④ 图表页"按里程碑"：完成情况分布 + 呈报层级分布 改成同一行并排
    ⑤ 修复报告页"到期分布"模块右侧留白过多（barChart 加 viewBox，真正撑满所在的 flex 容器）
-   ⑥ "二、当期处室工作状态"改名"二、当期处室工作进展"
+   ⑥ "二、当期处室工作状态"改名"二、本期处室工作进展"
    用法：node test/test-p58.js */
 const fs = require('fs');
 const path = require('path');
@@ -129,16 +129,16 @@ async function main() {
   ok('这个柱状图 svg 不再带 viewBox（同一个函数，天然享受到修复）', !dueBarSvgTag.includes('viewBox'));
 
   /* ====================== ⑥ 区域标题改名 ====================== */
-  section('⑥："二、当期处室工作状态"改成了"二、当期处室工作进展"');
+  section('⑥："二、当期处室工作状态"改成了"二、本期处室工作进展"');
   S.DB.reportConfig = null;
-  ok('★DEFAULT_REPORT_SECTIONS 第二段标题是"当期处室工作进展"',
-    S.reportSections()[1].title === '二、当期处室工作进展');
+  ok('★DEFAULT_REPORT_SECTIONS 第二段标题是"本期处室工作进展"',
+    S.reportSections()[1].title === '二、本期处室工作进展');
   ok('旧文字"当期处室工作状态"已经不在默认编排里了',
     !S.reportSections().some(s => s.title === '二、当期处室工作状态'));
   S.goto('report');
   const repH = q('#page-report').innerHTML;
-  ok('页面上确实渲染出了新标题', repH.includes('二、当期处室工作进展'));
-  ok('纯文本简报里也是新标题', S.buildReportText().includes('二、当期处室工作进展'));
+  ok('页面上确实渲染出了新标题', repH.includes('二、本期处室工作进展'));
+  ok('纯文本简报里也是新标题', S.buildReportText().includes('二、本期处室工作进展'));
 
   restore();
   console.log('\n' + '='.repeat(46));

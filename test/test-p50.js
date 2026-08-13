@@ -92,22 +92,28 @@ async function main() {
   const issue = S.healthCheck().issues.find(i => i.k === 'msOfDeletedTask');
   ok('★体检发现了这批脏数据（原来的 orphanMs 抓不到，因为软删除的任务 byId 仍查得到）', !!issue, issue);
   ok('数量对得上', issue && issue.n >= n3, { 期望至少: n3, 报告: issue && issue.n });
-  /* 这一类现在跟 orphanMs 一样走彻底删除，不再是"一键软删除"——软删除只是给它盖个 deleted_at，
-     它自己判定条件就是"必须还活着"，盖完确实不再报了，但记录原样留在共享文件里，文件体积一点
-     没少（这正是本轮用户反馈"清空了很多里程碑，数据文件还是很大"的根因），所以改成 purgeFix。 */
-  ok('不再带（软删除式的）一键修复', !(issue && issue.fix));
-  ok('★带彻底删除入口', !!(issue && issue.purgeFix));
-  // purgeHealth 要求先连上共享文件夹（防止本机数据不全时误判、误删别人还没同步过来的东西）
-  const store3 = { text: '', mtime: 1, writes: 0 };
-  S.setFileHandle(makeStoreHandle(store3)); S.setEverConnected(true);
-  S.purgeHealth('msOfDeletedTask');
-  await S.modalCallback(); await tick();
+  /* ★ 这一类的处理方式来回改过一次，最终定在软删除 ★
+     中间一版嫌软删除不省体积，改成了跟 orphanMs 一样的彻底删除，那是错的：
+     这一类的所属任务只是软删除、还躺在「已删除任务」里能 ↩ 恢复，而恢复任务要连带把它
+     名下的里程碑一起带回来——彻底删掉之后任务恢复回来就是个空壳。省体积该走回收站，
+     不该让体检偷偷删掉还能恢复的数据。 */
+  ok('★带的是软删除式的一键修复', !!(issue && issue.fix));
+  ok('★不提供彻底删除入口（那会毁掉任务的可恢复性）', !(issue && issue.purgeFix));
+  // 注意：DB.purged 不被 restore() 还原，前面"彻底删除"那一节留下的墓碑还在，
+  // 而两节取到的是同一条任务。所以只能比"本次修复有没有新增墓碑"，不能看绝对有无
+  const purgedBefore = (S.DB.purged || []).length;
+  await S.fixHealth('msOfDeletedTask');
   ok('修完之后这条任务名下没有活着的里程碑了', aliveMsOf(t3.id) === 0);
-  ok('★不是软删除，是记录整条没了', !S.DB.milestones.some(m => msIds3.includes(m.id)));
-  ok('★留了墓碑（否则会从别人还没同步的设备上飘回来）',
-    msIds3.every(id => (S.DB.purged || []).some(p => p.entity === 'milestone' && p.id === id)));
+  ok('★记录还在（是软删除，不是抹掉）', msIds3.every(id => !!S.byId('milestone', id)));
+  ok('★本次修复一条墓碑都没新增（软删除不留墓碑，那是彻底删除才做的事）',
+    (S.DB.purged || []).length === purgedBefore, { 修复前: purgedBefore, 修复后: (S.DB.purged || []).length });
   ok('这一项不再报了', !S.healthCheck().issues.some(i => i.k === 'msOfDeletedTask'));
-  S.setFileHandle(null); S.setEverConnected(false);
+
+  section('★①：关键——所属任务恢复时，这些里程碑要能一起回来（这正是不能彻底删的原因）');
+  S.cascadeRestoreTask(t3.id); S.rebuildIndex();
+  ok('★任务恢复了', !S.byId('task', t3.id).deleted_at);
+  ok('★★它名下的里程碑也跟着回来了（彻底删过就永远回不来）', aliveMsOf(t3.id) === n3,
+    { 期望: n3, 实际: aliveMsOf(t3.id) });
 
   section('★③：撤销必须能顶过共享文件里那一份（这是原来完全失效的根因）');
   restore();

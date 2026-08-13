@@ -9,11 +9,43 @@ const path = process.argv[2] || require('path').join(__dirname, '..', 'index.htm
 const html = fs.readFileSync(path, 'utf8');
 const code = html.match(/<script>([\s\S]*)<\/script>/)[1];
 
+/* canvas 2D 上下文的最小桩：报告页"导出图片"整段逻辑（exportReportImage）之前完全没被沙盒
+   真的跑过——document.createElement 原来不认 tag，canvas.getContext('2d') 在沙盒里是
+   undefined，一调用就抛 TypeError，又恰好被 exportReportImage 自己的 try/catch 吞掉，
+   于是"调用不抛异常"这种回归测试其实从没真的走到过内部排版逻辑，只是在测"try/catch 本身
+   没坏"。补一个会记录调用轨迹的桩，让画布相关代码能真的跑起来、抛出的真实错误也能被测试
+   抓到，同时把每次调用记进 _calls，方便用例断言"面板边框画了几次""是否真的同行画了两列"
+   这类只看生成的 HTML 源码文本猜不出来的运行时行为。 */
+function mkCanvasCtx() {
+  const calls = [];
+  const rec = (op, args) => calls.push({ op, args });
+  return {
+    _calls: calls,
+    fillStyle: '', strokeStyle: '', font: '', lineWidth: 1, textAlign: 'left', textBaseline: 'alphabetic',
+    save() { rec('save', []); }, restore() { rec('restore', []); },
+    translate(x, y) { rec('translate', [x, y]); },
+    rotate(a) { rec('rotate', [a]); },
+    scale(x, y) { rec('scale', [x, y]); },
+    beginPath() { rec('beginPath', []); }, closePath() { rec('closePath', []); },
+    moveTo(x, y) { rec('moveTo', [x, y]); }, lineTo(x, y) { rec('lineTo', [x, y]); },
+    arc(x, y, r, a0, a1) { rec('arc', [x, y, r, a0, a1]); },
+    arcTo(x1, y1, x2, y2, r) { rec('arcTo', [x1, y1, x2, y2, r]); },
+    roundRect(x, y, w, h, r) { rec('roundRect', [x, y, w, h, r]); },
+    stroke() { rec('stroke', [this.strokeStyle, this.lineWidth]); },
+    fill() { rec('fill', [this.fillStyle]); },
+    fillRect(x, y, w, h) { rec('fillRect', [x, y, w, h, this.fillStyle]); },
+    strokeRect(x, y, w, h) { rec('strokeRect', [x, y, w, h, this.strokeStyle]); },
+    clearRect(x, y, w, h) { rec('clearRect', [x, y, w, h]); },
+    fillText(text, x, y) { rec('fillText', [text, x, y, this.fillStyle, this.font, this.textAlign]); },
+    measureText(text) { return { width: String(text == null ? '' : text).length * 6.5 }; },
+  };
+}
 const elCache = new Map();
 function mkEl(sel) {
   const el = {
     _sel: sel, innerHTML: '', textContent: '', value: '', checked: false,
-    style: {}, dataset: {}, offsetHeight: 0, clientHeight: 600, scrollTop: 0,
+    width: 0, height: 0,
+    style: {}, dataset: {}, offsetHeight: 0, clientHeight: 600, clientWidth: 0, scrollTop: 0,
     classList: {
       _s: new Set(),
       add(...c) { c.forEach(x => this._s.add(x)); },
@@ -21,7 +53,14 @@ function mkEl(sel) {
       toggle(c, on) { if (on === undefined) this._s.has(c) ? this._s.delete(c) : this._s.add(c); else on ? this._s.add(c) : this._s.delete(c); },
       contains(c) { return this._s.has(c); },
     },
-    addEventListener() {}, removeEventListener() {}, appendChild() {}, removeChild() {},
+    /* 事件监听改成真的记下来，并给一个 fire() 手动触发 —— 输入法合成（compositionstart /
+       compositionend）这类行为只能靠模拟事件来测：不记监听器的话，测试连"合成期间到底有没有
+       触发筛选"都问不出来，而那正是中文输入抢跑那个 bug 的要害。 */
+    _on: {},
+    addEventListener(type, fn) { (this._on[type] = this._on[type] || []).push(fn); },
+    removeEventListener(type, fn) { this._on[type] = (this._on[type] || []).filter(f => f !== fn); },
+    fire(type, ev) { (this._on[type] || []).forEach(f => f.call(this, ev || { type })); },
+    appendChild() {}, removeChild() {},
     focus() {}, select() {}, click() {},
     // 真实 DOM 里 querySelector('svg') 拿到的元素总有 getAttribute；这里的元素是按选择器
     // 现造的桩，并不真的解析 innerHTML，但既然桩造出来了就该有这个方法，不然像
@@ -32,6 +71,8 @@ function mkEl(sel) {
     closest() { return null; },
     querySelector(s) { return mkEl(sel + ' ' + s); },
     querySelectorAll() { return []; },
+    getContext(type) { if (!this._ctx) this._ctx = mkCanvasCtx(); return this._ctx; },
+    toBlob(cb) { cb({ size: 1, type: 'image/png' }); },
   };
   return el;
 }
@@ -40,19 +81,31 @@ function q(sel) {
   return elCache.get(sel);
 }
 
+let lastCreatedCanvas = null;
 const store = new Map();
 const sandbox = {
   console,
   document: {
     querySelector: q,
     querySelectorAll: () => [],
-    createElement: () => mkEl('created'),
+    createElement(tag) {
+      const el = mkEl('created:' + (tag || ''));
+      if (String(tag).toLowerCase() === 'canvas') lastCreatedCanvas = el;
+      return el;
+    },
+    get _lastCanvas() { return lastCreatedCanvas; },
     addEventListener() {}, removeEventListener() {},
     documentElement: { scrollWidth: 1280 },
     activeElement: { tagName: 'BODY', blur() {} },
     body: mkEl('body'),
   },
-  window: { addEventListener() {}, innerWidth: 1280, innerHeight: 720, print() {} },
+  window: {
+    _on: {},
+    addEventListener(type, fn) { (this._on[type] = this._on[type] || []).push(fn); },
+    removeEventListener(type, fn) { this._on[type] = (this._on[type] || []).filter(f => f !== fn); },
+    fire(type, ev) { (this._on[type] || []).slice().forEach(f => f.call(this, ev || { type })); },
+    innerWidth: 1280, innerHeight: 720, print() {},
+  },
   localStorage: {
     getItem: k => (store.has(k) ? store.get(k) : null),
     setItem: (k, v) => store.set(k, v),
@@ -111,6 +164,21 @@ const exportTail = `
   get sp(){return _sp}, renderCellValue, fieldControl, readControl,
   nextTaskCode, migrateTaskCodes, pieChart, pieLegend, dueSummary,
   TASK_VIEWS, TASK_VIEW_MAP, openOrphanAssign, reorderCols, boot,
+  // P62：可达性修复——恢复入口的任务/工作/职责池、级联软删除与恢复
+  taskPoolFor, workPoolFor, dutyPoolFor, stoppedWorks, deletedDuties,
+  cascadeSoftDeleteTask, cascadeRestoreTask, cascadeRemoveHardTask, undelete,
+  // P63：回收站
+  recycleBin, recycleTotals, recycleKeepDays, recycleCutoff, purgeRecycleBin,
+  recycleBinPanelHTML, DEFAULT_RECYCLE_KEEP_DAYS, RECYCLE_ENTITIES,
+  // P64：体检分级 + 干跑预览
+  HEALTH_META, HEALTH_LEVELS, healthMeta, fixHealthPreview, HEALTH_PREVIEW_LIMIT,
+  // P65：备份跨标签页锁 / 输入法合成 / 撤销按钮 / 换版本首次同步不误报
+  claimBackupSlot, markBackupSlotUsed, BACKUP_LOCK_KEY, maybeAutoBackup, backupDue,
+  // 备份锁存在 localStorage 里；用例要模拟"上次备份是很久以前"就得能改它，所以把存储本身放出来
+  get storage(){return localStorage},
+  bindComposableSearch, bindLogsTextSearch, bindToolbarInputs, SNACK_UNDO_WINDOW_MS,
+  get skipDamageAlertOnce(){return _skipDamageAlertOnce}, setSkipDamageAlertOnce(v){ _skipDamageAlertOnce = v; },
+  get lastSnapshotAt(){return _lastSnapshotAt}, setLastSnapshotAt(v){ _lastSnapshotAt = v; },
   migrateMilestonesToTasks, cpRowHTML, recalcProgress, hasCheckpoints, migrateViewDataDefault,
   updateCpProgressPreview, findCpOrderIssue,
   dateStrToDigits, digitsToDateStr, isValidDateStr, normalizeMaskedDateValue,
@@ -153,6 +221,8 @@ const exportTail = `
   doRestoreSharePermission, armPermissionAutoRestore, ensureFileHandleFresh, showSnack,
   get snackPriorityUntil(){return _snackPriorityUntil}, setSnackPriorityUntil(v){ _snackPriorityUntil = v; },
   backupCfg, backupDue, runBackup, maybeAutoBackup, idbSetBackupDir, idbGetBackupDir, BACKUP_MIN_HOURS,
+  checkBackupPermOnBoot, armBackupPermAutoRestore,
+  get backupPermLapsed(){return _backupPermLapsed}, setBackupPermLapsed(v){ _backupPermLapsed = v; },
   get needPermissionRestore(){return _needPermissionRestore}, setNeedPermissionRestore(v){ _needPermissionRestore = v; },
   get loginPending(){return !!_loginResolve},
   fmtLocalDateTime,
@@ -161,11 +231,11 @@ const exportTail = `
   applyWideImport, wideImportHeaders, reportLevelFromLabel, openWideImportModal, REPORT_LEVELS,
   get wideImportMode(){return _wideImportMode},
   spCommitSingle, ownerChangeNeedsWarning, renderPermissions, goto,
-  hasIncompleteCheckpoints, commitTaskStatus, confirmCompleteCheckpointsThenStatus,
+  hasIncompleteCheckpoints, commitTaskStatus, doneAutoFillNeeded, openDoneAutoFillModal,
   hasPermission, requirePermission, getPermissionMatrix, PERMISSIONS, DEFAULT_PERMISSION_MATRIX,
   mergePermissionMatrix, permissionMatrixPanelHTML, canSeePage, PAGES,
   buildReportData, renderReport, buildReportText, personalReminderMsg, startOfWeek, endOfWeek,
-  periodRange, REPORT_PERIODS, exportReportImage, dutyTreeRowsHTML, statCard, hBar,
+  periodRange, REPORT_PERIODS, exportReportImage, reportExportTitle, dutyTreeRowsHTML, statCard, hBar,
   get reportPeriod(){return reportPeriod}, setReportPeriod(p){ reportPeriod = p; },
   get reportOffset(){return reportOffset}, setReportOffset(v){ reportOffset = v; },
   periodLabelFor,
@@ -194,7 +264,21 @@ const exportTail = `
   touchPresence, markUserSeen, PRESENCE_MIN_GAP_MS,
   get lastPresenceAt(){return _lastPresenceAt}, setLastPresenceAt(v){ _lastPresenceAt = v; },
   // P59：报告模块"看数据表"+ 到期分布字体缩放修复
-  dataTable, svgScroll, reportIsTable, reportModHead, fitFlexBarChart, ganttDataTable, ganttTableRows,
+  dataTable, svgScroll, reportIsTable, reportModHead, fitFlexBarChart, fitFlexChart, ganttDataTable, ganttTableRows,
+  // P66：里程碑清单带牵头人 / 当期口径含推进中任务 / 报告模块点击下钻 / 到期-优先级-来源改全量 /
+  // 状态饼图并入当期进度 / 交付物层级统计新模块 / 甘特轴裁剪 2 个月前
+  msReportLevelStatsOf, twoMonthsAgoOffset, taskViewAttrs, taskFilterAttrs, workFilterAttrs, dutyFilterAttrs,
+  reportMsRows, reportTaskRows,
+  // P67：交付物层级分布模块口径调整 / 交付物层级统计模块补清单 / 图表页新增"人员工作矩阵"
+  personDutyWorkHeat, matrixHeatCellHTML, personMatrixHTML,
+  get chartMatrixDutyExpanded(){return chartMatrixDutyExpanded},
+  // P69：矩阵布局用 colgroup 修正 / 矩阵并入报告"人员"分类 / 报告模块宽度倍数
+  get reportMatrixDutyExpanded(){return reportMatrixDutyExpanded},
+  // P72：备份文件夹授权自动恢复 / 本期已交付里程碑按呈报层级排序+可点选筛选 / 矩阵打印列被截掉
+  DELIVERED_MS_LEVEL_ORDER,
+  get reportDeliveredMsLevelFilter(){return reportDeliveredMsLevelFilter}, setReportDeliveredMsLevelFilter(v){ reportDeliveredMsLevelFilter = v; },
+  // P77：导出图片排版跟导出 PDF 对齐——图片里清单截断条数改用跟页面/PDF 同一个上限
+  REPORT_LIST_LIMIT,
 };`;
 
 vm.createContext(sandbox);

@@ -19,8 +19,9 @@ async function main() {
 
   section('页签');
   let h = render();
-  ok('六个页签', (h.match(/data-act="chart-tab"/g) || []).length === 6);
-  ['按人', '按职责', '按任务', '按工作', '按时间', '按里程碑'].forEach(t => ok('含页签：' + t, h.includes(t)));
+  // P67 新增了"人员工作矩阵"tab，页签数从 6 涨到 7
+  ok('七个页签', (h.match(/data-act="chart-tab"/g) || []).length === 7);
+  ['按人', '按职责', '按任务', '按工作', '按时间', '按里程碑', '人员工作矩阵'].forEach(t => ok('含页签：' + t, h.includes(t)));
   ok('默认选中「按人」', /class="t on" data-act="chart-tab" data-k="person"/.test(h));
   h = render('time');
   ok('切换页签生效', /class="t on" data-act="chart-tab" data-k="time"/.test(h) && S.chartTab === 'time');
@@ -239,10 +240,10 @@ async function main() {
   const bak = { d: S.DB.duties, w: S.DB.works, m: S.DB.milestones, t: S.DB.tasks };
   S.DB.duties = []; S.DB.works = []; S.DB.milestones = []; S.DB.tasks = [];
   let crashed = null;
-  for (const tab of ['person', 'category', 'task', 'work', 'time', 'gantt']) {
+  for (const tab of ['person', 'category', 'task', 'work', 'time', 'gantt', 'matrix']) {
     try { render(tab); } catch (e) { crashed = tab + ': ' + e.message; }
   }
-  ok('六个页签在空数据下都不报错', !crashed, crashed);
+  ok('七个页签在空数据下都不报错', !crashed, crashed);
   // 单点也不能除零
   S.DB.tasks = [bak.t[0]];
   try { render('time'); } catch (e) { crashed = 'single: ' + e.message; }

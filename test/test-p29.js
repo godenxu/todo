@@ -199,9 +199,22 @@ async function main() {
   const n4 = dir._files.length;
   await S.maybeAutoBackup();
   ok('刚备过，这次不重复备', dir._files.length === n4);
+  /* P65 起，"上次备份是什么时候"有两个记录点，模拟"隔了两天"必须两个一起往回拨：
+     · DB.settings.autoBackupAt —— 本标签页自己的记录
+     · localStorage 里的跨标签页锁 —— 同一台机器上所有标签页共用的那一份
+     只拨前者的话，锁那边还写着"刚刚有人备过"，这一轮会被正确地拦下来（这正是修复本身）。
+     前面那次手动备份成功时顺手写过这把锁，所以这里得把它也拨到两天前。 */
   S.DB.settings.autoBackupAt = new Date(Date.now() - 48 * 3600 * 1000).toISOString();
+  S.storage.setItem(S.BACKUP_LOCK_KEY, JSON.stringify({ at: new Date(Date.now() - 48 * 3600 * 1000).toISOString() }));
   await S.maybeAutoBackup();
   ok('隔了两天，自动补了一份', dir._files.length === n4 + 1);
+
+  section('★跨标签页锁：本标签页该备份了，但别的标签页刚备过 —— 这一轮就不重复写');
+  const n5 = dir._files.length;
+  S.DB.settings.autoBackupAt = new Date(Date.now() - 48 * 3600 * 1000).toISOString();   // 本机记录：早该备了
+  S.storage.setItem(S.BACKUP_LOCK_KEY, JSON.stringify({ at: new Date().toISOString() }));  // 但隔壁标签页刚写完
+  await S.maybeAutoBackup();
+  ok('★★没有重复写出第二份（这就是"一次出来三个备份文件"的修复）', dir._files.length === n5);
 
   restore();
   console.log('\n' + '='.repeat(46));

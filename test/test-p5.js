@@ -141,6 +141,8 @@ async function main() {
        只是把"计入统计的垃圾"变成"不计入统计的垃圾"，共享文件一个字节都没小。
        彻底删除走 purgeHealth，而且刻意要求先连上共享文件夹（避免本机数据不全时误判）。 */
     S.setFileHandle({ name: 'fake-share.json' });
+    // P64 起还多一道闸：不可撤销的清理要求至少备份过一次（见 purgeHealth）
+    S.DB.settings.lastBackupAt = new Date(Date.now() - 86400000).toISOString();
     await S.purgeHealth('orphanMs'); await tick();
     S.ACTIONS['modal-ok'](); await tick();
     ok('彻底删除后该里程碑不在 DB 里了', !S.byId('milestone', msId));
