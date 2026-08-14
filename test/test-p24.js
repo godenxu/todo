@@ -142,53 +142,69 @@ async function main() {
     todays.length > 0 && todays.every(v => Math.abs(v - todays[0]) < 0.01), todays.slice(0, 8));
   S.ACTIONS['ms-collapse-all']();
 
-  section('工作台"里程碑甘特图"面板：独立一份展开状态 + "我的里程碑"筛选');
+  /* P80 起工作台改版：面板改名"我的里程碑时间线"，天生就是按"当前查看的人"筛过的，不再有
+     "我的里程碑"这个开关（整个"我的"区本来就该是个人视角，用不着再单独切换"只看我的"）。
+     换成靠 dashViewAsPerson（处室/部门领导、管理员才能改）切换在看谁。 */
+  section('工作台"我的里程碑时间线"面板：独立一份展开状态，天生按查看的人筛过');
   await S.Repo.upsert('duty', { code: 'P24C', name: 'P24职责丙' });
   await S.Repo.upsert('work', { id: 'w_p24c', duty: 'P24C', code: '01', name: 'P24工作丙', owner: '张三' });
   await S.Repo.upsert('task', { id: 'p24_tc1', work: 'w_p24c', code: '0101', title: 'P24任务丙一', status: 'todo', owner: '张三', assignees: [] });
   await S.Repo.upsert('milestone', { id: 'p24_ms4', task: 'p24_tc1', plan_date: S.offsetDate(5), deliverable: 'P24交付物4', report_level: 'section', done: '0' });
 
-  // "各职责/工作推进情况"面板不受"我的里程碑"筛选影响，会无条件显示全部职责，
-  // 所以校验"我的里程碑"效果时只能看"里程碑甘特图"这个面板自己的一段 HTML，不能看整页
-  const msPanelHtml = h2 => (h2.match(/里程碑甘特图[\s\S]*?职责\/工作行会聚合展示其下所有里程碑。/) || [''])[0];
+  // "各职责/工作推进情况"面板是处室概览的，不受个人视角影响，会无条件显示全部职责，
+  // 所以校验"我的里程碑时间线"效果时只能看这个面板自己的一段 HTML，不能看整页。
+  // P80 起该面板独占一整行、挪到了"处室概览"标题前，所以往后找到下一个 rep-region-title 为止即可
+  const msPanelHtml = h2 => (h2.match(/我的里程碑时间线[\s\S]*?(?=<div class="rep-region-title")/) || [''])[0];
 
-  ok('"我的里程碑"按钮默认是打开的', S.dashMsMineOnly === true);
+  S.DB.settings.me = '测试管理员';   // '测试管理员' 是种子账号里的 admin，view_others_dashboard 靠 roleAtLeast('admin') 天然放行
+  S.setDashViewAsPerson('');
   S.setPage('dashboard'); S.renderDashboard();
   let dh = q('#page-dashboard').innerHTML;
-  ok('工作台含"里程碑甘特图"面板', dh.includes('里程碑甘特图'));
+  ok('工作台含"我的里程碑时间线"面板', dh.includes('我的里程碑时间线'));
   // 回归：milestoneTreeHTML 之前把 caret 的 data-act 写死成 ms-duty-toggle/ms-work-toggle，
   // 工作台复用这份 HTML 时点箭头会误触图表页的 action（改的是 msDutyExpanded 然后 renderCharts()，
   // 工作台画面完全没反应）。这里直接断言工作台渲染出来的 caret 用的是 dash- 前缀的 action。
   ok('工作台职责箭头绑定的是 dash-ms-duty-toggle（不是图表页的 ms-duty-toggle）',
     msPanelHtml(dh).includes('data-act="dash-ms-duty-toggle"') && !msPanelHtml(dh).includes('data-act="ms-duty-toggle"'));
-  ok('默认打开"我的里程碑"：职责丙（张三牵头，不是当前使用者）不出现在甘特面板里',
+  ok('默认看自己：职责丙（张三牵头，不是当前使用者）不出现在甘特面板里',
     !msPanelHtml(dh).includes('P24职责丙') && !msPanelHtml(dh).includes('P24C'));
-  ok('默认打开"我的里程碑"：自己牵头的职责甲在', msPanelHtml(dh).includes('P24A') || msPanelHtml(dh).includes('P24职责甲'));
+  ok('默认看自己：自己牵头的职责甲在', msPanelHtml(dh).includes('P24A') || msPanelHtml(dh).includes('P24职责甲'));
 
-  S.ACTIONS['dash-ms-toggle-mine']();
-  ok('点击后 dashMsMineOnly 变为 false（切到全部）', S.dashMsMineOnly === false);
+  ok('管理员默认就有 view_others_dashboard（走 roleAtLeast(\'admin\') 直通，不用矩阵配）', S.hasPermission('view_others_dashboard'));
+  S.ACTIONS['dash-view-as']({}, { value: '张三' });
+  ok('切换查看的人之后 dashViewAsPerson 变成了张三', S.dashViewAsPerson === '张三');
   dh = q('#page-dashboard').innerHTML;
-  ok('切到全部后能看到不属于自己的职责丙', msPanelHtml(dh).includes('P24C') || msPanelHtml(dh).includes('P24职责丙'));
+  ok('切到张三的视角后能看到属于他的职责丙', msPanelHtml(dh).includes('P24C') || msPanelHtml(dh).includes('P24职责丙'));
+  ok('切人时展开状态被清空（避免上一个人展开到的职责/工作在下一个人视角里还留着）',
+    S.dashMsDutyExpanded.size === 0 && S.dashMsWorkExpanded.size === 0);
   ok('工作台的展开状态跟图表页那份是独立的两个 Set', S.dashMsDutyExpanded !== S.msDutyExpanded);
-  S.ACTIONS['dash-ms-duty-toggle']({ code: 'P24A' });
-  ok('工作台展开职责后图表页的展开状态没被牵连', !S.msDutyExpanded.has('P24A'));
+  S.ACTIONS['dash-ms-duty-toggle']({ code: 'P24C' });
+  ok('工作台展开职责后图表页的展开状态没被牵连', !S.msDutyExpanded.has('P24C'));
   dh = q('#page-dashboard').innerHTML;
-  ok('工作台自己展开 P24A 后能看到 P24工作甲', msPanelHtml(dh).includes('P24工作甲'));
+  ok('工作台自己展开 P24C 后能看到 P24工作丙', msPanelHtml(dh).includes('P24工作丙'));
   ok('工作台工作行箭头绑定的是 dash-ms-work-toggle（不是图表页的 ms-work-toggle）',
     msPanelHtml(dh).includes('data-act="dash-ms-work-toggle"') && !msPanelHtml(dh).includes('data-act="ms-work-toggle"'));
 
-  S.ACTIONS['dash-ms-toggle-mine']();
-  ok('再点一次切回"我的里程碑"，dashMsMineOnly 变回 true', S.dashMsMineOnly === true);
+  S.ACTIONS['dash-view-as']({}, { value: '' });
+  ok('切回"本人"，dashViewAsPerson 变回空字符串', S.dashViewAsPerson === '');
   dh = q('#page-dashboard').innerHTML;
-  ok('切回"我的里程碑"后甘特面板里职责丙又不见了', !msPanelHtml(dh).includes('P24职责丙') && !msPanelHtml(dh).includes('P24C'));
-  S.ACTIONS['dash-ms-toggle-mine']();   // 切回全部，方便下面"展开到工作层"覆盖到三个职责
+  ok('切回本人后甘特面板里职责丙又不见了', !msPanelHtml(dh).includes('P24职责丙') && !msPanelHtml(dh).includes('P24C'));
 
+  S.ACTIONS['dash-view-as']({}, { value: '张三' });   // 切到张三，方便下面"展开到工作层"覆盖到职责丙
   S.ACTIONS['dash-ms-expand-to-work']();
-  ok('"展开到工作层"：工作台三个职责（甲乙丙）都在展开集合里',
-    S.dashMsDutyExpanded.has('P24A') && S.dashMsDutyExpanded.has('P24B') && S.dashMsDutyExpanded.has('P24C'));
+  ok('"展开到工作层"：张三名下的职责丙在展开集合里', S.dashMsDutyExpanded.has('P24C'));
   ok('"展开到工作层"：工作台没有工作被展开', S.dashMsWorkExpanded.size === 0);
   S.ACTIONS['dash-ms-collapse-all']();
   ok('全部折叠后工作台展开状态清空', S.dashMsDutyExpanded.size === 0 && S.dashMsWorkExpanded.size === 0);
+  S.ACTIONS['dash-view-as']({}, { value: '' });
+
+  section('工作台"查看"权限门禁：没有 view_others_dashboard 的角色改不了 dashViewAsPerson');
+  S.DB.users.push({ name: '测试员工-工作台', role: 'staff', salt: '', hash: '', iterations: 0 });
+  const bakMePermCheck = S.DB.settings.me;
+  S.DB.settings.me = '测试员工-工作台';
+  S.ACTIONS['dash-view-as']({}, { value: '张三' });
+  ok('普通员工没有这个权限，dash-view-as 不生效，还是空字符串', S.dashViewAsPerson === '');
+  S.DB.settings.me = bakMePermCheck;
 
   console.log('\n' + '='.repeat(46));
   console.log(`通过 ${pass} 项，失败 ${fail} 项`);

@@ -36,12 +36,15 @@ async function main() {
   ok('personBars 还在', !!S.REPORT_MODULE_MAP.personBars);
   ok('REPORT_MODULES 里也找不到 key 为 people 的条目', !S.REPORT_MODULES.some(m => m.key === 'people'));
 
-  section('①：默认编排第四段用 personBars 呈现，不再是 people');
+  // P80 后期改版在最前面插了"一、处室工作整体统计"，"人员工作情况"从第四段挪到第五段——
+  // 这里改用标题文字定位那一段，不再依赖具体下标，以后再插段落也不会跟着炸
+  section('①：默认编排"人员工作情况"这段用 personBars 呈现，不再是 people');
   S.DB.reportConfig = null;
   const defSecs = S.reportSections();
-  ok('第四段标题还是"人员工作情况"（区域标题本身没变，变的是它下面挂的模块）',
-    defSecs[3].title === '四、人员工作情况');
-  ok('★第四段的模块换成了 personBars', defSecs[3].modules.join(',') === 'personBars');
+  const peopleSec = defSecs.find(s => s.title.includes('人员工作情况'));
+  ok('这段标题是"五、人员工作情况"（区域标题本身没变，变的是它下面挂的模块）',
+    !!peopleSec && peopleSec.title === '五、人员工作情况');
+  ok('★这段的模块换成了 personBars', peopleSec.modules.join(',') === 'personBars');
 
   section('①：personBars 是图表页"按人"的完整搬运，包含牵头/参与比例条（不是阉割版）');
   const d = S.buildReportData('week', 0);
@@ -129,16 +132,18 @@ async function main() {
   ok('这个柱状图 svg 不再带 viewBox（同一个函数，天然享受到修复）', !dueBarSvgTag.includes('viewBox'));
 
   /* ====================== ⑥ 区域标题改名 ====================== */
-  section('⑥："二、当期处室工作状态"改成了"二、本期处室工作进展"');
+  // P80 后期改版又在最前面插了一段"一、处室工作整体统计"，"本期处室工作进展"整体挪到第三段，
+  // 标题前缀也从"二、"变成"三、"——这里只认标题文字本身，不再依赖具体是第几段
+  section('⑥："当期处室工作状态"改成了"本期处室工作进展"');
   S.DB.reportConfig = null;
-  ok('★DEFAULT_REPORT_SECTIONS 第二段标题是"本期处室工作进展"',
-    S.reportSections()[1].title === '二、本期处室工作进展');
+  ok('★DEFAULT_REPORT_SECTIONS 里有一段标题是"三、本期处室工作进展"',
+    S.reportSections().some(s => s.title === '三、本期处室工作进展'));
   ok('旧文字"当期处室工作状态"已经不在默认编排里了',
-    !S.reportSections().some(s => s.title === '二、当期处室工作状态'));
+    !S.reportSections().some(s => s.title.includes('当期处室工作状态')));
   S.goto('report');
   const repH = q('#page-report').innerHTML;
-  ok('页面上确实渲染出了新标题', repH.includes('二、本期处室工作进展'));
-  ok('纯文本简报里也是新标题', S.buildReportText().includes('二、本期处室工作进展'));
+  ok('页面上确实渲染出了新标题', repH.includes('三、本期处室工作进展'));
+  ok('纯文本简报里也是新标题', S.buildReportText().includes('三、本期处室工作进展'));
 
   restore();
   console.log('\n' + '='.repeat(46));

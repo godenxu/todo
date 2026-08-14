@@ -27,11 +27,13 @@ async function main() {
   const viewPerms = S.PERMISSIONS.filter(p => p.group === '查看').map(p => p.key).sort();
   /* P54 之后数据/日志/权限三页从硬编码 adminOnly 改成了 view_data/view_logs/view_permissions
      三项可配置权限（默认仍然只有管理员能看，效果不变，只是变得可以由管理员主动放开）——
-     查看组因此从 6 项变成 9 项，不再是"数据页不在矩阵里"。 */
-  ok('查看组包含 9 项', viewPerms.length === 9, viewPerms);
+     查看组因此从 6 项变成 9 项，不再是"数据页不在矩阵里"。
+     P80 起工作台"查看其他人员视角"也变成了一项可配置权限（view_others_dashboard），
+     查看组变成 10 项。 */
+  ok('查看组包含 10 项', viewPerms.length === 10, viewPerms);
   ok('查看组具体项正确', viewPerms.join(',') ===
      ['view_tasks', 'view_works', 'view_duties', 'view_charts', 'view_report', 'view_others_detail',
-      'view_data', 'view_logs', 'view_permissions'].sort().join(','));
+      'view_others_dashboard', 'view_data', 'view_logs', 'view_permissions'].sort().join(','));
   ok('view_data 现在是权限矩阵里的一个真实、可配置的项', S.PERMISSIONS.some(p => p.key === 'view_data'));
 
   section('DEFAULT_PERMISSION_MATRIX：老的六项查看权限默认对三个角色都开放（不因为升级突然挡住老用户）；新三项默认关闭');

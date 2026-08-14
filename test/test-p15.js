@@ -54,18 +54,22 @@ async function main() {
   ok('工作明细行的进度条带 bar-row-muted（浅色）', /report-work-row[\s\S]{0,40}bar-row-muted/.test(treeHtml));
   ok('职责自己的那一行没有 bar-row-muted', !/report-duty-row[\s\S]{0,120}bar-row-muted/.test(treeHtml.slice(0, workRowIdx)));
 
-  section('工作台"各职责推进情况"：一键展开全部/一键折叠全部');
+  section('工作台"各职责/工作推进情况"：跟报告页共用同一份 dutyTree 模块，一键展开全部/一键折叠全部');
+  // dashDutyTree（工作台自己的一份、用 dashExpanded/dash-expand-all）本轮下线，工作台默认编排
+  // 改成直接摆 dutyTree（跟报告页同一份定义、同一份 reportExpanded 状态、report-expand-all 等
+  // action）——这些 action 因此改成了 renderPage() 而不是写死 renderReport()，这里顺带验证
+  // 在工作台页面点这颗按钮，刷新的确实是工作台而不是报告页
   S.setPage && S.setPage('dashboard');
-  S.dashExpanded.clear();
+  S.reportExpanded.clear();
   S.renderDashboard();
   ok('默认折叠，没有工作明细行', !q('#page-dashboard').innerHTML.includes('report-work-row'));
-  ok('有全部展开/全部折叠按钮', q('#page-dashboard').innerHTML.includes('data-act="dash-expand-all"') && q('#page-dashboard').innerHTML.includes('data-act="dash-collapse-all"'));
-  S.ACTIONS['dash-expand-all']();
-  ok('点了全部展开后，能看到工作明细行了', q('#page-dashboard').innerHTML.includes('report-work-row'));
-  ok('展开状态里包含这次新建的职责', S.dashExpanded.has(dutyCode));
-  S.ACTIONS['dash-collapse-all']();
+  ok('有全部展开/全部折叠按钮', q('#page-dashboard').innerHTML.includes('data-act="report-expand-all"') && q('#page-dashboard').innerHTML.includes('data-act="report-collapse-all"'));
+  S.ACTIONS['report-expand-all']();
+  ok('点了全部展开后，工作台页面能看到工作明细行了（renderPage() 刷新对了页）', q('#page-dashboard').innerHTML.includes('report-work-row'));
+  ok('展开状态里包含这次新建的职责', S.reportExpanded.has(dutyCode));
+  S.ACTIONS['report-collapse-all']();
   ok('点了全部折叠后，工作明细行又没有了', !q('#page-dashboard').innerHTML.includes('report-work-row'));
-  ok('展开状态清空了', S.dashExpanded.size === 0);
+  ok('展开状态清空了', S.reportExpanded.size === 0);
 
   section('报告页"各职责/工作推进情况"：一键展开全部/一键折叠全部');
   S.reportExpanded.clear();

@@ -252,7 +252,9 @@ async function main() {
 
   section('回归：P1–P3 未被破坏');
   S.setPage('dashboard'); S.renderDashboard();
-  ok('工作台仍正常', q('#page-dashboard').innerHTML.includes('需要关注'));
+  // P80 起工作台改版，"需要关注"面板已经下线（逾期/未指派挪进了处室概览的统计卡片，
+  // 今日/本周到期被"本期未完成"取代），这里改成认工作台改版后仍然存在的结构
+  ok('工作台仍正常', q('#page-dashboard').innerHTML.includes('我负责的工作与任务') && q('#page-dashboard').innerHTML.includes('处室概览'));
   S.setPage('tasks'); S.renderTasks();
   ok('任务页仍正常', S.taskRows.length > 0, S.taskRows.length);
   ok('两级树仍工作', /data-act="tree-pick"/.test(S.renderTaskTree(S.taskRows)));

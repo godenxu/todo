@@ -54,12 +54,14 @@ async function main() {
   ok('★这 5 个都进了 api 对象', /const api = \{ line, empty, bar, rowLine, taskRows, msRows, matrix, trendLine, groupedBar, ganttChart, pie, singleBar, hbars, statBoxes, twoCol \};/.test(html));
 
   section('②：★14 个之前退回 text() 的模块，现在全部配了 canvas()（源码逐个核对）');
+  // P81 后期改版：dashCards 拆成了职责/工作/任务/里程碑四个独立模块，这里用 overallTask/
+  // overallWork 代表原来那份（都还有 canvas()），不再引用已经下线的 dashCards 这个 key
   const NEW_CANVAS_MODULES = ['personBars', 'dutyCategoryBars', 'dutyItemBars', 'taskDueDist', 'taskPriorityPie',
     'taskSourceBars', 'taskTagBars', 'workOverview', 'worksByYearBars', 'worksByDutyBars',
-    'msCompletionPie', 'msLevelPie', 'dashCards', 'recentActivity'];
+    'msCompletionPie', 'msLevelPie', 'overallTask', 'overallWork', 'recentActivity'];
   NEW_CANVAS_MODULES.forEach(k => {
     ok(`★${k} 模块定义里有 canvas: (d, a) => {...}`,
-      new RegExp(`key: '${k}'[\\s\\S]{0,3000}?canvas: \\(d, a\\) =>`).test(html));
+      new RegExp(`key: '${k}'[\\s\\S]{0,4500}?canvas: \\(d, a\\) =>`).test(html));
   });
 
   section('③：★REPORT_MODULES 里已经没有任何模块缺 canvas 出口了');
@@ -114,7 +116,7 @@ async function main() {
     + '真的画了扇区（arc 调用次数应该不少，每个饼图至少 1 个扇区）', arcCalls.length >= 6, arcCalls.length);
 
   const strokeRects = calls.filter(c => c.op === 'strokeRect');
-  ok('★statBoxes 卡片网格真的画了边框（dashCards 8 张 + workOverview 1 张 SPI，strokeRect 次数应该 >= 9）',
+  ok('★statBoxes 卡片网格真的画了边框（overallTask 5 张 + overallWork 4 张 + workOverview 1 张 SPI，strokeRect 次数应该 >= 9）',
     strokeRects.length >= 9, strokeRects.length);
 
   const fillTexts = calls.filter(c => c.op === 'fillText').map(c => String(c.args[0]));

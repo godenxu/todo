@@ -182,20 +182,24 @@ td.cell-center { text-align: center; }
 
 /* ===== 卡片 / 仪表板 ===== */
 .pad { padding: 14px 16px; }
-.cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; margin-bottom: 14px; }
-.card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 11px 13px; }
-.card .k { font-size: 11px; color: var(--text3); margin-bottom: 4px; }
-.card .v { font-size: 22px; font-weight: 700; color: var(--text); }
+/* 同一组卡片里的每一张永远等宽平分容器宽度、绝不折行——原来是 grid + auto-fill/minmax，
+   宽度不够时会自动挤到下一行，同一组卡片就会高矮不齐、很难看。改成 flex + flex:1 1 0，
+   每张卡永远按可用宽度平分，页面越窄卡越窄，但不会跳到第二行；配 min-width:0 让 flex 子项
+   能缩到比内容还窄，文字用 .k/.v 上的 ellipsis 兜底，不会把行撑爆 */
+.cards { display: flex; flex-wrap: nowrap; gap: 10px; margin-bottom: 14px; }
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 11px 13px; text-align: center; flex: 1 1 0; min-width: 0; }
+.card .k { font-size: 11px; color: var(--text3); margin-bottom: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.card .v { font-size: 22px; font-weight: 700; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .card .v.warn { color: var(--overdue); }
 .card .v.ok { color: var(--done); }
+.card .v .frac-den { font-size: 13px; font-weight: 500; color: var(--text2); }
+.stat-group .card .v .frac-den { font-size: 11px; }
 /* 工作台顶部：任务维度/里程碑维度两组卡片并排放在同一行。外观跟报告页"本期总览"那种面板保持一致——
    白底 + 常规描边，不再各自刷一层彩色底；靠上面那行小标题区分口径就够了 */
 .stat-groups { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
 .stat-group { flex: 1 1 360px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px 10px; }
 .stat-group-label { font-size: 12.5px; font-weight: 700; color: var(--text2); margin-bottom: 7px; }
-/* 卡片宽度要放得下"今日到期里程碑"这类 7 个字的标签：7 字 × 11px ≈ 77px，加上左右内边距取 96px 打底，
-   并且明确不许折行——折成两行会让同一组里的卡片高矮不齐，很难看 */
-.stat-group .cards { margin-bottom: 0; grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); gap: 7px; }
+.stat-group .cards { margin-bottom: 0; gap: 7px; }
 .stat-group .card { padding: 6px 8px; background: var(--bg); }
 .stat-group .card .k { font-size: 11px; margin-bottom: 2px; line-height: 1.3; white-space: nowrap; }
 .stat-group .card .v { font-size: 16px; }
@@ -752,7 +756,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260812201811';
+const APP_VERSION = 'v20260814054143';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -836,6 +840,7 @@ const PERMISSIONS = [
   { key: 'view_charts', label: '查看图表页', group: '查看' },
   { key: 'view_report', label: '查看报告页', group: '查看' },
   { key: 'view_others_detail', label: '查看他人负责/参与的任务详情（关闭后仍能在列表里看到该任务，但打不开详情弹窗）', group: '查看' },
+  { key: 'view_others_dashboard', label: '在工作台切换查看其他人员的视角（不需要切换账号，仅用于查看，默认关闭）', group: '查看' },
   { key: 'view_data', label: '查看数据页（数据概况、备份配置、数据体检、共享文件连接管理；默认关闭）', group: '查看' },
   { key: 'view_logs', label: '查看日志页（全处的登录与数据变更记录；默认关闭）', group: '查看' },
   { key: 'view_permissions', label: '查看权限页（全处账号名单、角色、权限矩阵本身；默认关闭）', group: '查看' },
@@ -845,32 +850,39 @@ const PERMISSIONS = [
   // 报告页的区域/模块编排是全处共用的（随共享文件同步），改一下所有人看到的简报都变了，
   // 所以默认只有管理员能动；别人照样能看报告、能翻期、能打印导出，只是改不了编排
   { key: 'config_report', label: '配置报告页的区域与模块编排（对全处生效；默认关闭）', group: '操作' },
+  // P80 起工作台也改成跟报告页一样的编排模式，配置权限单独一个点、不跟 config_report 绑在一起——
+  // 处室领导可能只想开工作台的配置权限（毕竟工作台是日常在看的）、不想开报告页的（那份是
+  // 对外汇报稿子，改起来更谨慎），分开才能这样单独授权
+  { key: 'config_dashboard', label: '配置工作台的区域与模块编排（对全处生效；默认关闭）', group: '操作' },
   { key: 'manage_staff_accounts', label: '管理"员工/组长"账号与角色', group: '账号' },
   { key: 'manage_director_accounts', label: '管理"处室领导/部门领导/管理员"账号与角色', group: '账号' },
   { key: 'system_admin', label: '连接/断开共享文件、清空全部数据', group: '系统' },
 ];
 const DEFAULT_PERMISSION_MATRIX = {
   staff: {
-    view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_others_detail: true,
+    view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_others_detail: true, view_others_dashboard: false,
     view_data: false, view_logs: false, view_permissions: false,
-    edit_others_task: false, manage_duty_work: false, bulk_ops: false, config_report: false, manage_staff_accounts: false, manage_director_accounts: false, system_admin: false,
+    edit_others_task: false, manage_duty_work: false, bulk_ops: false, config_report: false, config_dashboard: false, manage_staff_accounts: false, manage_director_accounts: false, system_admin: false,
   },
   comanager: {
-    view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_others_detail: true,
+    view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_others_detail: true, view_others_dashboard: false,
     view_data: false, view_logs: false, view_permissions: false,
-    edit_others_task: true, manage_duty_work: true, bulk_ops: true, config_report: false, manage_staff_accounts: false, manage_director_accounts: false, system_admin: false,
+    edit_others_task: true, manage_duty_work: true, bulk_ops: true, config_report: false, config_dashboard: false, manage_staff_accounts: false, manage_director_accounts: false, system_admin: false,
   },
+  // 处室领导/部门领导默认打开 view_others_dashboard——周例会上要挨个切员工的工作台视角
+  // 念上周/本月进展，这是这条权限存在的主要理由；员工/组长默认关闭，管理员照常靠
+  // roleAtLeast('admin') 直接放行，不用在矩阵里单独开
   director: {
-    view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_others_detail: true,
+    view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_others_detail: true, view_others_dashboard: true,
     view_data: false, view_logs: false, view_permissions: false,
-    edit_others_task: true, manage_duty_work: true, bulk_ops: true, config_report: false, manage_staff_accounts: true, manage_director_accounts: false, system_admin: false,
+    edit_others_task: true, manage_duty_work: true, bulk_ops: true, config_report: false, config_dashboard: false, manage_staff_accounts: true, manage_director_accounts: false, system_admin: false,
   },
   // 部门领导：只看不改——其余页面和他人任务详情都能看，但没有任何编辑/管理类权限；
   // 数据/日志/权限这三页跟别的角色一样默认关闭，管理员要放开自己来开
   gm: {
-    view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_others_detail: true,
+    view_tasks: true, view_works: true, view_duties: true, view_charts: true, view_report: true, view_others_detail: true, view_others_dashboard: true,
     view_data: false, view_logs: false, view_permissions: false,
-    edit_others_task: false, manage_duty_work: false, bulk_ops: false, config_report: false, manage_staff_accounts: false, manage_director_accounts: false, system_admin: false,
+    edit_others_task: false, manage_duty_work: false, bulk_ops: false, config_report: false, config_dashboard: false, manage_staff_accounts: false, manage_director_accounts: false, system_admin: false,
   },
 };
 
@@ -3500,11 +3512,35 @@ function renderDuties() {
 /* =============================================================
    16. 工作台
    ============================================================= */
-let dashFocus = 'overdue';           // 「需要关注」面板当前分段
-let dashExpanded = new Set();        // 工作台「各职责推进情况」里展开了哪些职责（要看它下面的工作明细）
-let dashMsDutyExpanded = new Set();  // 工作台「里程碑甘特图」树状展开：哪些职责展开了，跟图表页那份各自独立
-let dashMsWorkExpanded = new Set();  // 工作台「里程碑甘特图」树状展开：哪些工作展开了
-let dashMsMineOnly = true;           // 工作台「里程碑甘特图」是否只看"我的里程碑"（当前使用者牵头/参与的任务），默认打开
+let dashMsDutyExpanded = new Set();  // 工作台「我的里程碑时间线」树状展开：哪些职责展开了，跟图表页那份各自独立
+let dashMsWorkExpanded = new Set();  // 工作台「我的里程碑时间线」树状展开：哪些工作展开了
+// 工作台改版：从"处室实时快照"改成"个人为主、按周期回看进展"（周二例会照着这页念上周/本月做了什么）。
+// "需要关注"（逾期/今日到期/本周到期/未指派 四个分段）那个面板连同 dashFocus 状态一起被拆掉了：
+// 逾期/未指派现在挂在处室概览的统计卡片里，今日到期/本周到期被"本期未完成"这种按周期回看的
+// 口径取代——原来那种"只看现在这一刻"的分段视图跟新版工作台的设计初衷（按周期回看）不是一回事。
+// "我的里程碑时间线"不再需要 dashMsMineOnly 这个开关——整个"我的"区现在天生就是按查看人筛过的，
+// 用不着再单独切换"只看我的"，这个概念本身已经没有存在的必要。
+// dashPeriod/dashOffset 是"我的"区和"处室概览"区共用的同一份周期状态，翻期时两区一起变——
+// 例会上处长把周期定在"上周"，依次切换查看的人时周期不用重选，就是靠这两个状态不随切人而重置。
+let dashPeriod = 'week';
+let dashOffset = 0;
+// 切换查看的人：只有 view_others_dashboard 权限的人（处室/部门领导、管理员）能改这个值。
+// 刻意不写进 DB.settings.me、不进 syncPayload——这纯粹是本地"借他的账号视角看一眼"，
+// 不是真的切换身份，处长看着李四的工作台，能编辑的权限依然按处长自己的角色走。
+// 空字符串＝看自己；页面刷新/离开工作台页不做特殊重置处理，跟 chartTab 等页面内状态一视同仁。
+let dashViewAsPerson = '';
+let dashConfigOpen = false;   // 工作台编排配置面板展开着没有（只影响本机，不进共享文件，跟 reportConfigOpen 同理）
+// 当前工作台实际在看谁——权限被收回或者压根没这权限时，一律退回看自己，不管 dashViewAsPerson
+// 里还留着什么野值（比如权限刚被处长自己关掉，但状态变量里还记着上次切的人）
+function dashViewedPerson() {
+  return (hasPermission('view_others_dashboard') && dashViewAsPerson) ? dashViewAsPerson : DB.settings.me;
+}
+// 某个人牵头或参与的全部可见任务——'我的工作台'那票面板、以及甘特图展开按钮的 ACTIONS
+// 处理函数都要用同一份口径，抽出来避免各处各写一遍 personUnion('task', t).includes(person)
+function dashPersonTasks(person) {
+  if (!person) return [];
+  return visibleTasks().filter(t => !t.deleted_at && personUnion('task', t).includes(person));
+}
 
 function daysFromToday(d) {
   return Math.round((new Date(d + 'T00:00:00') - new Date(todayStr() + 'T00:00:00')) / 86400000);
@@ -3525,198 +3561,252 @@ function relTime(iso) {
   return localDay(iso);
 }
 
-function renderDashboard() {
-  const tasks = visibleTasks().filter(t => !t.deleted_at);
-  const works = visibleWorks();
-  const me = DB.settings.me;
-  const today = todayStr();
+/* =============================================================
+   16.1 工作台编排配置（P80 起）——跟报告页共用同一套"预设 + 区域 + 模块"骨架
+   （DEFAULT_REPORT_SECTIONS/reportPresets/reportSections/saveReportConfig 那一套写法），
+   独立存一份 DB.dashboardConfig（不跟报告页共用同一份配置——两个页面用途不一样，处室
+   领导可能只想开工作台的配置权限、不想开报告页的，绑在一起会互相牵连，见 config_dashboard
+   权限跟 config_report 是两个独立的权限点）。
 
-  const open    = tasks.filter(isOpen);
-  const overdue = tasks.filter(isOverdue).sort((a, b) => (a.plan_date || '').localeCompare(b.plan_date || ''));
-  const dueToday= tasks.filter(t => isOpen(t) && t.plan_date === today);
-  const week    = tasks.filter(t => isOpen(t) && t.plan_date && t.plan_date >= today && t.plan_date <= endOfWeek());
-  const noOwner = tasks.filter(t => isOpen(t) && !t.owner);
-  const monthDone = tasks.filter(t => t.status === 'done' && (t.actual_date || '').slice(0, 7) === today.slice(0, 7));
-  const mineOpen = tasks.filter(t => isMine(t) && isOpen(t));
-
-  // 里程碑维度的平行统计，跟上面任务维度的卡片一一对应，只统计当前可见任务名下的里程碑
-  const taskIds = new Set(tasks.map(t => t.id));
-  const msVisible = DB.milestones.filter(m => !m.deleted_at && m.plan_date && taskIds.has(m.task));
-  const msOpen = msVisible.filter(m => m.done !== '1');
-  const msOverdue = msOpen.filter(m => m.plan_date < today);
-  const msDueToday = msOpen.filter(m => m.plan_date === today);
-  const msWeek = msOpen.filter(m => m.plan_date >= today && m.plan_date <= endOfWeek());
-  const msMonthDone = msVisible.filter(m => m.done === '1' && (m.actual_date || '').slice(0, 7) === today.slice(0, 7));
-
-  const card = (k, v, cls, view) =>
-    `<div class="card${view ? ' clickable' : ''}"${view ? ` data-act="goto-view" data-page="tasks" data-view="${view}"` : ''}>
-       <div class="k">${k}</div><div class="v ${cls || ''}">${v}</div></div>`;
-
-  /* ---------- ① 需要关注：分段列表 ---------- */
-  const FOCUS = {
-    overdue: { label: '逾期',     rows: overdue,  view: 'overdue' },
-    today:   { label: '今日到期', rows: dueToday, view: 'today' },
-    week:    { label: '本周到期', rows: week,     view: 'week' },
-    noowner: { label: '未指派',   rows: noOwner,  view: 'all' },
+   版式机制原样照抄报告页那一套（1/2/3 倍宽度 + "同行" + 上下移动），不再用"左栏/右栏/
+   独占整行"这种工作台专属的说法——两个编排页面用同一套心智模型，会用一个就会用另一个。
+   唯一真正新增的是 personScope: 'self'|'all'，受 REPORT_MODULES 里对应模块的 personAware
+   约束：'onlyPerson' 的模块永远按 'self' 渲染（哪怕配置里存了别的值），'onlyAll' 的模块
+   永远按 'all'，只有 'either' 的模块 admin 真能在两者之间选，见 dashNormalizePersonScope()——
+   这样哪怕配置数据被手改坏了，运行时也不会渲染出没意义的组合（比如"人员负荷"被硬摆成按人筛）。
+   "看谁的"这件事本身（具体是谁）不归编排管，还是运行时状态 dashViewAsPerson/
+   view_others_dashboard，翻周期、切人都不影响编排本身。 */
+const DEFAULT_DASHBOARD_SECTIONS = [
+  { id: 'sec_mine', title: '我的',
+    modules: ['dashMyCards', 'dashMyOpenTasks', 'dashMyDoneSplit', 'dashMyDoingSplit', 'dashMyOverdueSplit', 'dashMyNextPlan', 'dashMyMsTimeline'],
+    // dashMyDoneSplit 跟前一个模块（我负责的工作与任务）同行、dashMyOverdueSplit 跟前一个
+    // 模块（本期进行中）同行——大致还原改版前"存量+已完成产出"一列、"进行中+逾期"一列的分组感，
+    // 下期计划/里程碑时间线不跟谁同行，各自单独一行
+    inline: ['dashMyDoneSplit', 'dashMyOverdueSplit'],
+    personScope: { dashMyCards: 'self', dashMyOpenTasks: 'self', dashMyDoneSplit: 'self', dashMyDoingSplit: 'self', dashMyOverdueSplit: 'self', dashMyNextPlan: 'self', dashMyMsTimeline: 'self' } },
+  { id: 'sec_overview', title: '处室概览',
+    // dashOverviewCards 下线后，原来它包的三组内容直接用 periodOverallScope/periodOverallStatus/
+    // periodOverallPlan 这三个"本期处室统计"模块摆在这里，报告页那边有改动会自动同步过来。
+    // dashDutyTree 本轮合并进 dutyTree（同一份定义，报告页/工作台都能用），dashPeopleLoad
+    // 本轮下线（跟 personBars"各人任务量与完成率"重复），不再出现在默认编排里
+    modules: ['periodOverallScope', 'periodOverallStatus', 'periodOverallPlan', 'dutyTree', 'recentActivity'],
+    inline: [],
+    personScope: { periodOverallScope: 'all', periodOverallStatus: 'all', periodOverallPlan: 'all', dutyTree: 'all', recentActivity: 'all' } },
+];
+const DASHBOARD_DEFAULT_PRESET_NAME = '默认编排';
+function dashboardPresets() {
+  const c = DB.dashboardConfig;
+  const list = (c && Array.isArray(c.presets)) ? c.presets.filter(p => p && p.id) : [];
+  return list.length ? list : [{ id: 'dashpreset_default', name: DASHBOARD_DEFAULT_PRESET_NAME, sections: clone(DEFAULT_DASHBOARD_SECTIONS) }];
+}
+function activeDashboardPreset() {
+  const list = dashboardPresets();
+  const id = DB.dashboardConfig && DB.dashboardConfig.activeId;
+  return list.find(p => p.id === id) || list[0];
+}
+// personAware 约束下的归一化：onlyPerson 永远 self，onlyAll 永远 all，只有 either 才看
+// 存的值——没存过或存了非法值（旧存档、手改坏的数据）一律落到 'all'，这是 either 这批模块
+// 升级前本来就有的行为，向后兼容，不会因为升级突然把老编排渲染成一份"全是空的个人视图"
+function dashNormalizePersonScope(moduleKey, stored) {
+  const m = REPORT_MODULE_MAP[moduleKey];
+  if (!m) return 'all';
+  if (m.personAware === 'onlyPerson') return 'self';
+  if (m.personAware === 'onlyAll') return 'all';
+  return stored === 'self' ? 'self' : 'all';
+}
+// 渲染用的区域清单：写法跟 reportSections() 是同一份（把认不出来的模块 key 滤掉，按
+// inline/widths 把 modules 拆成一行行的 rows），多算一份 personScope（每个模块各自
+// 归一化后的口径），模块拿哪份数据渲染由 renderDashboard() 按这份 map 查
+function dashboardSections() {
+  const p = activeDashboardPreset();
+  return (p.sections || []).filter(s => s && s.id).map(s => {
+    const modules = (s.modules || []).filter(k => REPORT_MODULE_MAP[k]);
+    const inline = new Set((s.inline || []).filter(k => REPORT_MODULE_MAP[k]));
+    const widths = {};
+    Object.entries(s.widths || {}).forEach(([k, v]) => {
+      if (modules.includes(k) && (v === 2 || v === 3)) widths[k] = v;
+    });
+    const personScope = {};
+    modules.forEach(k => { personScope[k] = dashNormalizePersonScope(k, (s.personScope || {})[k]); });
+    const rows = [];
+    modules.forEach((k, i) => {
+      if (i > 0 && inline.has(k) && rows.length) rows[rows.length - 1].push(k);
+      else rows.push([k]);
+    });
+    return { id: s.id, title: s.title || '（未命名区域）', modules, inline: [...inline], widths, personScope, rows };
+  });
+}
+/* 保存编排。刻意不进撤销栈（不调 snapshot），理由跟报告页那份一样：编排是配置不是数据，
+   Ctrl+Z 半路把它拨回去会让人完全搞不清自己刚才在改什么；要退回原样有"恢复默认编排"这个
+   明确的按钮。 */
+async function saveDashboardConfig(mutate) {
+  const cur = DB.dashboardConfig || {};
+  const next = {
+    presets: clone(dashboardPresets()),
+    activeId: activeDashboardPreset().id,
+    rev: (cur.rev || 0) + 1,
+    updated_at: new Date().toISOString(),
+    updated_by: DB.settings.me || '未署名',
   };
-  if (!FOCUS[dashFocus] || !FOCUS[dashFocus].rows.length) {
-    dashFocus = Object.keys(FOCUS).find(k => FOCUS[k].rows.length) || 'overdue';
-  }
-  const focus = FOCUS[dashFocus];
-  const seg = Object.entries(FOCUS).map(([k, v]) =>
-    `<span class="s${dashFocus === k ? ' on' : ''}" data-act="dash-focus" data-k="${k}">${v.label}<span class="c">${v.rows.length}</span></span>`).join('');
+  mutate(next);
+  DB.dashboardConfig = next;
+  await Repo.persist(DB);
+  renderDashboard();
+}
+function dashboardPresetIn(cfg) { return cfg.presets.find(p => p.id === cfg.activeId) || cfg.presets[0]; }
 
-  const focusList = focus.rows.length
-    ? `<div class="mini-list">${focus.rows.slice(0, 10).map(t => `
-        <div class="li" data-act="focus-task" data-id="${t.id}" data-seg="${dashFocus}" title="${esc(t.title)}">
-          <span class="d ${dateClass(t.plan_date)}">${esc(t.plan_date ? fmtDate(t.plan_date) : '无日期')}</span>
-          <span class="t">${esc(t.title)}</span>
-          <span class="p">${esc(workName(t.work))} · ${esc(t.owner || '未指派')}</span></div>`).join('')}
-       ${focus.rows.length > 10 ? `<div class="empty-mini">还有 ${focus.rows.length - 10} 条…</div>` : ''}</div>`
-    : `<div class="empty-mini">没有${focus.label}的任务 👍</div>`;
+/* 工作台配置面板：跟报告页的 reportConfigPanelHTML 几乎是同一份写法（宽度倍数 + 同行 +
+   上下移动都原样照抄），多一个"按人/按整体"的口径切换（受模块自己的 personAware 约束，
+   onlyPerson/onlyAll 的模块直接显示死文字，只有 either 的模块才给一个真正能选的下拉）。 */
+function dashboardConfigPanelHTML() {
+  const cfg = DB.dashboardConfig;
+  const presets = dashboardPresets(), active = activeDashboardPreset(), sections = dashboardSections();
+  const presetOpts = presets.map(p => `<option value="${esc(p.id)}"${p.id === active.id ? ' selected' : ''}>${esc(p.name || '未命名')}</option>`).join('');
+  const usedElsewhere = new Set(sections.flatMap(sec => sec.modules));
+  const secRows = sections.map((s, i) => {
+    const chosen = s.modules.map((k, j) => {
+      const m = REPORT_MODULE_MAP[k];
+      const inline = s.inline.includes(k);
+      const width = s.widths[k] || 1;
+      const widthSel = `<select class="rep-width-sel" data-act="dash-mod-width" data-sec="${esc(s.id)}" data-mod="${m.key}" title="在同一行里，这个模块相对其他模块的宽度倍数">
+        <option value="1"${width === 1 ? ' selected' : ''}>1 倍宽度</option>
+        <option value="2"${width === 2 ? ' selected' : ''}>2 倍宽度</option>
+        <option value="3"${width === 3 ? ' selected' : ''}>3 倍宽度</option>
+      </select>`;
+      const scope = s.personScope[k];
+      const scopeCtrl = m.personAware === 'either'
+        ? `<select class="rep-width-sel" data-act="dash-mod-scope" data-sec="${esc(s.id)}" data-mod="${m.key}" title="数据口径：按整体（全处）还是按人（正在查看的那个人）">
+            <option value="all"${scope === 'all' ? ' selected' : ''}>按整体</option>
+            <option value="self"${scope === 'self' ? ' selected' : ''}>按人</option>
+          </select>`
+        : `<span class="hint" style="min-width:66px;text-align:center" title="这个模块的口径写死了，不能改">${m.personAware === 'onlyPerson' ? '只能按人' : '只能整体'}</span>`;
+      return `<div class="rep-pick">
+        <span class="rep-pick-nm" title="${esc(m.desc)}">${esc(m.label)}${m.scope === 'all' ? '<span class="hint"> 全量</span>' : ''}</span>
+        <span style="flex:1"></span>
+        ${scopeCtrl}
+        ${widthSel}
+        <span class="toggle-view${inline ? ' on' : ''}" data-act="dash-mod-inline" data-sec="${esc(s.id)}" data-mod="${m.key}"
+              title="${j === 0 ? '第一个模块只能自己占一行' : '跟上一个模块并排放在同一行'}"
+              ${j === 0 ? 'style="opacity:.3;pointer-events:none"' : ''}>⇥ 同行</span>
+        <span class="toggle-view" data-act="dash-mod-move" data-sec="${esc(s.id)}" data-mod="${m.key}" data-step="-1"${j === 0 ? ' style="opacity:.3;pointer-events:none"' : ''}>↑</span>
+        <span class="toggle-view" data-act="dash-mod-move" data-sec="${esc(s.id)}" data-mod="${m.key}" data-step="1"${j === s.modules.length - 1 ? ' style="opacity:.3;pointer-events:none"' : ''}>↓</span>
+        <span class="toggle-view" data-act="dash-mod-remove" data-sec="${esc(s.id)}" data-mod="${m.key}" style="color:var(--overdue)">移除</span>
+      </div>`;
+    }).join('');
+    const picker = REPORT_GROUPS.map(g => {
+      const avail = REPORT_MODULES.filter(m => m.group === g.key && !usedElsewhere.has(m.key));
+      if (!avail.length) return '';
+      return `<div class="rep-grp"><span class="rep-grp-t">${esc(g.label)}</span>${avail.map(m =>
+        `<span class="rep-add" data-act="dash-mod-add" data-sec="${esc(s.id)}" data-mod="${m.key}"
+               title="${esc(m.desc)}">＋ ${esc(m.label)}</span>`).join('')}</div>`;
+    }).join('');
+    return `<div class="rep-sec">
+      <div class="rep-sec-h">
+        <b>${esc(s.title)}</b>
+        <span style="flex:1"></span>
+        <span class="toggle-view" data-act="dash-sec-rename" data-id="${esc(s.id)}">改名</span>
+        <span class="toggle-view" data-act="dash-sec-move" data-id="${esc(s.id)}" data-step="-1"${i === 0 ? ' style="opacity:.3;pointer-events:none"' : ''}>上移</span>
+        <span class="toggle-view" data-act="dash-sec-move" data-id="${esc(s.id)}" data-step="1"${i === sections.length - 1 ? ' style="opacity:.3;pointer-events:none"' : ''}>下移</span>
+        <span class="toggle-view" data-act="dash-sec-del" data-id="${esc(s.id)}" style="color:var(--overdue)">删除</span>
+      </div>
+      ${chosen || '<div class="empty-mini">这个区域还没有模块，从下面挑</div>'}
+      <div class="rep-picker">${picker || '<span class="hint">没有更多可加的模块了——要么已经在这个区域，要么已经用在这份工作台的其它区域</span>'}</div>
+    </div>`;
+  }).join('');
+  return `<div class="panel no-print"><div class="panel-h"><span>⚙ 工作台编排</span>
+      <span class="toggle-view" data-act="dash-config-toggle">${dashConfigOpen ? '收起' : '展开配置'}</span></div>
+    ${dashConfigOpen ? `<div class="panel-b">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <span class="hint">当前存档</span>
+        <select id="dash-preset" data-act="dash-preset-switch">${presetOpts}</select>
+        <button class="btn" data-act="dash-preset-new">另存为新存档…</button>
+        <button class="btn" data-act="dash-preset-rename">重命名</button>
+        <button class="btn" data-act="dash-preset-del"${presets.length < 2 ? ' disabled title="至少要留一套编排"' : ''}>删除存档</button>
+        <button class="btn" data-act="dash-config-reset" style="margin-left:auto">恢复默认编排</button>
+      </div>
+      ${secRows || '<div class="empty-mini">还没有任何区域，先添加一个</div>'}
+      <button class="btn primary" style="margin-top:8px" data-act="dash-sec-add">＋ 添加区域</button>
+      <div class="chart-note">区域是自己定义的段落（标题 + 区块），模块是系统现有的数据块，勾上就出现在这个区域里；
+        "同行"和"倍数宽度"决定版面排布，"按整体/按人"决定这个模块的数据是全处口径还是当前正在查看的那个人的口径
+        （只有支持两种口径的模块才能选，不支持的会固定显示"只能按人"/"只能整体"）——具体"看的是谁"由页面顶部的
+        "查看"下拉决定，不归这里管。编排随共享文件同步，改完全处看到的工作台都会变；
+        ${cfg && cfg.updated_by ? `最后一次由 ${esc(cfg.updated_by)} 于 ${esc(fmtLocalDateTime(cfg.updated_at))} 修改。` : ''}</div>
+    </div>` : ''}</div>`;
+}
+/* 工作台改版说明（P80 起第二次改版）：从上一版写死的"我的/处室概览"两段固定结构，
+   改成跟报告页一样"读配置渲染"——admin 能在配置面板里增删区域、往区域里加/挪/移除模块、
+   设同行/宽度倍数/上下移动、切"按人/按整体"，参见 dashboardConfigPanelHTML 那段注释。
+   排布算法（宽度按 flex 比例分配、not colW 估算值）原样照抄 renderReport()，见那边的注释——
+   两个页面用的是同一套渲染逻辑，不用各自维护一份、也不用各自踩一遍"flex-basis 算错就换行"的坑。
 
-  /* ---------- ③ 各职责推进 ----------
-     与图表页「职责项」用同一份 statsByDuty 统计 + 同一条标尺（同一批任务里的最大值），
-     条长因此可以跨这两处面板直接横向比较任务量，而不是各自按自己的合计撑满 100%。 */
-  const dutyStat = statsByDuty(tasks).sort((a, b) => (a.code || '').localeCompare(b.code || ''));
-  const workStat = statsByWork(tasks);
-  const dutyRows = dutyTreeRowsHTML(dutyStat, workStat, dashExpanded, 'dash-duty-toggle');
+   两份数据只用算一次：dAll = 全处口径，dSelf = 当前查看的人的口径（没设置使用者就退回
+   dAll，onlyPerson 模块会因为 d.person 为空自己显示"尚未设置本机使用者"）——每个模块
+   按自己的 personScope 从这两份里挑一份用，不用每个模块各自重新跑一遍 buildReportData。
+   "看谁的"（dashViewedPerson）、"看哪一期"（dashPeriod/dashOffset）都还是运行时状态，
+   翻页/切人不影响编排本身，编排只决定"有没有这些模块、怎么排、按人还是按整体"。 */
+function renderDashboard() {
+  const canViewOthers = hasPermission('view_others_dashboard');
+  if (!canViewOthers && dashViewAsPerson) dashViewAsPerson = '';   // 权限被收回时别留着野状态
+  const viewedPerson = dashViewedPerson();
 
-  /* ---------- ③b 里程碑甘特图（跟图表页「里程碑甘特图」同一套树状展开，独立一份展开状态；
-     "我的里程碑"只看当前使用者牵头/参与的任务名下的里程碑） ---------- */
-  const msTasksBase = dashMsMineOnly ? tasks.filter(isMine) : tasks;
-  const dashMsTreeHtml = milestoneTreeHTML(msTasksBase, dashMsDutyExpanded, dashMsWorkExpanded, 'dash-ms-duty-toggle', 'dash-ms-work-toggle');
+  const { start: rangeStart, end: rangeEnd } = periodRange(dashPeriod, dashOffset);
+  const periodLabel = periodLabelFor(dashPeriod, dashOffset);
 
-  /* ---------- ④ 我的工作台 ---------- */
-  const myPanel = me ? (() => {
-    const myWorks = works.filter(w => w.owner === me);
-    const myTasks = mineOpen.slice().sort((a, b) => (a.plan_date || '9999').localeCompare(b.plan_date || '9999'));
-    return `<div class="hint" style="margin-bottom:6px">牵头 <b>${myWorks.length}</b> 项工作 · 在办 <b>${mineOpen.length}</b> 条任务 · 逾期 <b style="color:var(--overdue)">${mineOpen.filter(isOverdue).length}</b> 条</div>
-      ${myTasks.length ? `<div class="mini-list">${myTasks.slice(0, 7).map(t => `
-        <div class="li" data-act="focus-task" data-id="${t.id}" title="${esc(t.title)}">
-          <span class="d ${dateClass(t.plan_date)}">${esc(t.plan_date ? fmtDate(t.plan_date) : '—')}</span>
-          <span class="t">${esc(t.title)}</span></div>`).join('')}</div>` : '<div class="empty-mini">暂无在办任务</div>'}`;
-  })() : `<div class="empty-mini">尚未设置本机使用者。<a href="#/data" style="color:var(--accent)">去「数据」页设置</a>后，这里会显示你牵头的工作和在办任务。</div>`;
+  const periodBtns = REPORT_PERIODS.map(p =>
+    `<span class="s${dashPeriod === p.key ? ' on' : ''}" data-act="dash-period" data-period="${p.key}">${esc(p.label)}</span>`).join('');
+  const navBtns = `<span class="seg-ctrl" style="margin-left:8px">
+      <span class="s" data-act="dash-period-nav" data-step="-1" title="往前一期">‹</span>
+      ${dashOffset ? `<span class="s" data-act="dash-period-nav" data-step="0" title="回到当前这一期">回到本期</span>` : ''}
+      <span class="s" data-act="dash-period-nav" data-step="1" title="往后一期">›</span>
+    </span>`;
+  // "查看"下拉只给有 view_others_dashboard 权限的人（处室/部门领导、管理员）；
+  // 选项来自 allPeople()——扫的是全库出现过的人名，不要求这个人有真实登录账号。
+  // 这是页面级控件，不属于任何一个区域——不管 admin 把"按人"的模块编排到哪个区域，
+  // 具体看的是谁都是同一份 dashViewedPerson()
+  const viewAsHTML = canViewOthers
+    ? `<span class="hint" style="margin-left:14px">查看：<select class="role-select" data-act="dash-view-as">
+        <option value="">本人${DB.settings.me ? '（' + esc(DB.settings.me) + '）' : ''}</option>
+        ${allPeople().filter(p => p !== DB.settings.me).map(p => `<option value="${esc(p)}"${dashViewAsPerson === p ? ' selected' : ''}>${esc(p)}</option>`).join('')}
+      </select></span>`
+    : '';
 
-  /* ---------- ⑤ 人员负荷（牵头 ∪ 参与，同一条任务在两边都算，跟图表页"按人"口径一致） ---------- */
-  const loadMap = new Map();
-  tasks.forEach(t => {
-    const people = personUnion('task', t);
-    const whos = people.length ? people : ['（未指派）'];
-    whos.forEach(who => {
-      if (!loadMap.has(who)) loadMap.set(who, { doing: 0, todo: 0, late: 0, done: 0 });
-      const e = loadMap.get(who);
-      if (isOverdue(t)) e.late++;
-      else if (t.status === 'doing') e.doing++;
-      else if (t.status === 'todo') e.todo++;
-      else if (t.status === 'done') e.done++;
-    });
-  });
-  // 显示全部人员（不再只挑负荷最重的前 9 个），按姓名拼音排序，未指派固定放最后
-  const loads = [...loadMap.entries()].map(([nm, v]) => ({ nm, ...v, total: v.doing + v.todo + v.late + v.done }))
-    .sort((a, b) => {
-      if (a.nm === '（未指派）') return 1;
-      if (b.nm === '（未指派）') return -1;
-      return a.nm.localeCompare(b.nm, 'zh');
-    });
-  const maxLoad = Math.max(1, ...loads.map(l => l.total));
-  const loadRows = loads.map(l => `
-    <div class="load-row" data-act="filter-person" data-person="${esc(l.nm === '（未指派）' ? '__empty__' : l.nm)}"
-         title="${esc(l.nm)}：已完成 ${l.done}，进行中 ${l.doing}，逾期 ${l.late}，未开始 ${l.todo}">
-      <span class="nm">${esc(l.nm)}</span>
-      <span class="track">${[
-        l.done > 0 ? `<span class="seg seg-done" style="width:${l.done / maxLoad * 100}%"></span>` : '',
-        l.doing > 0 ? `<span class="seg seg-doing" style="width:${l.doing / maxLoad * 100}%"></span>` : '',
-        l.late > 0 ? `<span class="seg seg-late" style="width:${l.late / maxLoad * 100}%"></span>` : '',
-        l.todo > 0 ? `<span class="seg seg-todo" style="width:${l.todo / maxLoad * 100}%"></span>` : '',
-      ].join('')}</span>
-      <span class="num">${l.doing + l.todo + l.late} 待完成</span></div>`).join('');
+  const dAll = buildReportData(dashPeriod, dashOffset, '');
+  const dSelf = viewedPerson ? buildReportData(dashPeriod, dashOffset, viewedPerson) : dAll;
+  const dFor = scope => (scope === 'self' ? dSelf : dAll);
 
-  /* ---------- ⑥ 最近动态：读变更日志，逐字段说清楚改了什么（见 pushLog/diffTask） ---------- */
-  // 这里刻意用 visibleTasks() 而不是上面那个 taskIds：taskIds 已经把已删除的任务滤掉了，
-  // 于是"某某删除了任务X"这类动态永远显示不出来——恰恰是最该让人看见的一类动作。
-  // 年度范围仍然跟着全局年度筛选走，跟工作台其它面板保持一致
-  const logTaskIds = new Set(visibleTasks().map(t => t.id));
-  const relevantLog = DB.changelog.filter(e => logTaskIds.has(e.taskId));
-  const feed = relevantLog.slice(-8).reverse().map(e => {
-    const ft = byId('task', e.taskId);
-    return {
-      id: e.taskId, updated_at: e.at, who: e.by, action: e.summary,
-      title: ft ? (ft.deleted_at ? ft.title + '（已删除）' : ft.title) : '（任务已不存在）',
-    };
-  });
+  const sections = dashboardSections();
+  // 排布逻辑跟 renderReport() 一字不差：colW 只喂给模块自己画图用，真实布局靠 flex:<倍数> 1 0，
+  // 详细理由见 renderReport() 那段"两层宽度不能混"的注释
+  const pageW = (($('#page-dashboard') || {}).clientWidth) || 900;
+  const sectionsHTML = sections.map(s => {
+    const rowsHTML = s.rows.map(row => {
+      const weights = row.map(k => (s.widths && s.widths[k]) || 1);
+      const totalWeight = weights.reduce((a, b) => a + b, 0);
+      const rowW = pageW - 24 * (row.length - 1);
+      const panels = row.map((k, i) => {
+        const m = REPORT_MODULE_MAP[k];
+        const w = weights[i];
+        const colW = Math.max(200, Math.floor(rowW * w / totalWeight));
+        const flexStyle = row.length > 1 ? ` style="flex:${w} 1 0"` : '';
+        const d = dFor(s.personScope[k]);
+        return `<div class="panel rep-col"${flexStyle}>${reportModHead(m, m.note ? m.note(d) : '', m.titleCount ? m.titleCount(d) : null)}
+          <div class="panel-b">${m.html(d, { width: colW })}</div></div>`;
+      }).join('');
+      return row.length > 1 ? `<div class="rep-row">${panels}</div>` : panels;
+    }).join('');
+    return `<div class="rep-region-title">${esc(s.title)}</div>
+      ${rowsHTML || '<div class="panel"><div class="panel-b"><div class="empty-mini">这个区域还没有勾选任何模块</div></div></div>'}`;
+  }).join('');
 
   $('#page-dashboard').innerHTML = `<div class="pad">
-    <div class="stat-groups">
-      <div class="stat-group stat-group-task">
-        <div class="stat-group-label">任务维度</div>
-        <div class="cards">
-          ${card('未完成任务', open.length, '', 'all')}
-          ${card('逾期任务', overdue.length, overdue.length ? 'warn' : '', 'overdue')}
-          ${card('今日到期任务', dueToday.length, '', 'today')}
-          ${card('本周到期任务', week.length, '', 'week')}
-          ${card('本月完成任务', monthDone.length, 'ok', 'done')}
-          ${card('我的在办任务', me ? mineOpen.length : '—', '', me ? 'mine' : '')}
-        </div>
-      </div>
-      <div class="stat-group stat-group-ms">
-        <div class="stat-group-label">里程碑维度</div>
-        <div class="cards">
-          ${card('未完成里程碑', msOpen.length, '')}
-          ${card('逾期里程碑', msOverdue.length, msOverdue.length ? 'warn' : '')}
-          ${card('今日到期里程碑', msDueToday.length, '')}
-          ${card('本周到期里程碑', msWeek.length, '')}
-          ${card('本月完成里程碑', msMonthDone.length, 'ok')}
-        </div>
-      </div>
-    </div>
-
-    <div class="dash-grid">
-      <div class="dash-col">
-        <div class="panel"><div class="panel-h"><span>⚠ 需要关注</span><span class="seg-ctrl">${seg}</span></div>
-          <div class="panel-b">${focusList}</div></div>
-
-        <div class="panel"><div class="panel-h"><span>▤ 各职责/工作推进情况</span>
-          <span class="hint">按编号排序 · 点击下钻 · <span class="toggle-view" data-act="dash-expand-all">全部展开</span> <span class="toggle-view" data-act="dash-collapse-all">全部折叠</span></span></div>
-          <div class="panel-b">
-            ${dutyRows}
-            <div class="legend">
-              <span><i style="background:var(--c-done)"></i>已完成</span>
-              <span><i style="background:var(--c-doing)"></i>进行中</span>
-              <span><i style="background:var(--c-late)"></i>逾期</span>
-              <span><i style="background:var(--c-todo)"></i>未开始</span>
-            </div></div></div>
-
-        <div class="panel"><div class="panel-h"><span>◈ 里程碑甘特图</span>
-          <span class="hint">点箭头逐级展开职责/工作 · <span class="toggle-view${dashMsMineOnly ? ' on' : ''}" data-act="dash-ms-toggle-mine">我的里程碑</span> · <span class="toggle-view" data-act="dash-ms-expand-all">全部展开</span> <span class="toggle-view" data-act="dash-ms-expand-to-work">展开到工作层</span> <span class="toggle-view" data-act="dash-ms-collapse-all">全部折叠</span></span></div>
-          <div class="panel-b">${dashMsTreeHtml}
-          <div class="chart-note">里程碑挂在具体任务下，这里按"职责→工作→任务"逐级展开；折叠的职责/工作行会聚合展示其下所有里程碑。</div></div></div>
-      </div>
-
-      <div class="dash-col">
-        <div class="panel"><div class="panel-h"><span>👤 我的工作台</span></div>
-          <div class="panel-b">${myPanel}</div></div>
-
-        <div class="panel"><div class="panel-h"><span>▥ 人员负荷（仅指任务数，不代表工作量）</span>
-          <span class="hint">点击筛选</span></div>
-          <div class="panel-b">${loads.length ? loadRows : '<div class="empty-mini">暂无数据</div>'}
-            <div class="legend">
-              <span><i style="background:var(--c-done)"></i>已完成</span>
-              <span><i style="background:var(--c-doing)"></i>进行中</span>
-              <span><i style="background:var(--c-late)"></i>逾期</span>
-              <span><i style="background:var(--c-todo)"></i>未开始</span>
-            </div></div></div>
-
-        <div class="panel"><div class="panel-h"><span>🕘 最近动态</span></div>
-          <div class="panel-b feed">${feed.length ? feed.map(f => `
-            <div class="li" data-act="focus-task" data-id="${f.id}" title="${esc(f.action + ' · ' + f.title)}">
-              <span class="who">${esc(f.who || '—')}</span>
-              <span class="what">${esc(f.action)} · ${esc(f.title)}</span>
-              <span class="when">${esc(relTime(f.updated_at))}</span></div>`).join('') : '<div class="empty-mini">暂无</div>'}</div></div>
-      </div>
-    </div>
+    ${hasPermission('config_dashboard') ? dashboardConfigPanelHTML() : ''}
+    <div class="panel"><div class="panel-h">
+      <span>统计周期：${esc(periodLabel)}（${esc(rangeStart)} ～ ${esc(rangeEnd)}）</span>
+      <span style="display:flex;align-items:center"><span class="seg-ctrl">${periodBtns}</span>${navBtns}${viewAsHTML}</span>
+    </div></div>
+    ${sectionsHTML || '<div class="empty-mini">工作台还没有任何区域，去上面"工作台编排"里添加一个</div>'}
   </div>`;
-  $('#status-left').textContent = `${tasks.length} 条任务 · ${works.length} 项工作 · ${DB.duties.filter(d => !d.deleted_at).length} 项职责`;
+  $('#status-left').textContent = `${dAll.tasks.length} 条任务 · ${dAll.works.length} 项工作 · ${DB.duties.filter(d => !d.deleted_at).length} 项职责`;
 }
 function workName(code) { const w = byId('work', code); return w ? w.name : (code ? code + '?' : '未归属'); }
 
@@ -4089,6 +4179,37 @@ function personMatrixHTML(dutyStat, workStat, people, heat, expandedSet, toggleA
 function statCard(k, v, cls, attrs) {
   return `<div class="card${attrs ? ' clickable' : ''}"${attrs || ''}><div class="k">${esc(k)}</div><div class="v ${cls || ''}">${v}</div></div>`;
 }
+// "本期涉及 X / 处室总数 Y"这类跨级分数卡片的取值格式，配 statCard 用（statCard 的 v 本来就不转义，
+// 直接拼小标签进去）；分母部分调小、调暗，视觉上一眼分清"这期占了多少"还是"总共有多少"
+function fracStr(num, den) { return `${num}<span class="frac-den">/${den}</span>`; }
+// 职责总数是纯全局概念，不随"按人/按整体"变化——一个人不会"拥有"若干条职责，只会牵头/参与
+// 若干条工作，所以这个数跟 buildReportData 的 person 参数无关，直接用这个小函数现查即可
+function visibleDutyCount() { return DB.duties.filter(x => !x.deleted_at).length; }
+// 任务状态四分（已完成/进行中/未开始/逾期，逾期优先判定、互斥、加起来等于传入任务总数）：
+// 工作台"整体统计卡片"（全量口径）和报告页"本期完成进度"（periodTasks 口径）原来各写了一份
+// 一模一样的 forEach，这里合并成一个函数，喂什么任务列表进去就按什么口径统计
+function taskStatusBreakdown(tasks) {
+  const s = { done: 0, doing: 0, todo: 0, late: 0 };
+  tasks.forEach(t => {
+    if (isOverdue(t)) s.late++;
+    else if (t.status === 'done') s.done++;
+    else if (t.status === 'doing') s.doing++;
+    else s.todo++;
+  });
+  return s;
+}
+// 里程碑没有"进行中/未开始"这种连续状态，只有"完成没完成"，未完成的再拆"逾期"和"还没到期"——
+// 跟任务的四态不是同一套词，所以单独一个函数，别硬凑成任务那四个桶
+function msStatusBreakdown(msList) {
+  const today = todayStr();
+  const s = { done: 0, overdue: 0, notDue: 0 };
+  msList.forEach(m => {
+    if (m.done === '1') s.done++;
+    else if (m.plan_date && m.plan_date < today) s.overdue++;
+    else s.notDue++;
+  });
+  return s;
+}
 const statusLegend = `<div class="legend">
   <span><i style="background:var(--c-done)"></i>已完成</span>
   <span><i style="background:var(--c-doing)"></i>进行中</span>
@@ -4143,9 +4264,15 @@ function lineChart(data, w, ariaLabel, keys) {
     g += `<line class="ax-grid" x1="${padL}" y1="${y(v)}" x2="${w - padR}" y2="${y(v)}"/>
           <text class="ax-text" x="${padL - 6}" y="${y(v) + 3}" text-anchor="end">${v}</text>`;
   }
+  // 哪些点连坐标轴上的时间标签都一起标——data.length<=12 全标，再多就跟 xlab 一样隔一个标一个，
+  // 免得点数一多（比如按天的粒度）挤成一团看不清
+  const showAt = i => data.length <= 12 || i % 2 === 0;
   const xlab = data.map((d, i) =>
-    (data.length <= 12 || i % 2 === 0)
-      ? `<text class="ax-text" x="${x(i)}" y="${h - 8}" text-anchor="middle">${esc(d.label)}</text>` : '').join('');
+    showAt(i) ? `<text class="ax-text" x="${x(i)}" y="${h - 8}" text-anchor="middle">${esc(d.label)}</text>` : '').join('');
+  // 单指标图（待办总量趋势这种）在标了时间的那些点上方顺带标出数值，不用光靠悬浮提示才看得到数字；
+  // 双指标图两条线容易在标签处叠在一起，暂不加，等真有双指标场景用到这个函数再说
+  const valLab = single ? data.map((d, i) => showAt(i)
+    ? `<text class="ax-text val" x="${x(i).toFixed(1)}" y="${(y(d[aKey]) - 8).toFixed(1)}" text-anchor="middle">${d[aKey]}</text>` : '').join('') : '';
   // 圆点 = 第一条线，方块 = 第二条线（二次编码，蓝绿在蓝黄色盲下接近）
   const mkA = data.map((d, i) => `<circle class="mk mk-new" cx="${x(i).toFixed(1)}" cy="${y(d[aKey]).toFixed(1)}" r="3.5"><title>${esc(d.label)} ${esc(aLabel)} ${d[aKey]}</title></circle>`).join('');
   const mkB = single ? '' : data.map((d, i) => `<rect class="mk mk-done" x="${(x(i) - 3.5).toFixed(1)}" y="${(y(d[bKey]) - 3.5).toFixed(1)}" width="7" height="7"><title>${esc(d.label)} ${esc(bLabel)} ${d[bKey]}</title></rect>`).join('');
@@ -4158,7 +4285,7 @@ function lineChart(data, w, ariaLabel, keys) {
     ${xlab}
     <path class="ln ln-new" d="${path(aKey)}"/>
     ${single ? '' : `<path class="ln ln-done" d="${path(bKey)}"/>`}
-    ${mkA}${mkB}
+    ${mkA}${mkB}${valLab}
     <line class="crosshair" id="ch-line" x1="0" y1="${padT}" x2="0" y2="${padT + ih}" style="display:none"/>
     <g id="ch-hits">${hit}</g>
   </svg>`;
@@ -4844,12 +4971,15 @@ function periodLabelFor(period, offset) {
   const n = Math.abs(offset);
   return (offset < 0 ? '上' : '下') + (n === 1 ? '' : n) + unit;
 }
-function buildReportData(period, offset) {
+// person：不传/空串 = 全处口径（原样不变）；传人名 = 先用 dashPersonTasks 把任务收窄到
+// "这个人牵头∪参与"的那一份，再往下走同一套统计逻辑——dutyStat/statusStat/spi/peopleStat……
+// 这些计算完全不用关心"个人/整体"这回事，喂什么任务集合进来就统计什么，模块也一样不用关心。
+function buildReportData(period, offset, person) {
   period = period || 'week';
   const periodLabel = periodLabelFor(period, offset || 0);
   const { start: rangeStart, end: rangeEnd } = periodRange(period, offset);
-  const tasks = visibleTasks().filter(t => !t.deleted_at);
-  const works = visibleWorks();
+  const tasks = person ? dashPersonTasks(person) : visibleTasks().filter(t => !t.deleted_at);
+  const works = person ? visibleWorks().filter(w => w.owner === person) : visibleWorks();
   const today = todayStr();
   const open = tasks.filter(isOpen);
   const overdue = tasks.filter(isOverdue).sort((a, b) => (a.plan_date || '').localeCompare(b.plan_date || ''));
@@ -4906,13 +5036,7 @@ function buildReportData(period, offset) {
   });
   /* 状态分布的口径跟工作台"人员负荷"完全一致：逾期单独成一类、优先判定，
      不再重复计进"进行中/未开始"。四类加起来正好等于当期任务总数，汇报时不会对不上账。 */
-  const statusStat = { done: 0, doing: 0, todo: 0, late: 0 };
-  periodTasks.forEach(t => {
-    if (isOverdue(t)) statusStat.late++;
-    else if (t.status === 'done') statusStat.done++;
-    else if (t.status === 'doing') statusStat.doing++;
-    else statusStat.todo++;   // 未开始 + 挂起
-  });
+  const statusStat = taskStatusBreakdown(periodTasks);
   const spi = computeSPI(periodTasks);
   const byPlanDate = (a, b) => (a.plan_date || '').localeCompare(b.plan_date || '');
   const highPriTasks = periodOpen.filter(t => t.priority === '1').sort(byPlanDate);
@@ -4941,9 +5065,35 @@ function buildReportData(period, offset) {
       return a.nm.localeCompare(b.nm, 'zh');
     });
 
-  return { tasks, works, today, period, periodLabel, rangeStart, rangeEnd, open, overdue, doneInRange, dutyStat, workStat, deliveredInRange, msAttention,
+  // offset/person 跟着一起带出去：模块内部要跨期/跨人再算一遍时（比如"下期计划"要拿
+  // offset+1 那份数据），照着这两个字段调 buildReportData(d.period, d.offset+1, d.person)
+  // 就行，不用另外传参。msAll 也顺手带出去（d.tasks 名下全部里程碑，不筛日期/完成状态）——
+  // 上面 periodMs/msAttention/overdueMs 都是从它筛出来的某个特定切面，模块要是想要"这批任务
+  // 名下所有里程碑"这种更原始的集合（比如按 done/plan_date 自己再筛一遍），不用再重新扫一遍
+  return { tasks, works, today, period, periodLabel, rangeStart, rangeEnd, offset: offset || 0, person: person || '', open, overdue, doneInRange, dutyStat, workStat, deliveredInRange, msAttention,
     periodTasks, periodMs, periodOpen, planTasks, planMs, dutyCodes, workIds, statusStat, spi,
-    highPriTasks, overdueMs, soonTasks, soonMs, peopleStat };
+    highPriTasks, overdueMs, soonTasks, soonMs, peopleStat, taskMilestones: msAll };
+}
+/* 一条任务"最近一个里程碑"指的是它名下按计划日期排序、排在最前面的那个还没交的里程碑
+   （前面几个都已经交了，只能从"排在它前面的都完成了、它自己还没完成"这个位置关系反推出来——
+   里程碑本身没有"进行中"这种中间状态，只有完成/未完成；排序用 plan_date，跟检查点编辑器、
+   甘特图是同一套"里程碑没有独立排序字段，一律按计划日期升序"的隐含顺序，见 msTreeGroups
+   上面的注释）。全部里程碑都已交付、或者这条任务名下压根没有里程碑的，不会出现在这个 Map 里——
+   调用方自己判断"没有 = 用任务自己的计划完成时间兜底"还是"没有 = 不算数"。
+   返回 Map<任务 id, 里程碑对象>，不预先按任务筛，调用方自己再跟别的过滤条件取交集。 */
+function nextMilestoneMap() {
+  const byTask = new Map();
+  DB.milestones.filter(m => !m.deleted_at).forEach(m => {
+    if (!byTask.has(m.task)) byTask.set(m.task, []);
+    byTask.get(m.task).push(m);
+  });
+  const map = new Map();
+  byTask.forEach((list, taskId) => {
+    const sorted = list.slice().sort((a, b) => (a.plan_date || '9999-99-99').localeCompare(b.plan_date || '9999-99-99'));
+    const next = sorted.find(m => m.done !== '1');
+    if (next) map.set(taskId, next);
+  });
+  return map;
 }
 /* =============================================================
    17c. 报告页的「区域 + 模块」编排
@@ -4963,6 +5113,17 @@ function buildReportData(period, offset) {
    · scope: 'period'|'all'   → 这个模块认不认周期。绝大多数认（只统计当期），
                                但趋势、甘特、"最近动态"这类天生是跨期的，标成 'all'，
                                界面上会明确标出"全量"，免得有人以为翻期没生效
+   · personAware: 'onlyAll'|'either'|'onlyPerson'（P80 起新增）→ 这个模块认不认"看谁的"。
+                               buildReportData(period, offset, person) 传了 person 就把 d.tasks/
+                               d.works 先按这个人收窄，下面统计逻辑原样不变，模块本身完全不用关心
+                               "个人/整体"是怎么实现的。'onlyAll' = 天生就该看全处（人员负荷、最近动态
+                               这类"看大家在干嘛"的模块，缩到一个人身上就没意义了）；'either' = 按人
+                               按整体都说得通（涉及范围、完成进度、逾期/即将到期这类清单）；'onlyPerson'
+                               = 只有按人筛才有意义（P80 起新增的"我的XXX"系列，比如"牵头/参与"拆分，
+                               整体口径下没有"谁是牵头"这个参照系）。不写默认当 'onlyAll'，这是历史模块
+                               的保守缺省——没人验证过它们在按人口径下好不好用之前，不主动开放这个选项。
+                               这一版只有工作台的默认编排会用到 personScope，报告页的编排界面本轮
+                               不出这个开关（配置层面的事，见 dashboardConfigPanelHTML 那段说明）。
    · html(d, ctx)            → 页面上的面板正文；ctx.width 是这一列实际能用的像素宽度
                                （模块可以并排放，宽度不再固定，见 reportSections 的 rows）
    · text(d, push)           → 纯文本简报的若干行（必填）
@@ -4989,7 +5150,8 @@ const REPORT_STATUS_LEGEND = `<div class="legend">
 /* 模块分类。模块从十来个涨到二十多个之后，配置面板里平铺一大片勾选框已经没法用了，
    按"这块讲的是什么"分组，找起来才有方向。顺序就是选择器里的显示顺序。 */
 const REPORT_GROUPS = [
-  { key: 'overview', label: '本期概览' },
+  { key: 'overallSnapshot', label: '整体统计' },
+  { key: 'periodOverall', label: '本期处室统计' },
   { key: 'attention', label: '需要关注' },
   { key: 'people', label: '人员' },
   { key: 'duty', label: '职责与工作' },
@@ -4997,6 +5159,7 @@ const REPORT_GROUPS = [
   { key: 'milestone', label: '里程碑' },
   { key: 'trend', label: '趋势与时间' },
   { key: 'list', label: '成果清单与动态' },
+  { key: 'personal', label: '工作台·我的（P80 起新增，只有按人筛才有意义）' },
 ];
 /* 报告页里给图表用的可用宽度。图表页那个 chartWidth() 读的是 #page-charts，
    在报告页永远量不到东西；而且报告模块现在可以并排放，同一个模块在"独占一行"和
@@ -5023,7 +5186,7 @@ function reportIsTable(key) { return !!chartTableView['rep_' + key]; }
 function reportModHead(m, note, count) {
   const isTable = m.table && reportIsTable(m.key);
   return `<div class="panel-h"><span>${esc(m.label)}${count != null ? `（${count}）` : ''}</span><span>
-    ${m.scope === 'all' ? '<span class="hint" style="margin-right:8px">全量 · 不随周期变化</span>' : ''}
+    ${m.scope === 'all' && !m.hideScopeNote ? '<span class="hint" style="margin-right:8px">全量 · 不随周期变化</span>' : ''}
     ${note ? `<span class="hint" style="margin-right:8px">${note}</span>` : ''}
     ${m.table ? `<span class="toggle-view" data-act="chart-view" data-id="${esc('rep_' + m.key)}">${isTable ? '看图表' : '看数据表'}</span>` : ''}
   </span></div>`;
@@ -5036,36 +5199,242 @@ function taskViewAttrs(view) { return ` data-act="goto-view" data-page="tasks" d
 function taskFilterAttrs(field, val) { return ` data-act="report-filter-tasks" data-field="${esc(field)}" data-val="${esc(val)}"`; }
 function workFilterAttrs(field, val) { return ` data-act="report-filter-works" data-field="${esc(field)}" data-val="${esc(val)}"`; }
 function dutyFilterAttrs(field, val) { return ` data-act="report-filter-duties" data-field="${esc(field)}" data-val="${esc(val)}"`; }
+// 工作台"我的统计卡片"下钻专用：任务页视图（已完成/进行中/逾期…）+ 按"相关"（牵头∪参与）筛到某个人，
+// 两者要同时生效，跟 taskViewAttrs（不筛人）、filter-person（不分视图，只筛"全部"）都不是一回事
+function dashPersonViewAttrs(view, person) { return ` data-act="dash-drill-tasks" data-view="${esc(view)}" data-person="${esc(person)}"`; }
+/* P80 起工作台"我的"系列模块专用小工具（这一批"本期已完成/进行中/逾期/下期计划"四个模块
+   最初做成"牵头/参与两个小节 × 任务/里程碑两个子清单"，四层嵌套看着很碎，改成"任务和里程碑
+   混排成一条条清晰的列表"；后来又发现同一条任务如果自己也符合条件，会跟它名下符合条件的
+   里程碑各占一行——汇报时明明是同一件事却被念两遍。这一版改成按任务合并：
+   · dashIsLeadTask/dashIsLeadMs → "牵头"判定，统一看 owner === person（里程碑看它所属任务的 owner）
+   · dashMergeByTask              → 核心：同一条任务在这个模块里只留一行。任务自己符合条件的，
+                                   taskQualifies=true，行的日期用任务自己的；只有里程碑符合、
+                                   任务本身不符合的，taskQualifies=false，日期改用里程碑的（多个
+                                   里程碑都符合时，取跟排序方向一致的那个——已完成倒序取最新，
+                                   进行中/逾期/下期计划正序取最早，这样这一行冒出来的位置跟它
+                                   "为什么会出现在这个模块里"是对得上的）；任务和里程碑都符合的，
+                                   两部分信息都保留，渲染时拼进同一行。
+   · dashItemRow                  → 一条合并后的记录拼成一行：日期 + 牵头/参与标签（.lvl 复用
+                                   报告页"呈报层级"那颗小徽章的样式）+ 📌 任务标题，如果这条任务
+                                   名下有符合条件的里程碑，后面再拼"· ◆里程碑：交付物A、交付物B"。
+                                   整行可点，点了直接 openTaskDetail 弹任务详情（这个应用里里程碑
+                                   本来就内嵌在任务详情弹窗里编辑），不像 reportTaskRows 的
+                                   'focus-task' 那样跳转到任务页去。
+   · dashGroupedRows/dashGroupedCount → 牵头的排一块、参与的排一块（各自内部按日期排序），
+                                   两块之间没有大标题、只有一道浅分隔线；count 数的是合并去重后
+                                   的行数（"实际有几条任务出了成果"），不是任务数+里程碑数的
+                                   杂糅，喂给模块的 titleCount，面板标题上能看到"本期已完成（5）”
+                                   这种数字。 */
+function dashIsLeadTask(t, person) { return t.owner === person; }
+function dashIsLeadMs(m, person) { const mt = byId('task', m.task); return !!mt && mt.owner === person; }
+function dashMergeByTask(taskList, msList, dateKey, dir) {
+  const key = dateKey || 'plan_date';
+  const byTask = new Map();
+  taskList.forEach(t => {
+    byTask.set(t.id, { task: t, taskQualifies: true, date: t[key] || '', ms: [] });
+  });
+  msList.forEach(m => {
+    const t = byId('task', m.task);
+    if (!t) return;
+    let entry = byTask.get(t.id);
+    if (!entry) { entry = { task: t, taskQualifies: false, date: '', ms: [] }; byTask.set(t.id, entry); }
+    entry.ms.push(m);
+    if (!entry.taskQualifies) {
+      const md = m[key] || '';
+      if (!entry.date || (dir < 0 ? md > entry.date : md < entry.date)) entry.date = md;
+    }
+  });
+  return [...byTask.values()];
+}
+function dashItemRow(entry, role, dateColor) {
+  const t = entry.task;
+  const date = fmtDate(entry.date);
+  const roleLabel = role === 'lead' ? '牵头' : '参与';
+  const msNames = entry.ms.map(m => m.deliverable || '（未填写交付物）');
+  const msPartHtml = msNames.length ? ` · ◆里程碑：${esc(msNames.join('、'))}` : '';
+  const titleAttr = msNames.length ? `${t.title} · 里程碑：${msNames.join('、')}` : t.title;
+  return `<div class="li" data-act="cp-editor" data-id="${esc(t.id)}" title="${esc(titleAttr)}">
+    <span class="d"${dateColor ? ` style="color:${dateColor}"` : ''}>${esc(date)}</span>
+    <span class="lvl">${esc(roleLabel)}</span>
+    <span class="t">📌 ${esc(t.title)}${msPartHtml}</span>
+    <span class="p">${esc(workName(t.work))}</span></div>`;
+}
+// lists: { ledTasks, ledMs, joinTasks, joinMs }；dir: 1=正序（早的在前，进行中/逾期/下期计划用），
+// -1=倒序（新的在前，已完成用）；牵头组、参与组各自内部按合并后的日期排序
+function dashGroupedRows(lists, dateKey, dateColor, dir, emptyMsg) {
+  const buildGroup = (taskList, msList, role) => dashMergeByTask(taskList, msList, dateKey, dir)
+    .sort((a, b) => dir * (a.date || '9999').localeCompare(b.date || '9999'))
+    .map(e => dashItemRow(e, role, dateColor)).join('');
+  const leadHTML = buildGroup(lists.ledTasks, lists.ledMs, 'lead');
+  const joinHTML = buildGroup(lists.joinTasks, lists.joinMs, 'join');
+  if (!leadHTML && !joinHTML) return `<div class="empty-mini">${esc(emptyMsg)}</div>`;
+  const joinBlock = joinHTML
+    ? `<div class="mini-list"${leadHTML ? ' style="margin-top:8px;padding-top:8px;border-top:1px dashed var(--border)"' : ''}>${joinHTML}</div>` : '';
+  return (leadHTML ? `<div class="mini-list">${leadHTML}</div>` : '') + joinBlock;
+}
+// count 不关心具体日期/排序方向，随便传一个 dateKey/dir 进 dashMergeByTask 都不影响"合并出几行"这个数
+function dashGroupedCount(lists) {
+  return dashMergeByTask(lists.ledTasks, lists.ledMs, 'plan_date', 1).length
+    + dashMergeByTask(lists.joinTasks, lists.joinMs, 'plan_date', 1).length;
+}
+// 跟 dashGroupedRows 是同一套合并逻辑的纯文本版，给 text()（打印/纯文本导出）用——
+// 不合并的话，纯文本汇报里会重复念两遍同一条任务，跟 html() 版本要解决的问题一模一样
+function dashRoleText(taskList, msList, dateKey, dir, push, roleLabel) {
+  const entries = dashMergeByTask(taskList, msList, dateKey, dir).sort((a, b) => dir * (a.date || '9999').localeCompare(b.date || '9999'));
+  if (!entries.length) { push(`${roleLabel}：无`); return; }
+  push(`${roleLabel}：`);
+  entries.forEach(e => {
+    const msNames = e.ms.map(m => m.deliverable || '（未填写交付物）');
+    const msPart = msNames.length ? `（里程碑：${msNames.join('、')}）` : '';
+    push(`- ${fmtDate(e.date)}　${e.task.title}${msPart}`);
+  });
+}
+/* 四个"本期已完成/进行中/逾期/下期计划"模块各自的牵头/参与拆分，从各自的 html()/titleCount()
+   两处调用点抽出来，避免同一份筛选逻辑写两遍、慢慢改出两份不一致的口径。都返回
+   { ledTasks, ledMs, joinTasks, joinMs }（没设置使用者时返回 null，调用方自己判断）。 */
+function dashMyDoneSplitLists(d) {
+  if (!d.person) return null;
+  return {
+    ledTasks: d.doneInRange.filter(t => dashIsLeadTask(t, d.person)), joinTasks: d.doneInRange.filter(t => !dashIsLeadTask(t, d.person)),
+    ledMs: d.deliveredInRange.filter(m => dashIsLeadMs(m, d.person)), joinMs: d.deliveredInRange.filter(m => !dashIsLeadMs(m, d.person)),
+  };
+}
+/* "本期进行中"该包含哪些任务/里程碑：计划完成日不晚于本期末、还没完成的——"进行中"这个词
+   在这里同时指"还没启动"（todo）和"启动了但没做完"（doing）两种状态，不能只看计划完成日是不是
+   精确落在本期区间内（原来 dueOpen/msDueOpen 多加了一条 plan_date >= rangeStart 下限，会把
+   "计划完成日在本期之前、但至今还没做完"的欠账任务漏掉）。这条不设下限跟 buildReportData 里
+   periodTasks 的"逾期任务带进本期"是同一个道理。"我的统计卡片"和"⏳ 本期进行中"列表原来
+   各写了一份一模一样的筛选、只是没设成共享函数，这里合并，以后不会再各自改出两个口径。 */
+function dashDueOpen(d) {
+  const tasks = d.tasks.filter(t => isOpen(t) && t.plan_date && t.plan_date <= d.rangeEnd);
+  const ms = d.taskMilestones.filter(m => m.done !== '1' && m.plan_date && m.plan_date <= d.rangeEnd);
+  return { tasks, ms };
+}
+function dashMyDoingSplitLists(d) {
+  if (!d.person) return null;
+  const { tasks: dueOpen, ms: msDueOpen } = dashDueOpen(d);
+  return {
+    ledTasks: dueOpen.filter(t => dashIsLeadTask(t, d.person)), joinTasks: dueOpen.filter(t => !dashIsLeadTask(t, d.person)),
+    ledMs: msDueOpen.filter(m => dashIsLeadMs(m, d.person)), joinMs: msDueOpen.filter(m => !dashIsLeadMs(m, d.person)),
+  };
+}
+function dashMyOverdueSplitLists(d) {
+  if (!d.person) return null;
+  return {
+    ledTasks: d.overdue.filter(t => dashIsLeadTask(t, d.person)), joinTasks: d.overdue.filter(t => !dashIsLeadTask(t, d.person)),
+    ledMs: d.overdueMs.filter(m => dashIsLeadMs(m, d.person)), joinMs: d.overdueMs.filter(m => !dashIsLeadMs(m, d.person)),
+  };
+}
+/* "下期计划"该看哪个日期、算不算数：一条任务如果名下有还没交的里程碑，真正决定"下一期要交
+   什么"的是它最近一个里程碑的计划完成时间，不是任务自己那个经常一开始就定好、很少跟着改的
+   计划完成时间——所以这两件事用同一个判断：有里程碑的任务只走 nextMs 那条线（日期用里程碑
+   的），没有里程碑（或名下里程碑已经全部交完）的任务才走 nextTasks 那条线（日期退回用任务
+   自己的）。两条线互斥，靠 dashMergeByTask 按 msList 优先于纯任务日期的规则自动合并成一行，
+   不用另外写合并逻辑。
+   这一版收紧了口径：以前"状态是进行中"的任务/"当前排在最前面"的里程碑不管计划日期是否落在
+   下一期都会被拉进来，现在去掉这条兜底——下期计划要回答的是"下一期真有什么要交"，不是"手上
+   还有什么没做完"（那是"本期进行中"要回答的问题），所以必须完成节点确实落在下一期区间内才算数。 */
+function dashMyNextPlanLists(d) {
+  if (!d.person) return null;
+  const nextLabel = periodLabelFor(d.period, d.offset + 1);
+  const { start: nextStart, end: nextEnd } = periodRange(d.period, d.offset + 1);
+  const nextMsByTask = nextMilestoneMap();
+  const inNextPeriod = date => !!date && date >= nextStart && date <= nextEnd;
+  const nextTasks = d.tasks.filter(t => isOpen(t) && !nextMsByTask.has(t.id) && inNextPeriod(t.plan_date));
+  const nextMs = d.taskMilestones.filter(m => nextMsByTask.get(m.task) === m && inNextPeriod(m.plan_date));
+  return {
+    nextLabel,
+    ledTasks: nextTasks.filter(t => dashIsLeadTask(t, d.person)), joinTasks: nextTasks.filter(t => !dashIsLeadTask(t, d.person)),
+    ledMs: nextMs.filter(m => dashIsLeadMs(m, d.person)), joinMs: nextMs.filter(m => !dashIsLeadMs(m, d.person)),
+  };
+}
+/* "本期涉及范围/本期工作计划量/本期完成进度"三个报告页模块，跟工作台"处室概览统计卡片"
+   本来是同一组底层数字（d.dutyCodes/d.periodTasks/d.periodMs/d.statusStat/d.spi）各写了一份
+   拼卡片的代码——改成这三个共享渲染函数，报告页三个模块和 dashOverviewCards 都调同一份，
+   以后改口径/改措辞不会有一边改了一边忘改。分数都是"这期数 / 处室（或这个人）总数"：
+   职责的分母固定用全处总数（人不会"拥有"职责）；工作/任务/里程碑的分母用 d.works.length/
+   d.tasks.length/d.taskMilestones.length——这三个本来就是已经按 personScope 筛好的口径
+   （按人就是这个人名下的总数，按整体就是全处总数），不用另外再算一遍。 */
+function periodScopeCardsHTML(d) {
+  return `<div class="cards">
+      ${statCard('涉及职责', fracStr(d.dutyCodes.size, visibleDutyCount()))}
+      ${statCard('涉及工作', fracStr(d.workIds.size, d.works.length))}
+      ${statCard('涉及任务', fracStr(d.periodTasks.length, d.tasks.length))}
+      ${statCard('涉及里程碑', fracStr(d.periodMs.length, d.taskMilestones.length))}
+    </div>`;
+}
+function periodPlanCardsHTML(d) {
+  return `<div class="cards">
+      ${statCard('需推进任务', fracStr(d.periodOpen.length, d.periodTasks.length))}
+      ${statCard('计划完成任务', fracStr(d.planTasks.length, d.periodTasks.length))}
+      ${statCard('计划完成里程碑', fracStr(d.planMs.length, d.periodMs.length))}
+    </div>`;
+}
+function periodStatusCardsHTML(d) {
+  const N = d.periodTasks.length;
+  return `<div class="cards">
+      ${statCard('SPI', d.spi === null ? '—' : d.spi.toFixed(2), d.spi === null ? '' : (d.spi >= 1 ? 'ok' : 'warn'))}
+      ${statCard('已完成', fracStr(d.statusStat.done, N), 'ok', taskViewAttrs('done'))}
+      ${statCard('进行中', fracStr(d.statusStat.doing, N), '', taskViewAttrs('doing'))}
+      ${statCard('未开始', fracStr(d.statusStat.todo, N), '', taskViewAttrs('todo'))}
+      ${statCard('逾期', fracStr(d.statusStat.late, N), d.statusStat.late ? 'warn' : '', taskViewAttrs('overdue'))}
+    </div>`;
+}
 const REPORT_MODULES = [
-  { key: 'periodScope', label: '本期涉及范围', desc: '本期一共涉及多少职责、工作、任务、里程碑',
-    group: 'overview', scope: 'period',
-    html: d => `<div class="cards">
-        ${statCard('涉及职责', d.dutyCodes.size)}
-        ${statCard('涉及工作', d.workIds.size)}
-        ${statCard('涉及任务', d.periodTasks.length)}
-        ${statCard('涉及里程碑', d.periodMs.length)}
-      </div>
-      <div class="chart-note">"涉及"= 计划完成日落在本期 + 本期实际完成 + 上期欠下来还没完成的，三者合起来去重。</div>`,
-    text: (d, push) => push(`职责 ${d.dutyCodes.size} 项 · 工作 ${d.workIds.size} 项 · 任务 ${d.periodTasks.length} 条 · 里程碑 ${d.periodMs.length} 个`),
-    canvas: (d, a) => a.line(`职责 ${d.dutyCodes.size} 项　·　工作 ${d.workIds.size} 项　·　任务 ${d.periodTasks.length} 条　·　里程碑 ${d.periodMs.length} 个`) },
+  /* P81 后期改版：原来 periodScope/periodPlan/dashOverviewCards 这套"报告页两个独立模块 +
+     工作台一个合并模块"的架子，改成"三个都拆成独立模块，统一放进新分类'本期处室统计'"——
+     报告页/工作台两边现在用的是完全同一份模块定义，不再有"工作台独占的合并版"这种东西，
+     以后谁改了这三块内容，两边天然一起更新，不用再手动同步。periodScope/periodPlan
+     这两个旧 key 因此下线（内容被下面三个模块取代，直接删除，不留兼容壳——旧编排存档里
+     引用这两个 key 会被 reportSections()/dashboardSections() 照既有逻辑滤掉，属于向后兼容
+     的正常路径，不是新增的特殊处理）。periodStatus（下面那个，含 SPI 和饼图的版本）暂时
+     保留，跟这里新加的"本期状态分布"内容重复，怎么处理还没定，先留着。 */
+  { key: 'periodOverallScope', label: '本期涉及范围', group: 'periodOverall', scope: 'period', personAware: 'either',
+    desc: '本期一共涉及多少职责、工作、任务、里程碑，以及各占处室（或这个人）总量的比例',
+    html: d => periodScopeCardsHTML(d),
+    text: (d, push) => push(`职责 ${d.dutyCodes.size}/${visibleDutyCount()} 项 · 工作 ${d.workIds.size}/${d.works.length} 项 · 任务 ${d.periodTasks.length}/${d.tasks.length} 条 · 里程碑 ${d.periodMs.length}/${d.taskMilestones.length} 个`),
+    // 之前退回 a.line() 画一整行文字，屏幕上是四张卡片、图片里挤成一行小字，观感差很多；
+    // 换成 statBoxes 之后跟屏幕的卡片布局对上了（这几张卡本来就没有红绿色，只是形状要对）
+    canvas: (d, a) => a.statBoxes([{ label: '', cards: [
+      { k: '涉及职责', v: `${d.dutyCodes.size}/${visibleDutyCount()}` },
+      { k: '涉及工作', v: `${d.workIds.size}/${d.works.length}` },
+      { k: '涉及任务', v: `${d.periodTasks.length}/${d.tasks.length}` },
+      { k: '涉及里程碑', v: `${d.periodMs.length}/${d.taskMilestones.length}` },
+    ] }]) },
 
-  { key: 'periodPlan', label: '本期工作计划量', desc: '需推进多少任务、计划完成多少任务和里程碑',
-    group: 'overview', scope: 'period',
-    html: d => `<div class="cards">
-        ${statCard('需推进任务', d.periodOpen.length)}
-        ${statCard('计划完成任务', d.planTasks.length)}
-        ${statCard('计划完成里程碑', d.planMs.length)}
-      </div>
-      <div class="chart-note">"需推进"= 本期涉及的任务里还没完成的；"计划完成"= 计划完成日就落在本期之内的。</div>`,
-    text: (d, push) => push(`需推进任务 ${d.periodOpen.length} 条 · 计划完成任务 ${d.planTasks.length} 条 · 计划完成里程碑 ${d.planMs.length} 个`),
-    canvas: (d, a) => a.line(`需推进任务 ${d.periodOpen.length} 条　·　计划完成任务 ${d.planTasks.length} 条　·　计划完成里程碑 ${d.planMs.length} 个`) },
+  { key: 'periodOverallStatus', label: '本期状态分布', group: 'periodOverall', scope: 'period', personAware: 'either',
+    desc: '本期涉及任务里已完成/进行中/未开始/逾期各几条（占本期涉及任务总数比例），加整体 SPI——纯卡片，没有饼图，比 periodStatus 轻',
+    html: d => periodStatusCardsHTML(d),
+    text: (d, push) => push(`SPI ${d.spi === null ? '—' : d.spi.toFixed(2)} · 已完成 ${d.statusStat.done}/${d.periodTasks.length} · 进行中 ${d.statusStat.doing}/${d.periodTasks.length} · 未开始 ${d.statusStat.todo}/${d.periodTasks.length} · 逾期 ${d.statusStat.late}/${d.periodTasks.length}`),
+    canvas: (d, a) => a.statBoxes([{ label: '', cards: [
+      { k: 'SPI', v: d.spi === null ? '—' : d.spi.toFixed(2), ok: d.spi !== null && d.spi >= 1, warn: d.spi !== null && d.spi < 1 },
+      { k: '已完成', v: `${d.statusStat.done}/${d.periodTasks.length}`, ok: true },
+      { k: '进行中', v: `${d.statusStat.doing}/${d.periodTasks.length}` },
+      { k: '未开始', v: `${d.statusStat.todo}/${d.periodTasks.length}` },
+      { k: '逾期', v: `${d.statusStat.late}/${d.periodTasks.length}`, warn: d.statusStat.late > 0 },
+    ] }]) },
+
+  { key: 'periodOverallPlan', label: '本期计划开展', group: 'periodOverall', scope: 'period', personAware: 'either',
+    desc: '需推进多少任务、计划完成多少任务和里程碑，占本期涉及总量的比例',
+    html: d => periodPlanCardsHTML(d),
+    text: (d, push) => push(`需推进任务 ${d.periodOpen.length}/${d.periodTasks.length} 条 · 计划完成任务 ${d.planTasks.length}/${d.periodTasks.length} 条 · 计划完成里程碑 ${d.planMs.length}/${d.periodMs.length} 个`),
+    canvas: (d, a) => a.statBoxes([{ label: '', cards: [
+      { k: '需推进任务', v: `${d.periodOpen.length}/${d.periodTasks.length}` },
+      { k: '计划完成任务', v: `${d.planTasks.length}/${d.periodTasks.length}` },
+      { k: '计划完成里程碑', v: `${d.planMs.length}/${d.periodMs.length}` },
+    ] }]) },
 
   /* 原来"当期完成进度"是纯卡片，"任务状态占比"是另一个独立模块的饼图——两个模块说的是
      同一组数字，只是展示形式不同，拆成两块反而要占两个位置。合并成一块，卡片在左、
      饼图在右（合并前 taskStatusPie 自己是饼图在左，这次特意换边，跟 workOverview
      那种"饼图在左"的旧模块区分开，别让人以为两个面板长一样）。 */
-  { key: 'periodStatus', label: '本期完成进度（含 SPI）', desc: '已完成/进行中/未开始/逾期各几条 + 状态占比饼图，加整体 SPI',
-    group: 'overview', scope: 'period', table: true,
+  { key: 'periodStatus', label: '本期完成进度（含 SPI）', desc: '已完成/进行中/未开始/逾期各几条（占本期涉及任务总数比例）+ 状态占比饼图，加整体 SPI',
+    // 原来单独一个 'overview' 分类，P81 后期改版把 periodScope/periodPlan/dashCards/
+    // dashOverviewCards 这批老同类模块都挪走/下线之后，'overview' 就只剩它一个成员——
+    // 而它自己在默认编排里又是常年被占用的（sec_state 那段），会导致这个分类在模块添加器里
+    // 永远选不出候选、形同虚设。归到 'periodOverall'（跟它内容最接近的 periodOverallStatus
+    // 同一个分类），不再单独维护一个只有一个成员的分类
+    group: 'periodOverall', scope: 'period', personAware: 'either', table: true,
     html: d => {
       if (reportIsTable('periodStatus')) return dataTable(['状态', '数量'],
         [['已完成', d.statusStat.done], ['进行中', d.statusStat.doing], ['未开始', d.statusStat.todo], ['逾期', d.statusStat.late]]);
@@ -5076,59 +5445,69 @@ const REPORT_MODULES = [
         { label: '未开始', n: d.statusStat.todo, color: 'var(--c-todo)', attrs: taskViewAttrs('todo') },
       ];
       return `<div class="chart-flex">
-          <div class="cards" style="flex:1;min-width:220px;margin-bottom:0">
-            ${statCard('SPI', d.spi === null ? '—' : d.spi.toFixed(2), d.spi === null ? '' : (d.spi >= 1 ? 'ok' : 'warn'))}
-            ${statCard('已完成', d.statusStat.done, 'ok', taskViewAttrs('done'))}
-            ${statCard('进行中', d.statusStat.doing, '', taskViewAttrs('doing'))}
-            ${statCard('未开始', d.statusStat.todo, '', taskViewAttrs('todo'))}
-            ${statCard('逾期', d.statusStat.late, d.statusStat.late ? 'warn' : '', taskViewAttrs('overdue'))}
-          </div>
+          <div style="flex:1;min-width:220px;margin-bottom:0">${periodStatusCardsHTML(d)}</div>
           <div class="chart-flex-pie" style="margin:0">${pieChart(pie, 140, '本期任务状态占比')}${pieLegend(pie)}</div>
-        </div>
-      <div class="chart-note">四类互斥、加起来正好是本期任务总数（逾期优先判定，不重复计进"进行中/未开始"）。
-      SPI = 实际进度 ÷ 计划进度，是围绕 1 的比值不是百分比：大于 1 快于计划，小于 1 落后于计划；没有计划完成时间的任务不参与。
-      点卡片或饼图能跳到任务页对应状态，但那边看到的是全部任务，不限于本期这个统计周期。</div>`;
+        </div>`;
     },
-    text: (d, push) => push(`SPI ${d.spi === null ? '—' : d.spi.toFixed(2)} · 已完成 ${d.statusStat.done} · 进行中 ${d.statusStat.doing} · 未开始 ${d.statusStat.todo} · 逾期 ${d.statusStat.late}`),
-    canvas: (d, a) => a.line(`SPI ${d.spi === null ? '—' : d.spi.toFixed(2)}　·　已完成 ${d.statusStat.done}　·　进行中 ${d.statusStat.doing}　·　未开始 ${d.statusStat.todo}　·　逾期 ${d.statusStat.late}`) },
+    text: (d, push) => push(`SPI ${d.spi === null ? '—' : d.spi.toFixed(2)} · 已完成 ${d.statusStat.done}/${d.periodTasks.length} · 进行中 ${d.statusStat.doing}/${d.periodTasks.length} · 未开始 ${d.statusStat.todo}/${d.periodTasks.length} · 逾期 ${d.statusStat.late}/${d.periodTasks.length}`),
+    // 卡片在左、饼图在右，跟 html() 的 chart-flex 布局对上——之前退回 a.line() 画一整行文字，
+    // 屏幕上是"卡片+饼图"并排，图片里连饼图都没了，只剩一行小字
+    canvas: (d, a) => {
+      const N = d.periodTasks.length;
+      a.twoCol(
+        () => a.statBoxes([{ label: '', cards: [
+          { k: 'SPI', v: d.spi === null ? '—' : d.spi.toFixed(2), ok: d.spi !== null && d.spi >= 1, warn: d.spi !== null && d.spi < 1 },
+          { k: '已完成', v: `${d.statusStat.done}/${N}`, ok: true },
+          { k: '进行中', v: `${d.statusStat.doing}/${N}` },
+          { k: '未开始', v: `${d.statusStat.todo}/${N}` },
+          { k: '逾期', v: `${d.statusStat.late}/${N}`, warn: d.statusStat.late > 0 },
+        ] }]), null,
+        () => a.pie([
+          { label: '已完成', n: d.statusStat.done, color: 'var(--c-done)' },
+          { label: '进行中', n: d.statusStat.doing, color: 'var(--c-doing)' },
+          { label: '逾期', n: d.statusStat.late, color: 'var(--c-late)' },
+          { label: '未开始', n: d.statusStat.todo, color: 'var(--c-todo)' },
+        ]), 150,
+      );
+    } },
 
   { key: 'highPriority', label: '高优先级未完成任务', desc: '本期涉及的任务里优先级为"高"且还没完成的',
-    group: 'attention', scope: 'period',
+    group: 'attention', scope: 'period', personAware: 'either',
     titleCount: d => d.highPriTasks.length,
     html: d => reportTaskRows(d.highPriTasks, '本期没有高优先级的未完成任务 👍'),
     text: (d, push) => reportTaskText(d.highPriTasks, push),
     canvas: (d, a) => a.taskRows(d.highPriTasks, '（无）') },
 
   { key: 'overdueTasks', label: '逾期任务', desc: '已经过了计划完成时间还没完成的任务',
-    group: 'attention', scope: 'period',
+    group: 'attention', scope: 'period', personAware: 'either',
     titleCount: d => d.overdue.length,
     html: d => reportTaskRows(d.overdue, '没有逾期任务 👍', 'due-overdue'),
     text: (d, push) => reportTaskText(d.overdue, push),
     canvas: (d, a) => a.taskRows(d.overdue, '没有逾期任务', true) },
 
   { key: 'overdueMs', label: '逾期里程碑', desc: '已经过了计划日期还没交付的里程碑',
-    group: 'attention', scope: 'period',
+    group: 'attention', scope: 'period', personAware: 'either',
     titleCount: d => d.overdueMs.length,
     html: d => reportMsRows(d.overdueMs, '没有逾期里程碑 👍', d.today),
     text: (d, push) => reportMsText(d.overdueMs, push),
     canvas: (d, a) => a.msRows(d.overdueMs, '没有逾期里程碑', true) },
 
   { key: 'soonTasks', label: '即将到期任务', desc: '今天起到本期结束之间要完成、还没完成的任务',
-    group: 'attention', scope: 'period',
+    group: 'attention', scope: 'period', personAware: 'either',
     titleCount: d => d.soonTasks.length,
     html: d => reportTaskRows(d.soonTasks, '本期剩下的时间里没有待到期的任务'),
     text: (d, push) => reportTaskText(d.soonTasks, push),
     canvas: (d, a) => a.taskRows(d.soonTasks, '（无）') },
 
   { key: 'soonMs', label: '即将到期里程碑', desc: '今天起到本期结束之间要交付、还没交付的里程碑',
-    group: 'attention', scope: 'period',
+    group: 'attention', scope: 'period', personAware: 'either',
     titleCount: d => d.soonMs.length,
     html: d => reportMsRows(d.soonMs, '本期剩下的时间里没有待交付的里程碑', d.today),
     text: (d, push) => reportMsText(d.soonMs, push),
     canvas: (d, a) => a.msRows(d.soonMs, '（无）') },
 
   { key: 'doneTasks', label: '本期已完成任务', desc: '实际完成日落在本期内的任务清单',
-    group: 'list', scope: 'period',
+    group: 'list', scope: 'period', personAware: 'either',
     titleCount: d => d.doneInRange.length,
     html: d => reportTaskRows(d.doneInRange, `${d.periodLabel}还没有完成的任务`, '', 'actual_date', 'var(--done)'),
     text: (d, push) => d.doneInRange.length ? d.doneInRange.forEach(t => push(`- ${fmtDate(t.actual_date)}　${t.title}（${t.owner || '未指派'}）`)) : push('- 无'),
@@ -5143,7 +5522,7 @@ const REPORT_MODULES = [
      说的本来就是同一批数据（本期实际交付的这些里程碑），拆成两个模块反而占两个位置；
      饼图一眼看出"这批交付物大头在哪个层级"，下面清单给出具体是哪几条，不需要再切"看数据表"。 */
   { key: 'deliveredMs', label: '本期已交付里程碑', desc: '实际交付日落在本期内的里程碑清单，按呈报层级排列，配可点选筛选的分布饼图',
-    group: 'list', scope: 'period',
+    group: 'list', scope: 'period', personAware: 'either',
     titleCount: d => d.deliveredInRange.length,
     html: d => {
       // 饼图/图例按"行领导→部门领导→处室领导"排（DELIVERED_MS_LEVEL_ORDER），级别越高越靠前，
@@ -5176,7 +5555,7 @@ const REPORT_MODULES = [
       '（无）', false, 'actual_date', 'done') },
 
   { key: 'dutyTree', label: '各职责/工作推进情况', desc: '按职责汇总的进度条，可展开看每项工作',
-    group: 'duty', scope: 'all',
+    group: 'duty', scope: 'all', personAware: 'either',
     // 展开/折叠挪进 note，位置对齐图表页"按工作"tab、工作台同名面板——两处都是标题右边一行
     // "按编号排序 · 点击下钻 · [展开][折叠]"，这里原样照抄，不再堆在正文里
     note: () => `按编号排序 · 点击下钻 · <span class="toggle-view" data-act="report-expand-all">全部展开</span> <span class="toggle-view" data-act="report-collapse-all">全部折叠</span>`,
@@ -5213,7 +5592,7 @@ const REPORT_MODULES = [
      （data-act="filter-person"，点某个人跳到任务页并按他筛选）也一并搬过来了——
      报告页本来就是同一个应用里的一页，这个跳转在这里一样有效，没理由砍掉。 */
   { key: 'personBars', label: '各人任务量与完成率', desc: '横条：每人相关任务量、完成率，以及牵头/参与比例（跟图表页-按人完全一致）',
-    group: 'people', scope: 'period', table: true,
+    group: 'people', scope: 'period', personAware: 'onlyAll', table: true,
     html: d => {
       const st = statsByPerson(d.periodTasks);
       if (!st.length) return '<div class="empty-mini">本期没有可统计的任务</div>';
@@ -5268,7 +5647,7 @@ const REPORT_MODULES = [
      没有天然的按周期切分方式，勉强按 periodTasks 筛只会让大部分格子因为凑巧没有当期节点
      而变空，看不出真实的人员分布。 */
   { key: 'personMatrix', label: '人员工作矩阵', desc: '职责/工作 × 人员的热力矩阵（牵头权重 3 倍于参与），跟图表页-人员工作矩阵完全一致',
-    group: 'people', scope: 'all',
+    group: 'people', scope: 'all', personAware: 'onlyAll',
     note: () => `点箭头展开看工作 · <span class="toggle-view" data-act="report-matrix-expand-all">全部展开</span> <span class="toggle-view" data-act="report-matrix-collapse-all">全部折叠</span>`,
     html: d => {
       const dutyStat = statsByDuty(d.tasks).sort((a, b) => (a.code || '').localeCompare(b.code || ''));
@@ -5302,7 +5681,7 @@ const REPORT_MODULES = [
     } },
 
   { key: 'dutyCategoryBars', label: '职责类别分布', desc: '四大类别的任务量横条 + 占比饼图',
-    group: 'duty', scope: 'period', table: true,
+    group: 'duty', scope: 'period', personAware: 'onlyAll', table: true,
     html: d => {
       const cat = statsByCategory(d.periodTasks);
       if (!cat.length) return '<div class="empty-mini">本期没有可统计的任务</div>';
@@ -5333,7 +5712,7 @@ const REPORT_MODULES = [
     } },
 
   { key: 'dutyItemBars', label: '职责项分布', desc: '各职责的任务量横条 + 占比饼图（前 6 名 + 其他）',
-    group: 'duty', scope: 'period', table: true,
+    group: 'duty', scope: 'period', personAware: 'onlyAll', table: true,
     html: d => {
       const duty = statsByDuty(d.periodTasks);
       if (!duty.length) return '<div class="empty-mini">本期没有可统计的任务</div>';
@@ -5380,7 +5759,7 @@ const REPORT_MODULES = [
      反而因为不在当期窗口内被过滤掉了，起不到预警作用。改成跟"待办总量趋势"一样看全量
      （d.tasks，不看周期），跟其它仍然按当期口径统计的模块区分开，界面上也会标"全量"。 */
   { key: 'taskDueDist', label: '到期分布', desc: '未完成任务按到期区间的柱状图 + 粗粒度占比饼图（全量，不分本期）',
-    group: 'task', scope: 'all', table: true,
+    group: 'task', scope: 'all', personAware: 'onlyAll', table: true,
     html: (d, ctx) => {
       const buckets = dueBuckets(d.tasks), pie = dueSummary(d.tasks).map(s => s.key === 'late' ? { ...s, attrs: taskViewAttrs('overdue') } : s);
       if (reportIsTable('taskDueDist')) return dataTable(['区间', '任务数'], buckets.map(b => [b.label, b.n]));
@@ -5410,7 +5789,7 @@ const REPORT_MODULES = [
      开关自己重新拼回并排——比原来那种"要就整块拿走，不要就整块砍掉"的粒度更细。
      图表页-按任务 tab 那边同理拆成三个并排的 panel，两处保持视觉一致（见 renderCharts）。 */
   { key: 'taskPriorityPie', label: '优先级分布', desc: '按优先级（高/中/低）的占比饼图（全量，不分本期）',
-    group: 'task', scope: 'all', table: true,
+    group: 'task', scope: 'all', personAware: 'onlyAll', table: true,
     html: d => {
       const priPie = PRIORITIES.map(p => ({ label: p.label, n: d.tasks.filter(t => t.priority === p.v).length, color: p.color, attrs: taskFilterAttrs('priority', p.v) }));
       if (reportIsTable('taskPriorityPie')) return dataTable(['优先级', '数量'], priPie.map(s => [s.label, s.n]));
@@ -5420,7 +5799,7 @@ const REPORT_MODULES = [
     canvas: (d, a) => a.pie(PRIORITIES.map(p => ({ label: p.label, n: d.tasks.filter(t => t.priority === p.v).length, color: p.color }))) },
 
   { key: 'taskSourceBars', label: '任务来源分布', desc: '按"来源"这个自由填写字段的分布横条（全量，不分本期）',
-    group: 'task', scope: 'all', table: true,
+    group: 'task', scope: 'all', personAware: 'onlyAll', table: true,
     html: d => {
       const bars = taskFieldBars('source', d.tasks).map(b => ({ ...b, attrs: taskFilterAttrs('source', b.value) }));
       if (reportIsTable('taskSourceBars')) return dataTable(['来源', '数量'], bars.map(b => [b.label, b.n]));
@@ -5434,7 +5813,7 @@ const REPORT_MODULES = [
     canvas: (d, a) => a.hbars(taskFieldBars('source', d.tasks)) },
 
   { key: 'taskTagBars', label: '任务标签分布', desc: '本期任务按"标签"这个自由填写字段的分布横条',
-    group: 'task', scope: 'period', table: true,
+    group: 'task', scope: 'period', personAware: 'onlyAll', table: true,
     html: d => {
       const bars = taskFieldBars('custom', d.periodTasks);
       if (reportIsTable('taskTagBars')) return dataTable(['标签', '数量'], bars.map(b => [b.label, b.n]));
@@ -5448,7 +5827,7 @@ const REPORT_MODULES = [
     canvas: (d, a) => a.hbars(taskFieldBars('custom', d.periodTasks)) },
 
   { key: 'workOverview', label: '工作项状态总览', desc: '工作项（不是任务）按状态的占比饼图，配 SPI',
-    group: 'duty', scope: 'all', table: true,
+    group: 'duty', scope: 'all', personAware: 'onlyAll', table: true,
     html: d => {
       const works = d.works;
       if (!works.length) return '<div class="empty-mini">暂无工作项</div>';
@@ -5476,12 +5855,12 @@ const REPORT_MODULES = [
       const spi = computeSPI(d.tasks);
       a.twoCol(
         () => a.pie(pie), 150,
-        () => a.statBoxes([{ label: '', cards: [{ k: 'SPI', v: spi === null ? '—' : spi.toFixed(2), warn: spi !== null && spi < 1 }] }]), null,
+        () => a.statBoxes([{ label: '', cards: [{ k: 'SPI', v: spi === null ? '—' : spi.toFixed(2), ok: spi !== null && spi >= 1, warn: spi !== null && spi < 1 }] }]), null,
       );
     } },
 
   { key: 'worksByYearBars', label: '各年度工作数量', desc: '按年度统计工作项数量（不是任务，是工作项本身）',
-    group: 'duty', scope: 'all', table: true,
+    group: 'duty', scope: 'all', personAware: 'onlyAll', table: true,
     html: (d, ctx) => {
       const yearBars = worksByYear();
       if (reportIsTable('worksByYearBars')) return dataTable(['年度', '工作数'], yearBars.map(b => [b.label, b.n]));
@@ -5497,7 +5876,7 @@ const REPORT_MODULES = [
     canvas: (d, a) => a.singleBar(worksByYear()) },
 
   { key: 'worksByDutyBars', label: '各职责工作数量', desc: '按职责统计工作项数量（不是任务，是工作项本身）',
-    group: 'duty', scope: 'all', table: true,
+    group: 'duty', scope: 'all', personAware: 'onlyAll', table: true,
     html: () => {
       const bars = worksByDutyCount().map(b => ({ ...b, attrs: ` data-act="duty-drill" data-code="${esc(b.code)}"` }));
       if (reportIsTable('worksByDutyBars')) return dataTable(['职责', '工作数'], bars.map(b => [b.label, b.n]));
@@ -5511,7 +5890,7 @@ const REPORT_MODULES = [
     canvas: (d, a) => a.hbars(worksByDutyCount()) },
 
   { key: 'msCompletionPie', label: '里程碑完成情况分布', desc: '本期任务名下所有里程碑的完成/逾期/未到期占比',
-    group: 'milestone', scope: 'period', table: true,
+    group: 'milestone', scope: 'period', personAware: 'onlyAll', table: true,
     html: d => {
       const pie = msCompletionPie(d.periodTasks);
       if (reportIsTable('msCompletionPie')) return dataTable(['情况', '数量'], pie.map(s => [s.label, s.n]));
@@ -5526,7 +5905,7 @@ const REPORT_MODULES = [
   // 呈报层级是里程碑一填好就基本不变的静态分类，跟"这段时间干了什么"无关，看的是全处所有
   // 里程碑的层级分布，所以标成全量——跟到期分布/优先级分布/任务来源分布同一个道理
   { key: 'msLevelPie', label: '交付物呈报层级分布', desc: '按里程碑的最高呈报层级（处室/部门/行领导）统计占比（全量，不分本期）',
-    group: 'milestone', scope: 'all', table: true,
+    group: 'milestone', scope: 'all', personAware: 'onlyAll', table: true,
     html: d => {
       const st = msReportLevelStats(d.tasks);
       if (reportIsTable('msLevelPie')) return dataTable(['呈报层级', '数量'], st.map(s => [s.label, s.n]));
@@ -5539,7 +5918,7 @@ const REPORT_MODULES = [
     canvas: (d, a) => a.pie(msReportLevelStats(d.tasks)) },
 
   { key: 'msGantt', label: '里程碑甘特图', desc: '职责→工作→任务逐级展开的里程碑时间线',
-    group: 'milestone', scope: 'all', table: true,
+    group: 'milestone', scope: 'all', personAware: 'onlyAll', table: true,
     // 展开/折叠三个按钮挪进 note，位置对齐图表页"按里程碑"tab 的甘特图面板——
     // 那边是 panelHead 第三个参数，这里原样照抄（连按钮文案都不改），只是 data-act 换成
     // report 自己的 report-ms-* 系列（用的是 reportMsDutyExpanded/reportMsWorkExpanded，
@@ -5563,7 +5942,7 @@ const REPORT_MODULES = [
     canvas: (d, a) => a.ganttChart(d.tasks) },
 
   { key: 'backlogTrend', label: '待办总量趋势', desc: '每个时间点还没完成的任务有多少条（存量，不是流量）',
-    group: 'trend', scope: 'all', table: true,
+    group: 'trend', scope: 'all', personAware: 'onlyAll', table: true,
     // 月/周/日粒度按钮挪进 note，位置对齐图表页"按时间"tab 同名面板的 panelHead 第三个参数；
     // 用的还是同一个全局 trendGranularity + 'trend-granularity' 这个 action，报告页和图表页
     // 天然联动（这本来就是同一份"当前看哪个粒度"的状态，不该分裂成两份）
@@ -5589,7 +5968,7 @@ const REPORT_MODULES = [
     } },
 
   { key: 'planDueTrend', label: '各月计划完成量', desc: '从本月起，各月计划完成的任务数与里程碑数',
-    group: 'trend', scope: 'all', table: true,
+    group: 'trend', scope: 'all', personAware: 'onlyAll', table: true,
     html: (d, ctx) => {
       const ids = new Set(d.tasks.map(t => t.id));
       const ms = DB.milestones.filter(m => !m.deleted_at && m.plan_date && ids.has(m.task));
@@ -5616,68 +5995,104 @@ const REPORT_MODULES = [
       a.groupedBar(series, 'tasks', 'milestones', '计划完成任务数', '计划完成里程碑数');
     } },
 
-  { key: 'dashCards', label: '整体统计卡片', desc: '工作台顶部那两组卡片：任务维度 + 里程碑维度',
-    group: 'overview', scope: 'all',
+  /* 处室工作整体统计：全系统家底快照，跟看哪一期无关，用词跟"本期处室统计"那三个模块统一——
+     已完成/进行中/未开始/逾期是同一套状态词，只是这里的分母是"全部"，那边的分母是"本期涉及"。
+     P81 后期改版拆成职责/工作/任务/里程碑四个独立模块（原来是一个模块四个 stat-group 拼在
+     一起），放进新分类"整体统计"，报告页/工作台都能各自挑要哪几个、摆哪。职责没有状态概念，
+     只有一张总数卡；里程碑没有"进行中/未开始"这种连续状态（它是个检查点，不是个过程），
+     只拆已完成/未完成/逾期三态。报告页"一、处室工作整体统计"默认四个都展示；工作台不默认放，
+     只留在模块选择器里。 */
+  { key: 'overallDuty', label: '职责总览', group: 'overallSnapshot', scope: 'all', personAware: 'onlyAll',
+    desc: '职责总数，全系统家底快照，不随周期翻页变化',
+    html: () => `<div class="cards">${statCard('职责总数', visibleDutyCount())}</div>`,
+    text: (d, push) => push(`职责总数 ${visibleDutyCount()}`),
+    canvas: (d, a) => a.statBoxes([{ label: '', cards: [{ k: '职责总数', v: visibleDutyCount() }] }]) },
+
+  { key: 'overallWork', label: '工作总览', group: 'overallSnapshot', scope: 'all', personAware: 'onlyAll',
+    desc: '工作总数 + 进行中/已完成/暂停各占总数比例，全系统家底快照，不随周期翻页变化',
     html: d => {
-      const today = d.today;
-      const open = d.tasks.filter(isOpen);
-      const ids = new Set(d.tasks.map(t => t.id));
-      const msVisible = DB.milestones.filter(m => !m.deleted_at && m.plan_date && ids.has(m.task));
-      const msOpen = msVisible.filter(m => m.done !== '1');
-      return `<div class="stat-groups">
-          <div class="stat-group stat-group-task"><div class="stat-group-label">任务维度</div><div class="cards">
-            ${statCard('未完成任务', open.length, '', taskViewAttrs('open'))}
-            ${statCard('逾期任务', d.overdue.length, d.overdue.length ? 'warn' : '', taskViewAttrs('overdue'))}
-            ${statCard('今日到期', d.tasks.filter(t => isOpen(t) && t.plan_date === today).length, '', taskViewAttrs('today'))}
-            ${statCard('本周到期', d.tasks.filter(t => isOpen(t) && t.plan_date && t.plan_date >= today && t.plan_date <= endOfWeek()).length, '', taskViewAttrs('week'))}
-          </div></div>
-          <div class="stat-group stat-group-ms"><div class="stat-group-label">里程碑维度</div><div class="cards">
-            ${statCard('未完成里程碑', msOpen.length)}
-            ${statCard('逾期里程碑', msOpen.filter(m => m.plan_date < today).length, msOpen.some(m => m.plan_date < today) ? 'warn' : '')}
-            ${statCard('今日到期', msOpen.filter(m => m.plan_date === today).length)}
-            ${statCard('本周到期', msOpen.filter(m => m.plan_date >= today && m.plan_date <= endOfWeek()).length)}
-          </div></div>
-        </div><div class="chart-note">这组卡片反映的是"现在整体什么状况"，跟看哪一期无关，所以不随周期翻页变化。</div>`;
+      const workStat = { doing: 0, done: 0, hold: 0 };
+      d.works.forEach(w => { if (workStat[w.status] != null) workStat[w.status]++; });
+      return `<div class="cards">
+        ${statCard('工作总数', d.works.length, '', workFilterAttrs('status', ''))}
+        ${statCard('进行中', fracStr(workStat.doing, d.works.length), '', workFilterAttrs('status', 'doing'))}
+        ${statCard('已完成', fracStr(workStat.done, d.works.length), 'ok', workFilterAttrs('status', 'done'))}
+        ${statCard('暂停', fracStr(workStat.hold, d.works.length), '', workFilterAttrs('status', 'hold'))}
+      </div>`;
     },
-    // 之前只念了 8 个数字里的 4 个（漏了任务/里程碑各自的"今日到期""本周到期"），
-    // html() 里这两组卡片各是 4 张，text() 却只顾任务维度念了 2 个、里程碑维度念了 2 个，
-    // 图片/纯文本简报里"今天到底有几条要交"这个最常被追问的数字反而看不到
     text: (d, push) => {
-      const today = d.today;
-      const open = d.tasks.filter(isOpen);
-      const ids = new Set(d.tasks.map(t => t.id));
-      const msVisible = DB.milestones.filter(m => !m.deleted_at && m.plan_date && ids.has(m.task));
-      const msOpen = msVisible.filter(m => m.done !== '1');
-      push(`【任务维度】未完成 ${open.length} · 逾期 ${d.overdue.length} · 今日到期 ${d.tasks.filter(t => isOpen(t) && t.plan_date === today).length} · 本周到期 ${d.tasks.filter(t => isOpen(t) && t.plan_date && t.plan_date >= today && t.plan_date <= endOfWeek()).length}`);
-      push(`【里程碑维度】未完成 ${msOpen.length} · 逾期 ${msOpen.filter(m => m.plan_date < today).length} · 今日到期 ${msOpen.filter(m => m.plan_date === today).length} · 本周到期 ${msOpen.filter(m => m.plan_date >= today && m.plan_date <= endOfWeek()).length}`);
+      const workStat = { doing: 0, done: 0, hold: 0 };
+      d.works.forEach(w => { if (workStat[w.status] != null) workStat[w.status]++; });
+      push(`工作总数 ${d.works.length} · 进行中 ${workStat.doing}/${d.works.length} · 已完成 ${workStat.done}/${d.works.length} · 暂停 ${workStat.hold}/${d.works.length}`);
     },
-    // 之前没配这个，退回 text() 是两行密密麻麻的"未完成 X · 逾期 Y · 今日到期 Z · 本周到期 W"，
-    // 8 个数字全挤在一起，跟工作台上那种"一眼看清哪个数字对应哪个标签"的卡片完全不像。
-    // 改成真的画成卡片网格，跟 html() 里"两组、每组四张"的结构一致
     canvas: (d, a) => {
-      const today = d.today;
-      const open = d.tasks.filter(isOpen);
-      const ids = new Set(d.tasks.map(t => t.id));
-      const msVisible = DB.milestones.filter(m => !m.deleted_at && m.plan_date && ids.has(m.task));
-      const msOpen = msVisible.filter(m => m.done !== '1');
-      a.statBoxes([
-        { label: '任务维度', cards: [
-          { k: '未完成任务', v: open.length },
-          { k: '逾期任务', v: d.overdue.length, warn: d.overdue.length > 0 },
-          { k: '今日到期', v: d.tasks.filter(t => isOpen(t) && t.plan_date === today).length },
-          { k: '本周到期', v: d.tasks.filter(t => isOpen(t) && t.plan_date && t.plan_date >= today && t.plan_date <= endOfWeek()).length },
-        ] },
-        { label: '里程碑维度', cards: [
-          { k: '未完成里程碑', v: msOpen.length },
-          { k: '逾期里程碑', v: msOpen.filter(m => m.plan_date < today).length, warn: msOpen.some(m => m.plan_date < today) },
-          { k: '今日到期', v: msOpen.filter(m => m.plan_date === today).length },
-          { k: '本周到期', v: msOpen.filter(m => m.plan_date >= today && m.plan_date <= endOfWeek()).length },
-        ] },
-      ]);
+      const workStat = { doing: 0, done: 0, hold: 0 };
+      d.works.forEach(w => { if (workStat[w.status] != null) workStat[w.status]++; });
+      a.statBoxes([{ label: '', cards: [
+        { k: '工作总数', v: d.works.length },
+        { k: '进行中', v: `${workStat.doing}/${d.works.length}` },
+        { k: '已完成', v: `${workStat.done}/${d.works.length}`, ok: true },
+        { k: '暂停', v: `${workStat.hold}/${d.works.length}` },
+      ] }]);
+    } },
+
+  { key: 'overallTask', label: '任务总览', group: 'overallSnapshot', scope: 'all', personAware: 'onlyAll',
+    desc: '任务总数 + 已完成/进行中/逾期各占总数比例（未开始并进"进行中"算，保持四张卡），全系统家底快照，不随周期翻页变化',
+    html: d => {
+      // 未开始的并进"进行中"算，四张卡：总数/已完成/进行中/逾期——用户反馈"未开始"单独一张卡
+      // 意义不大，处室视角更关心"这条任务现在算不算已经在推进"，todo 和 doing 都算
+      const taskStat = taskStatusBreakdown(d.tasks);
+      const doingAll = taskStat.doing + taskStat.todo;
+      return `<div class="cards">
+        ${statCard('任务总数', d.tasks.length, '', taskViewAttrs('all'))}
+        ${statCard('已完成', fracStr(taskStat.done, d.tasks.length), 'ok', taskViewAttrs('done'))}
+        ${statCard('进行中', fracStr(doingAll, d.tasks.length), '', taskViewAttrs('open'))}
+        ${statCard('逾期', fracStr(taskStat.late, d.tasks.length), taskStat.late ? 'warn' : '', taskViewAttrs('overdue'))}
+      </div>`;
+    },
+    text: (d, push) => {
+      const taskStat = taskStatusBreakdown(d.tasks);
+      const doingAll = taskStat.doing + taskStat.todo;
+      push(`任务总数 ${d.tasks.length} · 已完成 ${taskStat.done}/${d.tasks.length} · 进行中 ${doingAll}/${d.tasks.length} · 逾期 ${taskStat.late}/${d.tasks.length}`);
+    },
+    canvas: (d, a) => {
+      const taskStat = taskStatusBreakdown(d.tasks);
+      const doingAll = taskStat.doing + taskStat.todo;
+      a.statBoxes([{ label: '', cards: [
+        { k: '任务总数', v: d.tasks.length },
+        { k: '已完成', v: `${taskStat.done}/${d.tasks.length}`, ok: true },
+        { k: '进行中', v: `${doingAll}/${d.tasks.length}` },
+        { k: '逾期', v: `${taskStat.late}/${d.tasks.length}`, warn: taskStat.late > 0 },
+      ] }]);
+    } },
+
+  { key: 'overallMs', label: '里程碑总览', group: 'overallSnapshot', scope: 'all', personAware: 'onlyAll',
+    desc: '里程碑总数 + 已完成/未完成/逾期各占总数比例，全系统家底快照，不随周期翻页变化',
+    html: d => {
+      const msStat = msStatusBreakdown(d.taskMilestones);
+      return `<div class="cards">
+        ${statCard('里程碑总数', d.taskMilestones.length)}
+        ${statCard('已完成', fracStr(msStat.done, d.taskMilestones.length), 'ok')}
+        ${statCard('未完成', fracStr(msStat.notDue, d.taskMilestones.length))}
+        ${statCard('逾期', fracStr(msStat.overdue, d.taskMilestones.length), msStat.overdue ? 'warn' : '')}
+      </div>`;
+    },
+    text: (d, push) => {
+      const msStat = msStatusBreakdown(d.taskMilestones);
+      push(`里程碑总数 ${d.taskMilestones.length} · 已完成 ${msStat.done}/${d.taskMilestones.length} · 未完成 ${msStat.notDue}/${d.taskMilestones.length} · 逾期 ${msStat.overdue}/${d.taskMilestones.length}`);
+    },
+    canvas: (d, a) => {
+      const msStat = msStatusBreakdown(d.taskMilestones);
+      a.statBoxes([{ label: '', cards: [
+        { k: '里程碑总数', v: d.taskMilestones.length },
+        { k: '已完成', v: `${msStat.done}/${d.taskMilestones.length}`, ok: true },
+        { k: '未完成', v: `${msStat.notDue}/${d.taskMilestones.length}` },
+        { k: '逾期', v: `${msStat.overdue}/${d.taskMilestones.length}`, warn: msStat.overdue > 0 },
+      ] }]);
     } },
 
   { key: 'myDesk', label: '我的工作台', desc: '当前使用者牵头的工作数、在办任务清单',
-    group: 'list', scope: 'all',
+    group: 'list', scope: 'all', personAware: 'onlyAll',
     html: d => {
       const me = DB.settings.me;
       if (!me) return '<div class="empty-mini">尚未登录，无法显示"我的"内容</div>';
@@ -5707,7 +6122,7 @@ const REPORT_MODULES = [
     } },
 
   { key: 'recentActivity', label: '最近动态', desc: '变更日志里最近的若干条操作记录',
-    group: 'list', scope: 'all',
+    group: 'list', scope: 'all', personAware: 'onlyAll',
     html: d => {
       const ids = new Set(visibleTasks().map(t => t.id));
       const feed = (DB.changelog || []).filter(e => ids.has(e.taskId)).slice(-12).reverse();
@@ -5741,6 +6156,167 @@ const REPORT_MODULES = [
         a.rowLine(relTime(e.at), null, `${e.by || '—'}：${e.summary || ''}`, title);
       });
     } },
+
+  /* ================= P80 起新增：工作台"我的"系列 =================
+     全部标 personAware: 'onlyPerson'——整体口径下没有"这个人"这个参照系，这几个模块
+     不该出现在"按整体"的位置上。d.person 就是 buildReportData 第三个参数传进来的那个人：
+     dashboard 渲染这批模块时会用 personScope:'self' 摆进配置，调 buildReportData(period,
+     offset, dashViewedPerson()) 得到 d，d.tasks/d.works/d.taskMilestones 已经是这个人的
+     牵头∪参与范围，模块自己不用再筛一遍"是不是这个人的"。 */
+  { key: 'dashMyCards', label: '📊 我的统计卡片', desc: '"整体"（不随周期：牵头工作/在办任务/逾期）+ "本期"（完成/进行中 + SPI）两组卡片',
+    group: 'personal', scope: 'period', personAware: 'onlyPerson',
+    html: d => {
+      if (!d.person) return '<div class="empty-mini">尚未设置本机使用者</div>';
+      const personWorks = visibleWorks().filter(w => w.owner === d.person);
+      const { tasks: dueOpen, ms: msDueOpen } = dashDueOpen(d);
+      return `<div class="stat-groups">
+        <div class="stat-group">
+          <div class="stat-group-label">整体（不随周期）</div>
+          <div class="cards">
+            ${statCard('牵头工作', personWorks.length, '', workFilterAttrs('owner', d.person))}
+            ${statCard('在办任务', d.open.length, '', dashPersonViewAttrs('open', d.person))}
+            ${statCard('逾期任务', d.overdue.length, d.overdue.length ? 'warn' : '', dashPersonViewAttrs('overdue', d.person))}
+            ${statCard('逾期里程碑', d.overdueMs.length, d.overdueMs.length ? 'warn' : '')}
+          </div>
+        </div>
+        <div class="stat-group">
+          <div class="stat-group-label">本期（${esc(d.periodLabel)}）</div>
+          <div class="cards">
+            ${statCard('完成任务', d.doneInRange.length, 'ok', dashPersonViewAttrs('done', d.person))}
+            ${statCard('完成里程碑', d.deliveredInRange.length, 'ok')}
+            ${statCard('进行中任务', dueOpen.length, '', dashPersonViewAttrs('open', d.person))}
+            ${statCard('进行中里程碑', msDueOpen.length)}
+            ${statCard('SPI', d.spi === null ? '—' : d.spi.toFixed(2), d.spi !== null ? (d.spi >= 1 ? 'ok' : 'warn') : '')}
+          </div>
+        </div>
+      </div>`;
+    },
+    text: (d, push) => {
+      if (!d.person) { push('- 未登录'); return; }
+      const personWorks = visibleWorks().filter(w => w.owner === d.person);
+      push(`牵头 ${personWorks.length} 项工作 · 在办 ${d.open.length} 条任务 · 逾期 ${d.overdue.length} 条任务/${d.overdueMs.length} 个里程碑`);
+      push(`本期完成 ${d.doneInRange.length} 条任务/${d.deliveredInRange.length} 个里程碑 · SPI ${d.spi === null ? '—' : d.spi.toFixed(2)}`);
+    },
+    // 之前没配这个，退回 text() 只剩两行纯文字，屏幕上"逾期"标红、"完成/SPI≥1"标绿的颜色
+    // 全都没了；补上之后跟 html() 的两组卡片一一对应，颜色也对得上
+    canvas: (d, a) => {
+      if (!d.person) { a.empty('未登录'); return; }
+      const personWorks = visibleWorks().filter(w => w.owner === d.person);
+      const { tasks: dueOpen, ms: msDueOpen } = dashDueOpen(d);
+      a.statBoxes([
+        { label: '整体（不随周期）', cards: [
+          { k: '牵头工作', v: personWorks.length },
+          { k: '在办任务', v: d.open.length },
+          { k: '逾期任务', v: d.overdue.length, warn: d.overdue.length > 0 },
+          { k: '逾期里程碑', v: d.overdueMs.length, warn: d.overdueMs.length > 0 },
+        ] },
+        { label: `本期（${d.periodLabel}）`, cards: [
+          { k: '完成任务', v: d.doneInRange.length, ok: true },
+          { k: '完成里程碑', v: d.deliveredInRange.length, ok: true },
+          { k: '进行中任务', v: dueOpen.length },
+          { k: '进行中里程碑', v: msDueOpen.length },
+          { k: 'SPI', v: d.spi === null ? '—' : d.spi.toFixed(2), ok: d.spi !== null && d.spi >= 1, warn: d.spi !== null && d.spi < 1 },
+        ] },
+      ]);
+    } },
+
+  { key: 'dashMyOpenTasks', label: '📋 我负责的工作与任务', desc: '这个人牵头∪参与的全部在办任务，不随周期变化',
+    group: 'personal', scope: 'all', personAware: 'onlyPerson',
+    html: d => d.person ? reportTaskRows(d.open, '暂无在办任务') : '<div class="empty-mini">尚未设置本机使用者</div>',
+    text: (d, push) => {
+      if (!d.person) { push('- 未登录'); return; }
+      reportTaskText(d.open, push);
+    } },
+
+  { key: 'dashMyDoneSplit', label: '✅ 本期已完成', desc: '本期完成的任务和交付的里程碑，混排成一条条清晰的列表，按牵头/参与分组、按完成日期倒序，点击弹出任务详情',
+    group: 'personal', scope: 'period', personAware: 'onlyPerson',
+    titleCount: d => { const l = dashMyDoneSplitLists(d); return l ? dashGroupedCount(l) : 0; },
+    html: d => {
+      const l = dashMyDoneSplitLists(d);
+      if (!l) return '<div class="empty-mini">尚未设置本机使用者</div>';
+      return dashGroupedRows(l, 'actual_date', 'var(--done)', -1, `${d.periodLabel}还没有完成的任务或交付的里程碑`);
+    },
+    text: (d, push) => {
+      const l = dashMyDoneSplitLists(d);
+      if (!l) { push('- 未登录'); return; }
+      dashRoleText(l.ledTasks, l.ledMs, 'actual_date', -1, push, '牵头完成');
+      dashRoleText(l.joinTasks, l.joinMs, 'actual_date', -1, push, '参与完成');
+    } },
+
+  { key: 'dashMyDoingSplit', label: '⏳ 本期进行中', desc: '计划完成日落在本期、还没完成的任务和里程碑，混排成一条条清晰的列表，按牵头/参与分组、按计划日期正序，点击弹出任务详情',
+    group: 'personal', scope: 'period', personAware: 'onlyPerson',
+    titleCount: d => { const l = dashMyDoingSplitLists(d); return l ? dashGroupedCount(l) : 0; },
+    html: d => {
+      const l = dashMyDoingSplitLists(d);
+      if (!l) return '<div class="empty-mini">尚未设置本机使用者</div>';
+      return dashGroupedRows(l, 'plan_date', '', 1, `${d.periodLabel}没有到期未完成的任务或里程碑 👍`);
+    },
+    text: (d, push) => {
+      const l = dashMyDoingSplitLists(d);
+      if (!l) { push('- 未登录'); return; }
+      dashRoleText(l.ledTasks, l.ledMs, 'plan_date', 1, push, '牵头进行中');
+      dashRoleText(l.joinTasks, l.joinMs, 'plan_date', 1, push, '参与进行中');
+    } },
+
+  { key: 'dashMyOverdueSplit', label: '⚠ 本期逾期', desc: '目前逾期未完成的任务和里程碑，口径固定看"现在"、不随周期翻，混排成一条条清晰的列表，按牵头/参与分组、按计划日期正序，点击弹出任务详情',
+    group: 'personal', scope: 'all', personAware: 'onlyPerson', hideScopeNote: true,
+    titleCount: d => { const l = dashMyOverdueSplitLists(d); return l ? dashGroupedCount(l) : 0; },
+    html: d => {
+      const l = dashMyOverdueSplitLists(d);
+      if (!l) return '<div class="empty-mini">尚未设置本机使用者</div>';
+      return dashGroupedRows(l, '', 'var(--overdue)', 1, '目前没有逾期的任务或里程碑 👍');
+    },
+    text: (d, push) => {
+      const l = dashMyOverdueSplitLists(d);
+      if (!l) { push('- 未登录'); return; }
+      dashRoleText(l.ledTasks, l.ledMs, 'plan_date', 1, push, '牵头逾期');
+      dashRoleText(l.joinTasks, l.joinMs, 'plan_date', 1, push, '参与逾期');
+    } },
+
+  { key: 'dashMyNextPlan', label: '▸ 下期计划', desc: '本期还没完成、且完成节点落在下一期的任务和里程碑（有里程碑的任务看最近一个里程碑的计划日期，没有的看任务自己的），混排成一条条清晰的列表，按牵头/参与分组、按日期正序，点击弹出任务详情',
+    group: 'personal', scope: 'period', personAware: 'onlyPerson',
+    titleCount: d => { const l = dashMyNextPlanLists(d); return l ? dashGroupedCount(l) : 0; },
+    html: d => {
+      const l = dashMyNextPlanLists(d);
+      if (!l) return '<div class="empty-mini">尚未设置本机使用者</div>';
+      return dashGroupedRows(l, 'plan_date', '', 1, `${l.nextLabel}暂无计划或正在推进的任务/里程碑`);
+    },
+    text: (d, push) => {
+      const l = dashMyNextPlanLists(d);
+      if (!l) { push('- 未登录'); return; }
+      push(`${l.nextLabel}计划：`);
+      dashRoleText(l.ledTasks, l.ledMs, 'plan_date', 1, push, '牵头');
+      dashRoleText(l.joinTasks, l.joinMs, 'plan_date', 1, push, '参与');
+    } },
+
+  { key: 'dashMyMsTimeline', label: '◈ 我的里程碑时间线', desc: '这个人牵头∪参与的任务，按职责→工作→任务逐级展开的里程碑时间线，不随周期变化',
+    group: 'personal', scope: 'all', personAware: 'onlyPerson',
+    note: () => `点箭头逐级展开职责/工作 · <span class="toggle-view" data-act="dash-ms-expand-all">全部展开</span> <span class="toggle-view" data-act="dash-ms-expand-to-work">展开到工作层</span> <span class="toggle-view" data-act="dash-ms-collapse-all">全部折叠</span>`,
+    html: d => d.person ? milestoneTreeHTML(d.tasks, dashMsDutyExpanded, dashMsWorkExpanded, 'dash-ms-duty-toggle', 'dash-ms-work-toggle') : '<div class="empty-mini">尚未设置本机使用者</div>',
+    text: (d, push) => {
+      if (!d.person) { push('- 未登录'); return; }
+      const ms = d.taskMilestones.filter(m => m.plan_date).sort((a, b) => a.plan_date.localeCompare(b.plan_date));
+      if (!ms.length) { push('- 无'); return; }
+      ms.slice(0, REPORT_LIST_LIMIT).forEach(m => {
+        const t = byId('task', m.task);
+        push(`- ${fmtDate(m.plan_date)}　${m.deliverable || '（未填写交付物）'}（${t ? t.title : ''}）${m.done === '1' ? ' ✓已交付' : ''}`);
+      });
+    },
+    canvas: (d, a) => a.ganttChart(d.tasks) },
+
+  /* ================= P80 起新增：工作台"处室概览"侧的自有模块 =================
+     dashOverviewCards（原来把"本期涉及/本期状态分布/本期计划完成度"三组拼成一张卡片组的
+     那个工作台专属模块）P81 后期改版下线了——三组内容现在就是 periodOverallScope/
+     periodOverallStatus/periodOverallPlan 这三个"本期处室统计"分类下的独立模块本身，
+     报告页和工作台用的是同一份定义，不用再专门给工作台包一层。
+     dashDutyTree（工作台自己的"各职责/工作推进情况"简化版，用 dashExpanded 展开状态、
+     dash-duty-toggle 系列 action，跟报告页的 dutyTree 内容完全一样只是展开状态各自一份）
+     和 dashPeopleLoad（"人员负荷"横条）这两个模块本轮下线：前者用户反馈在模块选择器里
+     跟 dutyTree 长得一模一样、挑模块时分不清谁是谁，两边直接改成共用 dutyTree 这一份定义
+     （报告页/工作台都能加，展开状态跟着共用，见 report-duty-toggle 系列 action 已经改成
+     renderPage() 而不是写死 renderReport()）；后者跟"各人任务量与完成率"（personBars）
+     内容重复，personBars 信息更全（还带完成率、牵头/参与比例），直接去掉这一份，需要的话
+     从模块选择器里把 personBars 加到工作台即可。 */
 ];
 const REPORT_MODULE_MAP = Object.fromEntries(REPORT_MODULES.map(m => [m.key, m]));
 // 报告页自己的里程碑甘特展开状态，跟图表页/工作台各自一份，互不干扰
@@ -5787,11 +6363,14 @@ function reportMsText(list, push) {
    老数据（DB.reportConfig 为 null）和任何一套自定义存档被删光之后，都回落到这一份，
    所以升级上来的用户什么都不用配就能直接用。 */
 const DEFAULT_REPORT_SECTIONS = [
-  { id: 'sec_goal',   title: '一、本期处室工作目标', modules: ['periodScope', 'periodPlan'] },
-  { id: 'sec_state',  title: '二、本期处室工作进展', modules: ['periodStatus', 'dutyTree'] },
-  { id: 'sec_focus',  title: '三、本期需要关注的工作', modules: ['highPriority', 'overdueTasks', 'overdueMs', 'soonTasks', 'soonMs'] },
+  // 家底快照放最前面：先看现在整体有多少职责/工作/任务/里程碑，后面"本期涉及"的跨级分数
+  // （涉及职责 X/处室职责总数 Y 这种）才有分母可对照，顺着往下读逻辑连得上
+  { id: 'sec_overall', title: '一、处室工作整体统计', modules: ['overallDuty', 'overallWork', 'overallTask', 'overallMs'] },
+  { id: 'sec_goal',   title: '二、本期处室工作目标', modules: ['periodOverallScope', 'periodOverallPlan'] },
+  { id: 'sec_state',  title: '三、本期处室工作进展', modules: ['periodStatus', 'dutyTree'] },
+  { id: 'sec_focus',  title: '四、本期需要关注的工作', modules: ['highPriority', 'overdueTasks', 'overdueMs', 'soonTasks', 'soonMs'] },
   // "人员工作情况"模块已经被功能更完整的 personBars（各人任务量与完成率）取代，见 REPORT_MODULES 里那段注释
-  { id: 'sec_people', title: '四、人员工作情况', modules: ['personBars'] },
+  { id: 'sec_people', title: '五、人员工作情况', modules: ['personBars'] },
 ];
 const DEFAULT_PRESET_NAME = '默认编排';
 function reportPresets() {
@@ -6002,7 +6581,7 @@ function renderReport() {
 
     <div id="report-print-area">
     <div class="panel"><div class="panel-h">
-        <span>📋 处室工作简报　·　统计周期：${esc(d.periodLabel)}（${esc(d.rangeStart)} ～ ${esc(d.rangeEnd)}）</span>
+        <span>📋 科技规划处　处室工作简报　·　统计周期：${esc(d.periodLabel)}（${esc(d.rangeStart)} ～ ${esc(d.rangeEnd)}）</span>
         <span class="no-print" style="display:flex;align-items:center"><span class="seg-ctrl">${periodBtns}</span>${navBtns}</span>
       </div>
       <div class="panel-b no-print">
@@ -6085,7 +6664,7 @@ window.addEventListener('afterprint', () => {
 // 纯文本简报：跟页面走同一份编排、同一批模块，不再另外维护一份写死的顺序
 function buildReportText() {
   const d = buildReportData(reportPeriod, reportOffset);
-  const lines = [`处室工作简报（统计周期：${d.periodLabel}　${d.rangeStart} ～ ${d.rangeEnd}）`, ''];
+  const lines = [`科技规划处　处室工作简报（统计周期：${d.periodLabel}　${d.rangeStart} ～ ${d.rangeEnd}）`, ''];
   const push = s => lines.push(s);
   reportSections().forEach(s => {
     lines.push(`${s.title}`);
@@ -6124,7 +6703,7 @@ function buildReportText() {
 async function exportReportImage() {
   try {
     const d = buildReportData(reportPeriod, reportOffset);
-    const W = 860, PAD = 24, LH = 22;
+    const W = 1290, PAD = 24, LH = 22; // 原来 860，用户反馈人员工作矩阵模块的姓名挤到要竖着写，加宽 50%（860*1.5）留出横排的空间
     // 面板相关的几个尺寸/颜色都是直接抄 CSS 里 .panel/.panel-h/.rep-row/.rep-region 那几条
     // 规则的字面值（见 :root 里的 --border/--surface/--text2/--text3/--accent），这样面板
     // 卡片、标题配色才能跟屏幕上/PDF 里看到的对上，不是另起一套顺眼但对不上号的配色
@@ -6236,7 +6815,10 @@ async function exportReportImage() {
       const matrix = (dutyStat, workStat, people, heat, expandedSet) => {
         if (!dutyStat.length) { empty('暂无数据'); return; }
         if (!people.length) { empty('还没有任何人员'); return; }
-        const labelW = 130, headH = 46, rowH = 15;
+        // headH 原来是 46（给竖排姓名留的高度），图片导出宽度这一轮加大了 50%（见 exportReportImage
+        // 里的 W），每一列能分到的宽度也跟着宽了不少，姓名不用再竖着写才能塞下，改成横排、
+        // headH 缩回一行文字的高度就够
+        const labelW = 130, headH = 22, rowH = 15;
         const availW = cur.w - labelW;
         const colW = Math.max(9, availW / people.length);
         const cellOf = (pm, person) => {
@@ -6264,15 +6846,12 @@ async function exportReportImage() {
         if (draw) {
           ctx.font = '9px sans-serif';
           ctx.fillStyle = COL.text;
+          ctx.textAlign = 'center';
           people.forEach((p, i) => {
             const cx = cur.x0 + labelW + i * colW + colW / 2;
-            ctx.save();
-            ctx.translate(cx, cur.y + headH - 4);
-            ctx.rotate(-Math.PI / 2);
-            ctx.textAlign = 'left';
-            ctx.fillText(truncate(ctx, p, headH - 8), 0, 0);
-            ctx.restore();
+            ctx.fillText(truncate(ctx, p, colW - 2), cx, cur.y + headH - 8);
           });
+          ctx.textAlign = 'left';
         }
         cur.y += headH;
         dutyStat.forEach(x => {
@@ -6326,6 +6905,10 @@ async function exportReportImage() {
           ctx.stroke();
           ctx.fillStyle = COL.bar[1];
           series.forEach((s, i) => { ctx.beginPath(); ctx.arc(x(i), yv(s[aKey]), 2, 0, Math.PI * 2); ctx.fill(); });
+          // 标了时间的那些点上方顺带标出数值，跟屏幕上 lineChart() 的 valLab 是同一个道理——
+          // 图片导出要跟屏幕看到的一致
+          ctx.fillStyle = COL.text3;
+          series.forEach((s, i) => { if (i % step === 0) ctx.fillText(String(s[aKey]), x(i), yv(s[aKey]) - 6); });
           ctx.textAlign = 'left';
           ctx.restore();
         }
@@ -6580,7 +7163,11 @@ async function exportReportImage() {
         groups.forEach(g => {
           if (g.label && draw) { ctx.font = '10.5px sans-serif'; ctx.fillStyle = COL.text3; ctx.fillText(g.label, cur.x0, cur.y + 8); }
           if (g.label) cur.y += 16;
-          const cols = Math.max(1, Math.min(4, g.cards.length));
+          // 这里不能像别的地方一样封顶列数——boxW 是拿 cols 算的，封顶了但下面 forEach 还是
+          // 照 g.cards 实际个数一张张画，列数封顶、卡片没封顶，多出来的卡片会画到面板宽度外面去
+          // （dashMyCards"本期"那组、periodStatus/periodOverallStatus 都是 5 张卡，之前没人传过
+          // 超过 4 张才把这条隐患露出来）
+          const cols = Math.max(1, g.cards.length);
           const boxW = (cur.w - boxGap * (cols - 1)) / cols, boxH = 44;
           g.cards.forEach((c, i) => {
             const bx = cur.x0 + i * (boxW + boxGap);
@@ -6589,8 +7176,29 @@ async function exportReportImage() {
               ctx.strokeStyle = COL.border; ctx.lineWidth = 1; ctx.strokeRect(bx, cur.y, boxW, boxH);
               ctx.font = '9.5px sans-serif'; ctx.fillStyle = COL.text3; ctx.textAlign = 'center';
               ctx.fillText(truncate(ctx, c.k, boxW - 6), bx + boxW / 2, cur.y + 16);
-              ctx.font = 'bold 15px sans-serif'; ctx.fillStyle = c.warn ? COL.overdue : COL.text;
-              ctx.fillText(String(c.v), bx + boxW / 2, cur.y + 34);
+              const vColor = c.ok ? COL.done : (c.warn ? COL.overdue : COL.text);
+              const vStr = String(c.v);
+              // 屏幕/PDF 上 statCard()+fracStr() 拼出来的"12/34"是分子大、分母小两种字号——
+              // 这里认同一种"整数/整数"形状的字符串，拆成两段用不同字号画，视觉上才跟屏幕对得上，
+              // 不是简单地整串用同一个字号画出来
+              const fracMatch = /^(\d+)\/(\d+)$/.exec(vStr);
+              if (fracMatch) {
+                const [, num, den] = fracMatch;
+                ctx.font = 'bold 15px sans-serif';
+                const numW = ctx.measureText(num).width;
+                ctx.font = '11px sans-serif';
+                const denW = ctx.measureText('/' + den).width;
+                const startX = bx + boxW / 2 - (numW + denW) / 2;
+                ctx.textAlign = 'left';
+                ctx.font = 'bold 15px sans-serif'; ctx.fillStyle = vColor;
+                ctx.fillText(num, startX, cur.y + 34);
+                ctx.font = '11px sans-serif'; ctx.fillStyle = COL.text2;
+                ctx.fillText('/' + den, startX + numW, cur.y + 34);
+                ctx.textAlign = 'center';
+              } else {
+                ctx.font = 'bold 15px sans-serif'; ctx.fillStyle = vColor;
+                ctx.fillText(truncate(ctx, vStr, boxW - 6), bx + boxW / 2, cur.y + 34);
+              }
               ctx.textAlign = 'left';
             }
           });
@@ -6702,7 +7310,7 @@ async function exportReportImage() {
 
       // 页头面板：跟屏幕/PDF 上"处室工作简报"那块面板视觉一致，只有一行标题——周期切换/翻期
       // 按钮和下面的导出按钮都是 no-print，图片/PDF 里本来就不出现，这里也不画
-      const headerText = `📋 处室工作简报　·　统计周期：${d.periodLabel}（${d.rangeStart} ～ ${d.rangeEnd}）`;
+      const headerText = `📋 科技规划处　处室工作简报　·　统计周期：${d.periodLabel}（${d.rangeStart} ～ ${d.rangeEnd}）`;
       cur.y = panel(cur.x0, cur.y, cur.w, (hx, hy, hw) => {
         ctx.font = 'bold 13px sans-serif';
         ctx.fillStyle = COL.text2;
@@ -7437,10 +8045,176 @@ const ACTIONS = {
   },
 
   /* --- 工作台 --- */
-  'dash-focus': d => { dashFocus = d.k; renderDashboard(); },
+  // 换粒度（周/月/季/年）时把翻期归零，跟报告页 'report-period' 是同一个理由：
+  // 从"上3月"切到"按年"还停在偏移 3 上没有意义
+  'dash-period': d => { dashPeriod = d.period; dashOffset = 0; renderDashboard(); },
+  'dash-period-nav': d => {
+    dashOffset = d.step === '0' ? 0 : dashOffset + Number(d.step);
+    renderDashboard();
+  },
+  // 切换"我的"区在看谁——权限门禁在这里也重复查一遍，不能只信下拉框存在这件事本身
+  // （比如权限刚好在别的标签页被收回，这边的 DOM 还没来得及重渲染）
+  'dash-view-as': (d, el) => {
+    if (!hasPermission('view_others_dashboard')) { dashViewAsPerson = ''; renderDashboard(); return; }
+    dashViewAsPerson = (el && el.value) || '';
+    dashMsDutyExpanded.clear(); dashMsWorkExpanded.clear();
+    renderDashboard();
+  },
+
+  /* ---- 工作台编排（区域 + 模块）——跟报告页那套 report-sec-x / report-mod-x / report-preset-x
+     是同一份写法（宽度倍数/同行/上下移动原样照抄），多了个 dash-mod-scope（按人/按整体）。
+     每个动作都单独把一次权限，理由跟报告页那段注释一样：动作是全局注册的，页面藏起来拦不住
+     知道名字直接从控制台调用。 */
+  'dash-config-toggle': () => { dashConfigOpen = !dashConfigOpen; renderDashboard(); },
+  'dash-sec-add': () => {
+    if (!requirePermission('config_dashboard')) return;
+    promptModal('添加区域', '区域标题', '', name => {
+      const title = (name || '').trim(); if (!title) return;
+      saveDashboardConfig(cfg => dashboardPresetIn(cfg).sections.push({ id: uid('sec'), title, modules: [] }));
+    });
+  },
+  'dash-sec-rename': d => {
+    if (!requirePermission('config_dashboard')) return;
+    const cur = dashboardSections().find(s => s.id === d.id); if (!cur) return;
+    promptModal('修改区域标题', '区域标题', cur.title, name => {
+      const title = (name || '').trim(); if (!title) return;
+      saveDashboardConfig(cfg => {
+        const s = dashboardPresetIn(cfg).sections.find(x => x.id === d.id);
+        if (s) s.title = title;
+      });
+    });
+  },
+  'dash-sec-move': d => {
+    if (!requirePermission('config_dashboard')) return;
+    const step = Number(d.step);
+    saveDashboardConfig(cfg => {
+      const list = dashboardPresetIn(cfg).sections;
+      const i = list.findIndex(s => s.id === d.id), j = i + step;
+      if (i < 0 || j < 0 || j >= list.length) return;
+      list.splice(j, 0, list.splice(i, 1)[0]);
+    });
+  },
+  'dash-sec-del': d => {
+    if (!requirePermission('config_dashboard')) return;
+    const cur = dashboardSections().find(s => s.id === d.id); if (!cur) return;
+    confirmModal('删除区域', `删除区域「${cur.title}」？只是把它从工作台编排里去掉，任务/里程碑等实际数据一条都不动。`, '删除',
+      () => saveDashboardConfig(cfg => {
+        const p = dashboardPresetIn(cfg);
+        p.sections = p.sections.filter(s => s.id !== d.id);
+      }), true);
+  },
+  'dash-mod-add': d => {
+    if (!requirePermission('config_dashboard')) return;
+    saveDashboardConfig(cfg => {
+      const s = dashboardPresetIn(cfg).sections.find(x => x.id === d.sec); if (!s) return;
+      if (!Array.isArray(s.modules)) s.modules = [];
+      if (!s.modules.includes(d.mod)) s.modules.push(d.mod);
+    });
+  },
+  'dash-mod-remove': d => {
+    if (!requirePermission('config_dashboard')) return;
+    saveDashboardConfig(cfg => {
+      const s = dashboardPresetIn(cfg).sections.find(x => x.id === d.sec); if (!s) return;
+      s.modules = (s.modules || []).filter(k => k !== d.mod);
+      s.inline = (s.inline || []).filter(k => k !== d.mod);   // 顺手清掉它的同行标记
+      if (s.widths) delete s.widths[d.mod];                   // 宽度倍数同理，不留孤儿设置
+      if (s.personScope) delete s.personScope[d.mod];
+    });
+  },
+  // 宽度倍数：select 是"只认 change"的老陷阱（见 CHANGE_ONLY_ACTS 那段注释），
+  // 选 1 倍就是回到默认，直接删掉这条设置，不单独存一条"1"占位——写法跟 report-mod-width 一样
+  'dash-mod-width': (d, el) => {
+    if (!requirePermission('config_dashboard')) { renderDashboard(); return; }
+    const val = Number(el && el.value);
+    saveDashboardConfig(cfg => {
+      const s = dashboardPresetIn(cfg).sections.find(x => x.id === d.sec); if (!s) return;
+      if (!s.widths) s.widths = {};
+      if (val === 2 || val === 3) s.widths[d.mod] = val;
+      else delete s.widths[d.mod];
+    });
+  },
+  'dash-mod-move': d => {
+    if (!requirePermission('config_dashboard')) return;
+    const step = Number(d.step);
+    saveDashboardConfig(cfg => {
+      const s = dashboardPresetIn(cfg).sections.find(x => x.id === d.sec); if (!s) return;
+      const list = s.modules || [];
+      const i = list.indexOf(d.mod), j = i + step;
+      if (i < 0 || j < 0 || j >= list.length) return;
+      list.splice(j, 0, list.splice(i, 1)[0]);
+      // 挪到第一个之后就不可能再"跟上一个同行"了，标记要跟着清掉
+      if (j === 0) s.inline = (s.inline || []).filter(k => k !== d.mod);
+    });
+  },
+  'dash-mod-inline': d => {
+    if (!requirePermission('config_dashboard')) return;
+    saveDashboardConfig(cfg => {
+      const s = dashboardPresetIn(cfg).sections.find(x => x.id === d.sec); if (!s) return;
+      if (!Array.isArray(s.inline)) s.inline = [];
+      if ((s.modules || []).indexOf(d.mod) <= 0) return;   // 第一个模块没有"上一个"可以跟
+      s.inline = s.inline.includes(d.mod) ? s.inline.filter(k => k !== d.mod) : s.inline.concat(d.mod);
+    });
+  },
+  'dash-mod-scope': (d, el) => {
+    if (!requirePermission('config_dashboard')) { renderDashboard(); return; }
+    const val = (el && el.value === 'self') ? 'self' : 'all';
+    saveDashboardConfig(cfg => {
+      const s = dashboardPresetIn(cfg).sections.find(x => x.id === d.sec); if (!s) return;
+      if (!s.personScope) s.personScope = {};
+      s.personScope[d.mod] = val;
+    });
+  },
+  'dash-preset-switch': (d, el) => {
+    if (!requirePermission('config_dashboard')) { renderDashboard(); return; }
+    const id = el && el.value; if (!id) return;
+    saveDashboardConfig(cfg => { cfg.activeId = id; });
+  },
+  'dash-preset-new': () => {
+    if (!requirePermission('config_dashboard')) return;
+    promptModal('另存为新存档', '存档名称', '', name => {
+      const nm = (name || '').trim(); if (!nm) return;
+      saveDashboardConfig(cfg => {
+        const base = dashboardPresetIn(cfg);
+        const copy = { id: uid('preset'), name: nm, sections: clone(base.sections).map(s => Object.assign(s, { id: uid('sec') })) };
+        cfg.presets.push(copy);
+        cfg.activeId = copy.id;
+      });
+    });
+  },
+  'dash-preset-rename': () => {
+    if (!requirePermission('config_dashboard')) return;
+    const cur = activeDashboardPreset();
+    promptModal('重命名存档', '存档名称', cur.name || '', name => {
+      const nm = (name || '').trim(); if (!nm) return;
+      saveDashboardConfig(cfg => { dashboardPresetIn(cfg).name = nm; });
+    });
+  },
+  'dash-preset-del': () => {
+    if (!requirePermission('config_dashboard')) return;
+    if (dashboardPresets().length < 2) { showSnack('至少要留一套编排'); return; }
+    const cur = activeDashboardPreset();
+    confirmModal('删除存档', `删除编排存档「${cur.name || '未命名'}」？实际数据不受影响。`, '删除', () => saveDashboardConfig(cfg => {
+      cfg.presets = cfg.presets.filter(p => p.id !== cur.id);
+      cfg.activeId = cfg.presets[0].id;
+    }), true);
+  },
+  'dash-config-reset': () => {
+    if (!requirePermission('config_dashboard')) return;
+    confirmModal('恢复默认编排', '把当前这套存档的区域和模块恢复成系统默认的两段式？其它存档不受影响。', '恢复',
+      () => saveDashboardConfig(cfg => { dashboardPresetIn(cfg).sections = clone(DEFAULT_DASHBOARD_SECTIONS); }), true);
+  },
+
   // 按"相关"（牵头 ∪ 参与）筛选，不是只筛牵头人——工作台人员负荷、图表页"按人"横条都用这个
   'filter-person': d => {
     UI.tasks.view = 'all';
+    UI.tasks.filters = { _person: d.person };
+    UI.tasks.search = '';
+    goto('tasks');
+  },
+  // 工作台"我的统计卡片"下钻：任务页视图 + 按"相关"筛到具体某个人（不一定是当前登录者，
+  // 处室/部门领导用"查看"切到别人时点卡片也该筛那个人，不能靠 isMine() 那套只认登录者的视图）
+  'dash-drill-tasks': d => {
+    UI.tasks.view = d.view;
     UI.tasks.filters = { _person: d.person };
     UI.tasks.search = '';
     goto('tasks');
@@ -7950,16 +8724,20 @@ const ACTIONS = {
     reportOffset = d.step === '0' ? 0 : reportOffset + Number(d.step);
     renderReport();
   },
+  // dutyTree（各职责/工作推进情况）现在报告页和工作台共用同一份定义（原来工作台自己还有一份
+  // dashDutyTree，跟这份内容一模一样，模块选择器里两个一样的东西挑花了眼，本轮合并成一份，
+  // 见 REPORT_MODULES 里 dutyTree 上面那段注释）——这三个展开/折叠动作因此不能再写死
+  // renderReport()，得用 renderPage() 认清当前到底是报告页还是工作台
   'report-duty-toggle': (d, el, e) => {
     if (e) e.stopPropagation();
     if (reportExpanded.has(d.code)) reportExpanded.delete(d.code); else reportExpanded.add(d.code);
-    renderReport();
+    renderPage();
   },
   'report-expand-all': () => {
     reportExpanded = new Set(buildReportData(reportPeriod, reportOffset).dutyStat.map(x => x.code));
-    renderReport();
+    renderPage();
   },
-  'report-collapse-all': () => { reportExpanded.clear(); renderReport(); },
+  'report-collapse-all': () => { reportExpanded.clear(); renderPage(); },
   // 报告页里程碑甘特图的展开状态：跟图表页、工作台各自一份，互不影响
   'report-ms-duty-toggle': (d, el, e) => {
     if (e) e.stopPropagation();
@@ -8121,16 +8899,6 @@ const ACTIONS = {
     confirmModal('恢复默认编排', '把当前这套存档的区域和模块恢复成系统默认的四段式？其它存档不受影响。', '恢复',
       () => saveReportConfig(cfg => { reportPresetIn(cfg).sections = clone(DEFAULT_REPORT_SECTIONS); }), true);
   },
-  'dash-duty-toggle': (d, el, e) => {
-    if (e) e.stopPropagation();
-    if (dashExpanded.has(d.code)) dashExpanded.delete(d.code); else dashExpanded.add(d.code);
-    renderDashboard();
-  },
-  'dash-expand-all': () => {
-    dashExpanded = new Set(statsByDuty(visibleTasks().filter(t => !t.deleted_at)).map(x => x.code));
-    renderDashboard();
-  },
-  'dash-collapse-all': () => { dashExpanded.clear(); renderDashboard(); },
   'chart-duty-toggle': (d, el, e) => {
     if (e) e.stopPropagation();
     if (chartDutyExpanded.has(d.code)) chartDutyExpanded.delete(d.code); else chartDutyExpanded.add(d.code);
@@ -8163,10 +8931,13 @@ const ACTIONS = {
   'report-matrix-collapse-all': () => { reportMatrixDutyExpanded.clear(); renderReport(); },
   // "本期已交付里程碑"模块：点饼图扇区/图例按呈报层级筛下面的清单，就地筛、不跳页——
   // 再点一次同一个层级就取消筛选。跟"跳到任务页"那批下钻不是一回事，这里就是想在报告里
-  // 直接看"这个层级都交了什么"，跳走反而要重新定位一次
+  // 直接看"这个层级都交了什么"，跳走反而要重新定位一次。这个模块跟报告页/工作台共用同一份
+  // 定义（deliveredMs 是共享注册表里的一个模块，两边都能加），所以不能像以前那样写死
+  // renderReport()——工作台上点这颗筛选按钮时，当前页面其实是 dashboard，得用 renderPage()
+  // 认当前是哪一页，两边都能正常刷新
   'report-delivered-ms-level-filter': d => {
     reportDeliveredMsLevelFilter = reportDeliveredMsLevelFilter === d.level ? '' : d.level;
-    renderReport();
+    renderPage();
   },
   // 人员工作矩阵的热力格子：点击按"这项职责/工作 + 这个人"两个条件一起筛，跳到任务页
   'matrix-cell-filter': d => {
@@ -8209,25 +8980,18 @@ const ACTIONS = {
     renderDashboard();
   },
   'dash-ms-expand-all': () => {
-    const base = visibleTasks().filter(t => !t.deleted_at && (!dashMsMineOnly || isMine(t)));
-    const { byDutyWork } = msTreeGroups(base);
+    const { byDutyWork } = msTreeGroups(dashPersonTasks(dashViewedPerson()));
     dashMsDutyExpanded = new Set(byDutyWork.keys());
     dashMsWorkExpanded = new Set([...byDutyWork.values()].flatMap(wm => [...wm.keys()]));
     renderDashboard();
   },
   'dash-ms-expand-to-work': () => {
-    const base = visibleTasks().filter(t => !t.deleted_at && (!dashMsMineOnly || isMine(t)));
-    const { byDutyWork } = msTreeGroups(base);
+    const { byDutyWork } = msTreeGroups(dashPersonTasks(dashViewedPerson()));
     dashMsDutyExpanded = new Set(byDutyWork.keys());
     dashMsWorkExpanded.clear();
     renderDashboard();
   },
   'dash-ms-collapse-all': () => { dashMsDutyExpanded.clear(); dashMsWorkExpanded.clear(); renderDashboard(); },
-  'dash-ms-toggle-mine': () => {
-    dashMsMineOnly = !dashMsMineOnly;
-    dashMsDutyExpanded.clear(); dashMsWorkExpanded.clear();
-    renderDashboard();
-  },
   // 同上（见 'chart-view' 那条注释）：报告页的 backlogTrend 模块也用这个粒度切换，
   // 硬编码 renderCharts() 会让报告页上的月/周/日按钮点了跟没点一样
   'trend-granularity': d => { trendGranularity = d.g; renderPage(); },
@@ -8485,7 +9249,8 @@ function afterEdit(entity, id, fieldKey) {
 // - report-preset-switch 是 select，理由跟上面两条完全一样
 //   （报告模块的增删改现在是一排可点的文字按钮，走普通 click 分发，不在这张名单里）
 const CHANGE_ONLY_ACTS = ['account-role-change', 'perm-toggle', 'backup-toggle', 'backup-interval-change', 'logs-who',
-  'report-preset-switch', 'recycle-keep-change', 'report-mod-width'];
+  'report-preset-switch', 'recycle-keep-change', 'report-mod-width', 'dash-view-as',
+  'dash-preset-switch', 'dash-mod-width', 'dash-mod-scope'];
 document.addEventListener('click', e => {
   if (e.target.closest('.col-resize')) return;
   const el = e.target.closest('[data-act]');
@@ -8524,6 +9289,14 @@ document.addEventListener('change', e => {
   if (rp) ACTIONS['report-preset-switch'](rp.dataset, rp, e);
   const rw = e.target.closest('[data-act="report-mod-width"]');
   if (rw) ACTIONS['report-mod-width'](rw.dataset, rw, e);
+  const dv = e.target.closest('[data-act="dash-view-as"]');
+  if (dv) ACTIONS['dash-view-as'](dv.dataset, dv, e);
+  const dp = e.target.closest('[data-act="dash-preset-switch"]');
+  if (dp) ACTIONS['dash-preset-switch'](dp.dataset, dp, e);
+  const dc = e.target.closest('[data-act="dash-mod-width"]');
+  if (dc) ACTIONS['dash-mod-width'](dc.dataset, dc, e);
+  const ds = e.target.closest('[data-act="dash-mod-scope"]');
+  if (ds) ACTIONS['dash-mod-scope'](ds.dataset, ds, e);
   if (e.target.classList.contains('cp-chk')) updateCpProgressPreview();   // 勾选/取消里程碑完成状态，实时刷新进度预览
 });
 document.addEventListener('dblclick', e => {

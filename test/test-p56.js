@@ -110,7 +110,8 @@ async function main() {
   let repH = q('#page-report').innerHTML;
   const titleOccurrences = (repH.match(/处室工作简报/g) || []).length;
   ok('★"处室工作简报"这几个字在整页里只出现一次（以前是两块面板各一次）', titleOccurrences === 1, titleOccurrences);
-  ok('标题和统计周期文字合并到了同一行', /📋 处室工作简报　·　统计周期：/.test(repH));
+  // P82 这轮标题前加了"科技规划处　"前缀，正则跟着放宽
+  ok('标题和统计周期文字合并到了同一行', /📋 科技规划处　处室工作简报　·　统计周期：/.test(repH));
   ok('★"内容跟着当前数据实时变化…"这段说明文字被去掉了', !repH.includes('内容跟着当前数据实时变化'));
   ok('★导出按钮后面不再跟着一段重复的"统计周期：xxx"文字（这句已经并进标题了）',
     (repH.match(/统计周期：/g) || []).length === 1);

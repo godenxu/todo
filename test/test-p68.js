@@ -65,10 +65,15 @@ async function main() {
   ok('★没有任何模块的 label/desc/正文里还留着"当期"字样', leftover.length === 0, leftover);
   ok('★REPORT_GROUPS 分类标签没有"当期"了', S.REPORT_GROUPS.every(g => !g.label.includes('当期')));
   ok('★DEFAULT_REPORT_SECTIONS 区域标题没有"当期"了', S.DEFAULT_REPORT_SECTIONS.every(s => !s.title.includes('当期')));
-  ok('具体几个改名对了：periodScope→本期涉及范围', S.REPORT_MODULE_MAP.periodScope.label === '本期涉及范围');
-  ok('periodPlan→本期工作计划量', S.REPORT_MODULE_MAP.periodPlan.label === '本期工作计划量');
+  // P81 后期改版：periodScope/periodPlan 这两个旧 key 下线了，内容被 periodOverallScope/
+  // periodOverallPlan（新分类"本期处室统计"）取代，这里跟着改成认新 key
+  ok('具体几个改名对了：periodOverallScope→本期涉及范围', S.REPORT_MODULE_MAP.periodOverallScope.label === '本期涉及范围');
+  // P82 这轮改名"本期计划完成度"→"本期计划开展"
+  ok('periodOverallPlan→本期计划开展', S.REPORT_MODULE_MAP.periodOverallPlan.label === '本期计划开展');
   ok('periodStatus→本期完成进度（含 SPI）', S.REPORT_MODULE_MAP.periodStatus.label === '本期完成进度（含 SPI）');
-  ok('★第二段标题是"二、本期处室工作进展"', S.DEFAULT_REPORT_SECTIONS[1].title === '二、本期处室工作进展');
+  // P80 后期改版在最前面插了"一、处室工作整体统计"，"本期处室工作进展"从第二段挪到第三段——
+  // 认标题文字本身，不依赖具体下标
+  ok('★有一段标题是"三、本期处室工作进展"', S.DEFAULT_REPORT_SECTIONS.some(s => s.title === '三、本期处室工作进展'));
 
   /* ================= ③：模块在同一份报表里只出现一次 ================= */
   section('③：一个模块已经用在某个区域，就不会再出现在别的区域的添加器里');

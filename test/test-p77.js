@@ -78,13 +78,13 @@ async function main() {
   await S.Repo.upsert('task', { id: 'p77_ta', work: 'p77_wa', title: 'P77任务A', status: 'doing', owner: '甲', assignees: [], plan_date: S.offsetDate(5) });
   S.rebuildIndex();
 
-  // 编排：第一个区域塞两个模块同行、宽度倍数 1:2（periodScope 占 1 份，dutyTree 占 2 份，
+  // 编排：第一个区域塞两个模块同行、宽度倍数 1:2（periodOverallScope 占 1 份，dutyTree 占 2 份，
   // dutyTree 的 note 里带着 <span class="toggle-view">…</span> 这种链接标签，正好用来验证
   // stripTags 有没有真的把标签去掉）；第二个区域故意留空，验证"这个区域还没有勾选任何模块"
   // 那块占位面板画得出来
   S.DB.reportConfig = {
     activeId: 'preset_p77', presets: [{ id: 'preset_p77', name: 'p77test', sections: [
-      { id: 'sec_row', title: 'P77并排测试区', modules: ['periodScope', 'dutyTree'], inline: ['dutyTree'], widths: { periodScope: 1, dutyTree: 2 } },
+      { id: 'sec_row', title: 'P77并排测试区', modules: ['periodOverallScope', 'dutyTree'], inline: ['dutyTree'], widths: { periodOverallScope: 1, dutyTree: 2 } },
       { id: 'sec_empty', title: 'P77空区域测试', modules: [] },
     ] }],
   };
@@ -113,7 +113,7 @@ async function main() {
   section('⑥：★运行时——同一行两个模块真的画成了并排两列，不是各占一整行');
   // 每个面板会画两次一模一样的 roundRect（一次给 fill 用、一次给 stroke 用，坐标完全相同），
   // 先按坐标去重，一个面板只留一条记录，再按 y 分组——两个面板同一行的话 y 应该相等，
-  // x2 应该在 x1 的右边，且按 1:2 的权重，宽列（dutyTree）应该比窄列（periodScope）宽出将近一倍
+  // x2 应该在 x1 的右边，且按 1:2 的权重，宽列（dutyTree）应该比窄列（periodOverallScope）宽出将近一倍
   const seenPanel = new Set();
   const panels = [];
   roundRects.forEach(c => {
@@ -129,7 +129,7 @@ async function main() {
     !!pairedRow, [...byY.entries()].map(([y, l]) => [y, l.length]));
   if (pairedRow) {
     const [a, b] = pairedRow.slice().sort((p, q) => p[0] - q[0]);
-    ok('★左边那列（periodScope，权重 1）的 x 比右边那列（dutyTree，权重 2）小', a[0] < b[0], { a, b });
+    ok('★左边那列（periodOverallScope，权重 1）的 x 比右边那列（dutyTree，权重 2）小', a[0] < b[0], { a, b });
     ok('★左右两列之间空出了列间距（不是紧贴在一起）', b[0] - (a[0] + a[2]) >= 10, { leftRight: a[0] + a[2], rightX: b[0] });
     ok('★宽列（权重 2）明显比窄列（权重 1）宽——大致是窄列宽度的 1.5～2.5 倍，不是随便给的固定值',
       b[2] > a[2] * 1.4 && b[2] < a[2] * 2.6, { narrowW: a[2], wideW: b[2], ratio: b[2] / a[2] });
@@ -140,7 +140,7 @@ async function main() {
   ok('★能找到"全部展开/全部折叠"这句 note 文字', !!noteText, noteText && noteText.args[0]);
   ok('★这句文字里不含任何 HTML 标签（stripTags 真的生效了，不是把 <span…> 原样画出来）',
     !!noteText && !noteText.args[0].includes('<') && !noteText.args[0].includes('>'), noteText && noteText.args[0]);
-  ok('★titleCount 也画出来了——periodScope 没有 titleCount 不测，改测有 titleCount 的模块（比如"高优先级任务"）',
+  ok('★titleCount 也画出来了——periodOverallScope 没有 titleCount 不测，改测有 titleCount 的模块（比如"高优先级任务"）',
     fillTexts.some(c => /★|高优先级任务（\d+）|逾期任务（\d+）|逾期里程碑（\d+）/.test(String(c.args[0])) || true));
 
   section('⑧：★运行时——空区域（sec_empty）画出了跟页面上一致的占位文案');

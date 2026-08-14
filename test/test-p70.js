@@ -111,14 +111,15 @@ async function main() {
   section('②：没设宽度倍数的普通同行（老编排常见场景）照样能正常并排，不受这次改动影响');
   S.DB.reportConfig = {
     activeId: 'preset_p70plain', presets: [{ id: 'preset_p70plain', name: 'p70plain', sections: [
-      { id: 'sec_plain', title: '普通同行区', modules: ['periodScope', 'periodPlan'], inline: ['periodPlan'] },
+      { id: 'sec_plain', title: '普通同行区', modules: ['periodOverallScope', 'periodOverallPlan'], inline: ['periodOverallPlan'] },
     ] }],
   };
   S.goto('report');
   const repH2 = q('#page-report').innerHTML;
   ok('★两个都是默认 1 倍时，也是走 flex:1 1 0（等分），不是走别的分支',
     /flex:1 1 0/.test(repH2));
-  ok('两个模块确实在同一个 .rep-row 里', /<div class="rep-row">[\s\S]*?本期涉及范围[\s\S]*?本期工作计划量[\s\S]*?<\/div>/.test(repH2));
+  // P82 这轮改名"本期计划完成度"→"本期计划开展"
+  ok('两个模块确实在同一个 .rep-row 里', /<div class="rep-row">[\s\S]*?本期涉及范围[\s\S]*?本期计划开展[\s\S]*?<\/div>/.test(repH2));
 
   S.DB.reportConfig = null;
 

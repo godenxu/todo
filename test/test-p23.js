@@ -26,20 +26,10 @@ async function main() {
   const restore = () => { S.DB.users = JSON.parse(JSON.stringify(bakUsers)); S.DB.settings.me = bakMe; };
   const html = require('fs').readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
 
-  section('人员负荷：0 值分段不再渲染，避免左侧留白');
-  const dutyCode = 'P23LOAD';
-  await S.Repo.upsert('duty', { code: dutyCode, name: 'P23负荷测试职责' });
-  const wid = 'w_p23load';
-  await S.Repo.upsert('work', { id: wid, duty: dutyCode, name: 'P23负荷测试工作', owner: '测试管理员' });
-  const owner = 'P23负荷测试人（只有进行中）';
-  await S.Repo.upsert('task', { id: 'p23_load_only_doing', work: wid, title: 'P23只有进行中', status: 'doing', plan_date: S.offsetDate(10), owner, assignees: [] });
-  S.setPage('dashboard'); S.renderDashboard();
-  const dashH = q('#page-dashboard').innerHTML;
-  const rowIdx = dashH.indexOf(`data-person="${owner}"`);
-  ok('找到了这一行', rowIdx > -1);
-  const rowSeg = dashH.slice(rowIdx, rowIdx + 500);
-  ok('只有 doing 一个分段（done/late/todo 都是 0，不应该渲染）', (rowSeg.match(/class="seg /g) || []).length === 1);
-  ok('渲染的这一个分段确实是 seg-doing', rowSeg.includes('class="seg seg-doing"'));
+  // 工作台"人员负荷"模块（dashPeopleLoad）P82 这轮下线了（跟 personBars 内容重复，见
+  // REPORT_MODULES 里 dashPeopleLoad 那段注释），这里验证的"0 值分段不渲染"是那份专属渲染
+  // 自己的展示细节（同样的 0 值分段不渲染逻辑已经在 hBar() 里验证过，见 test-p15.js），
+  // 模块本身都没了，这个小节不再适用
 
   section('任务详情弹窗对齐修复：里程碑标签的 CSS 选择器特异性够了，真的左对齐');
   ok('CSS 用的是 .detail-grid .cp-section-label（两个类，能盖过 .detail-grid label 的 text-align:right）',

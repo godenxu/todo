@@ -22,25 +22,9 @@ async function main() {
   const bakMe = S.DB.settings.me;
   const restore = () => { S.DB.users = JSON.parse(JSON.stringify(bakUsers)); S.DB.settings.me = bakMe; };
 
-  section('人员负荷：分段顺序改为 已完成/进行中/逾期/未开始');
-  const dutyCode = 'P21LOAD';
-  await S.Repo.upsert('duty', { code: dutyCode, name: 'P21负荷测试职责' });
-  const wid = 'w_p21load';
-  await S.Repo.upsert('work', { id: wid, duty: dutyCode, name: 'P21负荷测试工作', owner: '测试管理员' });
-  const owner = 'P21负荷测试人';
-  await S.Repo.upsert('task', { id: 'p21_load_done', work: wid, title: 'P21已完成', status: 'done', plan_date: S.offsetDate(-1), actual_date: S.todayStr(), owner, assignees: [] });
-  await S.Repo.upsert('task', { id: 'p21_load_doing', work: wid, title: 'P21进行中', status: 'doing', plan_date: S.offsetDate(10), owner, assignees: [] });
-  await S.Repo.upsert('task', { id: 'p21_load_late', work: wid, title: 'P21逾期', status: 'todo', plan_date: S.offsetDate(-3), owner, assignees: [] });
-  await S.Repo.upsert('task', { id: 'p21_load_todo', work: wid, title: 'P21未开始', status: 'todo', plan_date: S.offsetDate(10), owner, assignees: [] });
-  S.setPage('dashboard'); S.renderDashboard();
-  const dashH = q('#page-dashboard').innerHTML;
-  const rowMatch = new RegExp(`data-person="${owner}"[\\s\\S]{0,600}?</div>`).exec(dashH);
-  ok('找到了这一行人员负荷', !!rowMatch);
-  if (rowMatch) {
-    const row = rowMatch[0];
-    const order = [...row.matchAll(/class="seg (seg-\w+)"/g)].map(m => m[1]);
-    ok('四段顺序是 done, doing, late, todo', order.join(',') === 'seg-done,seg-doing,seg-late,seg-todo', order);
-  }
+  // 工作台"人员负荷"模块（dashPeopleLoad）P82 这轮下线了（跟 personBars 内容重复），
+  // 这里验证的分段顺序是那份专属渲染（seg-done/seg-doing/seg-late/seg-todo）自己的展示细节，
+  // 模块本身都没了，这个小节不再适用
 
   section('连接共享文件夹提示框：不再有"浏览器安全限制...断开重连"这段文案');
   const bakShareConfig = S.DB.shareConfig;

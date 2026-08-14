@@ -82,14 +82,14 @@ async function main() {
   section('③：reportSections() 会把 s.widths 里合法的 2/3 倍宽度带出来，非法值当默认 1 倍处理');
   S.DB.reportConfig = {
     activeId: 'preset_p69', presets: [{ id: 'preset_p69', name: 'p69test', sections: [
-      { id: 'sec_w', title: '宽度测试区', modules: ['periodScope', 'periodPlan', 'periodStatus'], inline: ['periodPlan', 'periodStatus'],
-        widths: { periodPlan: 2, periodStatus: 3, periodScope: 99 } },
+      { id: 'sec_w', title: '宽度测试区', modules: ['periodOverallScope', 'periodOverallPlan', 'periodStatus'], inline: ['periodOverallPlan', 'periodStatus'],
+        widths: { periodOverallPlan: 2, periodStatus: 3, periodOverallScope: 99 } },
     ] }],
   };
   const secs = S.reportSections();
-  ok('★periodPlan 是 2 倍', secs[0].widths.periodPlan === 2);
+  ok('★periodOverallPlan 是 2 倍', secs[0].widths.periodOverallPlan === 2);
   ok('★periodStatus 是 3 倍', secs[0].widths.periodStatus === 3);
-  ok('★periodScope 的非法值（99）被当默认 1 倍，压根不会出现在 widths 里', !('periodScope' in secs[0].widths));
+  ok('★periodOverallScope 的非法值（99）被当默认 1 倍，压根不会出现在 widths 里', !('periodOverallScope' in secs[0].widths));
 
   section('③：渲染时按倍数分配 flex-grow——basis 固定是 0，不再用 JS 猜的像素基准（那正是折行 bug 的根源，见 test-p70）');
   S.goto('report');
@@ -102,52 +102,52 @@ async function main() {
     const styleMatch = repH.slice(colStart, colStart + 200).match(/style="flex:(\d+) 1 0"/);
     return styleMatch ? { grow: +styleMatch[1] } : null;
   };
-  // periodScope/periodPlan/periodStatus 全都并在一行了（第一个模块自己占一行，但 inline 设了 periodPlan/periodStatus，
-  // 而 periodScope 是第一个、不可能跟别的同行——所以实际是 periodScope 独占一行，periodPlan+periodStatus 并排一行）
-  const flexPlan = flexOf('本期工作计划量'), flexStatus = flexOf('本期完成进度（含 SPI）');
-  ok('★periodPlan（2倍）拿到的 flex-grow 是 2', flexPlan && flexPlan.grow === 2, flexPlan);
+  // periodOverallScope/periodOverallPlan/periodStatus 全都并在一行了（第一个模块自己占一行，但 inline 设了 periodOverallPlan/periodStatus，
+  // 而 periodOverallScope 是第一个、不可能跟别的同行——所以实际是 periodOverallScope 独占一行，periodOverallPlan+periodStatus 并排一行）
+  const flexPlan = flexOf('本期计划开展'), flexStatus = flexOf('本期完成进度（含 SPI）');
+  ok('★periodOverallPlan（2倍）拿到的 flex-grow 是 2', flexPlan && flexPlan.grow === 2, flexPlan);
   ok('★periodStatus（3倍）拿到的 flex-grow 是 3', flexStatus && flexStatus.grow === 3, flexStatus);
 
   section('③：没设过宽度的老编排照样渲染，行为跟以前完全一样（都是默认 1 倍）');
   S.DB.reportConfig = {
     activeId: 'preset_p69old', presets: [{ id: 'preset_p69old', name: 'p69old', sections: [
-      { id: 'sec_old', title: '老编排区', modules: ['periodScope', 'periodPlan'], inline: ['periodPlan'] },
+      { id: 'sec_old', title: '老编排区', modules: ['periodOverallScope', 'periodOverallPlan'], inline: ['periodOverallPlan'] },
     ] }],
   };
   const secsOld = S.reportSections();
   ok('★老数据没有 widths 字段，reportSections 照样给出空对象，不报错', JSON.stringify(secsOld[0].widths) === '{}');
   S.goto('report');
-  ok('页面正常渲染出两个模块', q('#page-report').innerHTML.includes('本期涉及范围') && q('#page-report').innerHTML.includes('本期工作计划量'));
+  ok('页面正常渲染出两个模块', q('#page-report').innerHTML.includes('本期涉及范围') && q('#page-report').innerHTML.includes('本期计划开展'));
 
   section('③：★UI——配置面板里每个已选模块都带宽度下拉框，选项是 1/2/3 倍宽度');
   S.DB.reportConfig = { activeId: 'preset_p69', presets: [{ id: 'preset_p69', name: 'p69test', sections: [
-    { id: 'sec_w', title: '宽度测试区', modules: ['periodScope', 'periodPlan'], inline: [], widths: { periodPlan: 2 } },
+    { id: 'sec_w', title: '宽度测试区', modules: ['periodOverallScope', 'periodOverallPlan'], inline: [], widths: { periodOverallPlan: 2 } },
   ] }] };
   S.setReportConfigOpen(true);
   S.goto('report');
   const cfgH = q('#page-report').innerHTML;
-  ok('★periodScope（默认1倍）的下拉框选中的是"1 倍宽度"',
-    new RegExp(`data-act="report-mod-width"[^>]*data-mod="periodScope"[\\s\\S]{0,150}<option value="1" selected>`).test(cfgH));
-  ok('★periodPlan（设了2倍）的下拉框选中的是"2 倍宽度"',
-    new RegExp(`data-act="report-mod-width"[^>]*data-mod="periodPlan"[\\s\\S]{0,150}<option value="2" selected>`).test(cfgH));
+  ok('★periodOverallScope（默认1倍）的下拉框选中的是"1 倍宽度"',
+    new RegExp(`data-act="report-mod-width"[^>]*data-mod="periodOverallScope"[\\s\\S]{0,150}<option value="1" selected>`).test(cfgH));
+  ok('★periodOverallPlan（设了2倍）的下拉框选中的是"2 倍宽度"',
+    new RegExp(`data-act="report-mod-width"[^>]*data-mod="periodOverallPlan"[\\s\\S]{0,150}<option value="2" selected>`).test(cfgH));
 
   section('③：选择宽度的 ACTIONS——选 2/3 倍会存，选回 1 倍会删掉这条设置（不留占位）');
-  await S.ACTIONS['report-mod-width']({ sec: 'sec_w', mod: 'periodScope' }, { value: '3' });
+  await S.ACTIONS['report-mod-width']({ sec: 'sec_w', mod: 'periodOverallScope' }, { value: '3' });
   await tick();
-  ok('★periodScope 被设成 3 倍了', S.reportSections()[0].widths.periodScope === 3);
-  await S.ACTIONS['report-mod-width']({ sec: 'sec_w', mod: 'periodScope' }, { value: '1' });
+  ok('★periodOverallScope 被设成 3 倍了', S.reportSections()[0].widths.periodOverallScope === 3);
+  await S.ACTIONS['report-mod-width']({ sec: 'sec_w', mod: 'periodOverallScope' }, { value: '1' });
   await tick();
   ok('★选回 1 倍后，widths 里就不再有这一条了（不是存了个 1）',
-    !('periodScope' in S.reportSections()[0].widths));
+    !('periodOverallScope' in S.reportSections()[0].widths));
 
   section('③：移除模块时顺手清掉它的宽度设置，不留孤儿数据');
-  await S.ACTIONS['report-mod-width']({ sec: 'sec_w', mod: 'periodPlan' }, { value: '2' });
+  await S.ACTIONS['report-mod-width']({ sec: 'sec_w', mod: 'periodOverallPlan' }, { value: '2' });
   await tick();
-  ok('前置：periodPlan 现在是 2 倍', S.reportSections()[0].widths.periodPlan === 2);
-  await S.ACTIONS['report-mod-remove']({ sec: 'sec_w', mod: 'periodPlan' });
+  ok('前置：periodOverallPlan 现在是 2 倍', S.reportSections()[0].widths.periodOverallPlan === 2);
+  await S.ACTIONS['report-mod-remove']({ sec: 'sec_w', mod: 'periodOverallPlan' });
   await tick();
   const rawSec = S.reportPresets()[0].sections.find(x => x.id === 'sec_w');
-  ok('★底层数据里 widths.periodPlan 也被清掉了', !rawSec.widths || !('periodPlan' in rawSec.widths));
+  ok('★底层数据里 widths.periodOverallPlan 也被清掉了', !rawSec.widths || !('periodOverallPlan' in rawSec.widths));
 
   S.DB.reportConfig = null;
   S.setReportConfigOpen(false);

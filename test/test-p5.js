@@ -220,7 +220,8 @@ async function main() {
   ok('workOptionsHTML 生成的选项里有这项工作', S.workOptionsHTML(w0201.duty, w0201.id).includes(`value="${w0201.id}"`));
   ok('选中的那一项被标了 selected', new RegExp(`value="${w0201.id}" selected`).test(S.workOptionsHTML(w0201.duty, w0201.id)));
   S.setPage('dashboard'); S.renderDashboard();
-  ok('工作台正常', q('#page-dashboard').innerHTML.includes('需要关注'));
+  // P80 起"需要关注"面板下线，改成认工作台改版后仍然存在的结构
+  ok('工作台正常', q('#page-dashboard').innerHTML.includes('我负责的工作与任务') && q('#page-dashboard').innerHTML.includes('处室概览'));
   S.setPage('charts'); S.ACTIONS['chart-tab']({ k: 'gantt' });
   ok('甘特图正常', q('#page-charts').innerHTML.includes('gantt-row'));
   ok('CSV 工作表头含 id', S.csvHeaders('work')[0] === 'id' && S.csvHeaders('work').includes('code'));
@@ -288,6 +289,10 @@ async function main() {
   ok('任务增量模式：自动分配了不同的编号', !!newTask && newTask.code !== t0.code, newTask && newTask.code);
 
   section('工作台"各职责推进"与图表页"职责项"用同一条标尺');
+  // P80 起工作台"处室概览"引入了随周期变化的统计卡片/人员负荷，但"各职责/工作推进情况"
+  // 这一块沿用 buildReportData 里本来就是全量口径的 dutyStat/workStat（理由跟报告页
+  // dutyTree 模块 scope:'all' 一致——推进情况是"现在整体到哪一步了"，不随"看哪一期"变），
+  // 所以这条"跟图表页共享同一把标尺"的老断言不用动，两边用的还是同一份全量统计
   S.setPage('dashboard'); S.renderDashboard();
   const dashH = q('#page-dashboard').innerHTML;
   S.setPage('charts'); S.ACTIONS['chart-tab']({ k: 'category' });

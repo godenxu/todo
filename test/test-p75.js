@@ -82,8 +82,10 @@ async function main() {
     /colW = Math\.max\(9, availW \/ people\.length\)/.test(matrixFn));
   ok('★格子颜色算法（weight = 牵头×3 + 参与）跟屏幕上 matrixHeatCellHTML 用的是同一个公式',
     /weight = v\.lead \* 3 \+ v\.join/.test(matrixFn));
-  ok('★人员名字是旋转 90 度画的（横着写人一多根本排不下，这是这次新加的处理）',
-    /ctx\.rotate\(-Math\.PI \/ 2\)/.test(matrixFn));
+  // P82 这轮：导出图片宽度加大 50%，每列能分到的宽度也跟着宽了，姓名不用再竖着写才能塞下，
+  // 改回横排（见 matrix() 里 headH 那段注释），这条断言跟着改成认横排
+  ok('★人员名字改成横排画（导出图片加宽后列宽够用了，不用再竖着转 90 度）',
+    !/ctx\.rotate\(-Math\.PI \/ 2\)/.test(matrixFn) && /ctx\.fillText\(truncate\(ctx, p, colW - 2\), cx, cur\.y \+ headH - 8\)/.test(matrixFn));
 
   section('②：★图片文件名也换成跟 PDF 一样的 reportExportTitle(d)，不再是"今天日期"那种对不上统计周期的命名');
   ok('★a.download 用的是 reportExportTitle(d)，不是旧的 todayStr()',

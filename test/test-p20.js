@@ -26,24 +26,10 @@ async function main() {
     S.setFileHandle(null);
   };
 
-  section('工作台人员负荷：未开始单独统计，不再跟"进行中"混在一起');
-  const dutyCode = 'P20LOAD';
-  await S.Repo.upsert('duty', { code: dutyCode, name: 'P20负荷测试职责' });
-  const wid = 'w_p20load';
-  await S.Repo.upsert('work', { id: wid, duty: dutyCode, name: 'P20负荷测试工作', owner: '测试管理员' });
-  const owner = 'P20负荷测试人';
-  await S.Repo.upsert('task', { id: 'p20_load_todo', work: wid, title: 'P20未开始任务', status: 'todo', plan_date: S.offsetDate(10), owner, assignees: [] });
-  await S.Repo.upsert('task', { id: 'p20_load_doing', work: wid, title: 'P20进行中任务', status: 'doing', plan_date: S.offsetDate(10), owner, assignees: [] });
-  await S.Repo.upsert('task', { id: 'p20_load_late', work: wid, title: 'P20逾期任务', status: 'todo', plan_date: S.offsetDate(-3), owner, assignees: [] });
-  await S.Repo.upsert('task', { id: 'p20_load_done', work: wid, title: 'P20已完成任务', status: 'done', plan_date: S.offsetDate(-1), actual_date: S.todayStr(), owner, assignees: [] });
-  S.setPage('dashboard'); S.renderDashboard();
-  const dashH = q('#page-dashboard').innerHTML;
-  ok('人员负荷这一行渲染了 seg-todo（未开始单独一段）',
-    new RegExp(`data-person="${owner}"[\\s\\S]{0,400}class="seg seg-todo"`).test(dashH));
-  ok('tooltip 里明确写了"未开始"这个词（不再是笼统的"在办"）',
-    new RegExp(`title="${owner}：已完成 \\d+，进行中 \\d+，逾期 \\d+，未开始 \\d+"`).test(dashH));
-  ok('人员负荷面板的图例也加了"未开始"这一项', dashH.includes('background:var(--c-todo)') && /<i style="background:var\(--c-todo\)"><\/i>未开始</.test(dashH));
-  ok('"进行中"图例文案不再叫"在办"（含义已经拆分清楚，避免误解）', !/<i style="background:var\(--c-doing\)"><\/i>在办</.test(dashH));
+  // 工作台"人员负荷"模块（dashPeopleLoad，用的就是这里说的 seg-todo/tooltip/图例）P82 这轮
+  // 下线了——跟"各人任务量与完成率"（personBars）内容重复，见 REPORT_MODULES 里 dashPeopleLoad
+  // 那段注释。这里验证的"未开始独立统计、不跟进行中混"这个数据层概念（todo/doing 分开计数）
+  // 还在，只是不再有 dashPeopleLoad 这份专属渲染去展示它了，这个小节不再适用，整体去掉
 
   section('confirmConnectWithHint：先弹提示框讲清楚要选哪个文件夹，确认后才执行');
   S.DB.settings.me = '测试管理员';

@@ -25,27 +25,9 @@ async function main() {
   const bakMe = S.DB.settings.me;
   const restore = () => { S.DB.users = JSON.parse(JSON.stringify(bakUsers)); S.DB.settings.me = bakMe; };
 
-  section('人员负荷：显示全部人员，按姓名拼音排序');
-  const dutyCode = 'P22LOAD';
-  await S.Repo.upsert('duty', { code: dutyCode, name: 'P22负荷测试职责' });
-  const wid = 'w_p22load';
-  await S.Repo.upsert('work', { id: wid, duty: dutyCode, name: 'P22负荷测试工作', owner: '测试管理员' });
-  // 制造 12 个不同的负责人，如果还限制"前9个"就一定有人被漏掉
-  const names = ['赵一', '钱二', '孙三', '李四', '周五', '吴六', '郑七', '王八', '冯九', '陈十', '褚十一', '卫十二'];
-  for (const nm of names) {
-    await S.Repo.upsert('task', { id: 'p22_load_' + nm, work: wid, title: 'P22任务_' + nm, status: 'todo', plan_date: S.offsetDate(10), owner: nm, assignees: [] });
-  }
-  S.setPage('dashboard'); S.renderDashboard();
-  const dashH = q('#page-dashboard').innerHTML;
-  ok('12 个负责人全部出现在人员负荷里，一个都没被截掉', names.every(nm => dashH.includes(`data-person="${nm}"`)));
-  const positions = names.map(nm => dashH.indexOf(`data-person="${nm}"`));
-  const sortedNames = [...names].sort((a, b) => a.localeCompare(b, 'zh'));
-  const sortedPositions = sortedNames.map(nm => dashH.indexOf(`data-person="${nm}"`));
-  ok('确实是按拼音排序出现的（跟手动按拼音排一遍的顺序位置一致）', JSON.stringify(positions.slice().sort((a, b) => a - b)) === JSON.stringify(sortedPositions.slice().sort((a,b)=>a-b)) &&
-    names.map((nm,i)=>dashH.indexOf(`data-person="${nm}"`)).every((pos, i, arr) => i === 0 || true));
-  // 更直接的验证：把 dashH 里出现的顺序抽出来，应该等于按拼音排序后的顺序
-  const appearOrder = [...dashH.matchAll(/data-person="([^"]+)"/g)].map(m => m[1]).filter(nm => names.includes(nm));
-  ok('负荷行出现的先后顺序就是姓名拼音顺序', JSON.stringify(appearOrder) === JSON.stringify(sortedNames), appearOrder);
+  // 工作台"人员负荷"模块（dashPeopleLoad）P82 这轮下线了（跟 personBars 内容重复，见
+  // REPORT_MODULES 里 dashPeopleLoad 那段注释），这里验证的"全部人员/按拼音排序"是那份专属
+  // 渲染自己的展示细节，模块本身都没了，这个小节不再适用
 
   section('任务详情里程碑区：去掉了底部"添加一条"按钮');
   const anyTask = S.DB.tasks.find(t => !t.deleted_at && S.canEditRecord('task', t));

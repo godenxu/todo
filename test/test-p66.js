@@ -134,7 +134,8 @@ async function main() {
   ok('dutyItemBars 带 _duty 筛选', S.REPORT_MODULE_MAP.dutyItemBars.html(dd).includes('data-field="_duty"'));
   ok('workOverview 带 report-filter-works（状态）', S.REPORT_MODULE_MAP.workOverview.html(dd).includes('data-act="report-filter-works"'));
   ok('worksByDutyBars 复用 duty-drill', S.REPORT_MODULE_MAP.worksByDutyBars.html().includes('data-act="duty-drill"'));
-  ok('dashCards 任务维度卡片带 goto-view', S.REPORT_MODULE_MAP.dashCards.html(dd).includes('data-view="overdue"'));
+  // P81 后期改版：dashCards 拆成了职责/工作/任务/里程碑四个独立模块，任务维度那份现在叫 overallTask
+  ok('overallTask（原 dashCards 任务维度）卡片带 goto-view', S.REPORT_MODULE_MAP.overallTask.html(dd).includes('data-view="overdue"'));
 
   /* ================= ⑦：新增交付物层级统计（P68 已并入 deliveredMs，这里只留统计口径本身的验证） =================
      deliveredMsLevelPie 作为独立模块在 P68 里被并进了「本期已交付里程碑」（见 test-p68.js），

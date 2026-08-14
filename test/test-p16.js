@@ -25,9 +25,11 @@ async function main() {
   const restore = () => { S.DB.users = JSON.parse(JSON.stringify(bakUsers)); S.DB.settings.me = bakMe; };
 
   section('人员负荷/图表页按人：加了"仅指任务数不代表工作量"的说明');
+  // 工作台"人员负荷"模块（dashPeopleLoad）本轮下线了——跟"各人任务量与完成率"（personBars）
+  // 内容重复，见 REPORT_MODULES 里 dashPeopleLoad 那段注释——这句说明现在只在图表页按人视图
+  // 能看到，工作台那条断言不再适用，去掉
   S.DB.settings.me = '测试管理员';
   S.goto('dashboard');
-  ok('工作台人员负荷标题带了这句说明', q('#page-dashboard').innerHTML.includes('人员负荷（仅指任务数，不代表工作量）'));
   S.setPage('charts');
   S.renderCharts();
   ok('默认就在"按人"页签（不用切换）', S.chartTab === 'person');
@@ -52,7 +54,7 @@ async function main() {
   const idxA = dutyStatSorted.findIndex(x => x.code === dutyCodeA);
   const idxZ = dutyStatSorted.findIndex(x => x.code === dutyCodeZ);
   ok('按编号排序后，A 排在 Z 前面（尽管 Z 任务更多）', idxA > -1 && idxZ > -1 && idxA < idxZ);
-  S.dashExpanded.clear();
+  S.reportExpanded.clear();
   S.renderDashboard();
   const dashHtml = q('#page-dashboard').innerHTML;
   const dashIdxA = dashHtml.indexOf('P16职责A');

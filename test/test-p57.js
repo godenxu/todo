@@ -43,7 +43,7 @@ async function main() {
     workOverview: '图表页-按工作(总览)', worksByYearBars: '图表页-按工作(年度)', worksByDutyBars: '图表页-按工作(职责)',
     msCompletionPie: '图表页-里程碑完成情况', msLevelPie: '图表页-呈报层级', msGantt: '图表页-里程碑甘特图',
     backlogTrend: '图表页-待办总量趋势', planDueTrend: '图表页-各月计划完成',
-    dashCards: '工作台-统计卡片', myDesk: '工作台-我的工作台', recentActivity: '工作台-最近动态',
+    overallTask: '工作台-统计卡片(任务维度)', myDesk: '工作台-我的工作台', recentActivity: '工作台-最近动态',
   };
   Object.entries(need).forEach(([k, from]) => ok(`★${from} → 模块 ${k}`, !!S.REPORT_MODULE_MAP[k]));
 
@@ -63,10 +63,10 @@ async function main() {
     S.REPORT_MODULES.every(m => m.scope === 'period' || m.scope === 'all'),
     S.REPORT_MODULES.filter(m => !['period', 'all'].includes(m.scope)).map(m => [m.key, m.scope]));
   ok('★趋势/甘特/最近动态这类天生跨期的，标的是 all（翻期对它们没意义，界面要讲清楚）',
-    ['backlogTrend', 'planDueTrend', 'msGantt', 'recentActivity', 'dashCards', 'myDesk']
+    ['backlogTrend', 'planDueTrend', 'msGantt', 'recentActivity', 'overallTask', 'myDesk']
       .every(k => S.REPORT_MODULE_MAP[k].scope === 'all'));
   ok('★当期口径那几个标的是 period',
-    ['periodScope', 'periodStatus', 'personBars', 'msCompletionPie']
+    ['periodOverallScope', 'periodStatus', 'personBars', 'msCompletionPie']
       .every(k => S.REPORT_MODULE_MAP[k].scope === 'period'));
 
   section('①：所有模块的 html/text 都跑得通，不会因为某个模块炸掉整页报告');
@@ -93,8 +93,10 @@ async function main() {
   ok('但它在全量口径里', d2.tasks.some(t => t.id === 'p57_old'));
   const personHtml = S.REPORT_MODULE_MAP.personBars.html(d2, { width: 900 });
   ok('★"各人任务量"用的是当期口径——老任务的负责人不出现', !personHtml.includes('P57老同志'));
-  const dashHtml = S.REPORT_MODULE_MAP.dashCards.html(d2, { width: 900 });
-  ok('★标了 all 的"整体统计卡片"明说自己不随周期变化', dashHtml.includes('不随周期'));
+  // P81 后期改版去掉了卡片组底部的说明性文字（用户反馈"不需要"），"不随周期变化"这句话
+  // 不会再出现在正文里了——用 scope 属性本身来验证"标了 all"这件事，而不是找 UI 文案
+  ok('★整体统计系列模块标的是 scope: all（不随周期变化，UI 上不再专门写这句话，但口径没变）',
+    S.REPORT_MODULE_MAP.overallTask.scope === 'all');
 
   section('①：canvas 出口是可选的，没写的自动退回用 text 画（图片导出不会漏内容）');
   // P78 之前：确实有一批模块没写 canvas，这条断言验证的是"这条兜底真的有存在的必要"。
@@ -120,82 +122,82 @@ async function main() {
   const secId = S.reportSections()[0].id;
   await S.saveReportConfig(cfg => {
     const s = S.reportPresetIn(cfg).sections.find(x => x.id === secId);
-    s.modules = ['periodScope', 'periodPlan', 'periodStatus'];
+    s.modules = ['periodOverallScope', 'periodOverallPlan', 'periodStatus'];
     s.inline = [];
   });
   await tick();
   ok('没设同行时，每个模块各占一行',
-    JSON.stringify(S.reportSections()[0].rows) === JSON.stringify([['periodScope'], ['periodPlan'], ['periodStatus']]),
+    JSON.stringify(S.reportSections()[0].rows) === JSON.stringify([['periodOverallScope'], ['periodOverallPlan'], ['periodStatus']]),
     S.reportSections()[0].rows);
-  await S.ACTIONS['report-mod-inline']({ sec: secId, mod: 'periodPlan' });
+  await S.ACTIONS['report-mod-inline']({ sec: secId, mod: 'periodOverallPlan' });
   await tick();
   ok('★把第二个设成同行后，前两个并成一行',
-    JSON.stringify(S.reportSections()[0].rows) === JSON.stringify([['periodScope', 'periodPlan'], ['periodStatus']]),
+    JSON.stringify(S.reportSections()[0].rows) === JSON.stringify([['periodOverallScope', 'periodOverallPlan'], ['periodStatus']]),
     S.reportSections()[0].rows);
   await S.ACTIONS['report-mod-inline']({ sec: secId, mod: 'periodStatus' });
   await tick();
   ok('★再把第三个也设成同行，三个并成一行',
-    JSON.stringify(S.reportSections()[0].rows) === JSON.stringify([['periodScope', 'periodPlan', 'periodStatus']]));
-  await S.ACTIONS['report-mod-inline']({ sec: secId, mod: 'periodPlan' });
+    JSON.stringify(S.reportSections()[0].rows) === JSON.stringify([['periodOverallScope', 'periodOverallPlan', 'periodStatus']]));
+  await S.ACTIONS['report-mod-inline']({ sec: secId, mod: 'periodOverallPlan' });
   await tick();
   ok('再点一次取消同行（是个开关）',
-    JSON.stringify(S.reportSections()[0].rows) === JSON.stringify([['periodScope'], ['periodPlan', 'periodStatus']]),
+    JSON.stringify(S.reportSections()[0].rows) === JSON.stringify([['periodOverallScope'], ['periodOverallPlan', 'periodStatus']]),
     S.reportSections()[0].rows);
 
   section('②：第一个模块永远不能"跟上一个同行"——它没有上一个');
   await S.saveReportConfig(cfg => {
     const s = S.reportPresetIn(cfg).sections.find(x => x.id === secId);
-    s.modules = ['periodScope', 'periodPlan'];
-    s.inline = ['periodScope'];   // 故意写一条不合法的：第一个模块被标了同行
+    s.modules = ['periodOverallScope', 'periodOverallPlan'];
+    s.inline = ['periodOverallScope'];   // 故意写一条不合法的：第一个模块被标了同行
   });
   await tick();
   ok('★存档里就算写着第一个模块同行，渲染时也不会让它跟别人挤（第一行只有它）',
-    S.reportSections()[0].rows[0].length === 1 && S.reportSections()[0].rows[0][0] === 'periodScope',
+    S.reportSections()[0].rows[0].length === 1 && S.reportSections()[0].rows[0][0] === 'periodOverallScope',
     S.reportSections()[0].rows);
   // 上面那条是"存档里已经有脏数据时渲染要顶得住"；这里换成干净的起点，验证动作本身不会写出这种脏数据
   await S.saveReportConfig(cfg => {
     const s = S.reportPresetIn(cfg).sections.find(x => x.id === secId);
-    s.modules = ['periodScope', 'periodPlan'];
+    s.modules = ['periodOverallScope', 'periodOverallPlan'];
     s.inline = [];
   });
   await tick();
-  await S.ACTIONS['report-mod-inline']({ sec: secId, mod: 'periodScope' });
+  await S.ACTIONS['report-mod-inline']({ sec: secId, mod: 'periodOverallScope' });
   await tick();
   ok('动作层面也拦着：对第一个模块点"同行"不会写进 inline',
-    !S.reportSections()[0].inline.includes('periodScope'), S.reportSections()[0].inline);
+    !S.reportSections()[0].inline.includes('periodOverallScope'), S.reportSections()[0].inline);
 
   section('②：模块排序 —— 上移下移，挪到第一位时同行标记自动清掉');
   await S.saveReportConfig(cfg => {
     const s = S.reportPresetIn(cfg).sections.find(x => x.id === secId);
-    s.modules = ['periodScope', 'periodPlan'];
-    s.inline = ['periodPlan'];
+    s.modules = ['periodOverallScope', 'periodOverallPlan'];
+    s.inline = ['periodOverallPlan'];
   });
   await tick();
   ok('前置条件：两个模块并排一行', S.reportSections()[0].rows.length === 1);
-  await S.ACTIONS['report-mod-move']({ sec: secId, mod: 'periodPlan', step: '-1' });
+  await S.ACTIONS['report-mod-move']({ sec: secId, mod: 'periodOverallPlan', step: '-1' });
   await tick();
   ok('★把带同行标记的模块挪到第一位后，标记被清掉（否则界面禁用、数据里却还留着）',
-    !S.reportSections()[0].inline.includes('periodPlan'), S.reportSections()[0].inline);
-  ok('顺序确实换了', S.reportSections()[0].modules.join(',') === 'periodPlan,periodScope');
+    !S.reportSections()[0].inline.includes('periodOverallPlan'), S.reportSections()[0].inline);
+  ok('顺序确实换了', S.reportSections()[0].modules.join(',') === 'periodOverallPlan,periodOverallScope');
   ok('于是又变回各占一行', S.reportSections()[0].rows.length === 2);
 
   section('②：移除模块时顺手清掉它的同行标记，不留脏数据');
   await S.saveReportConfig(cfg => {
     const s = S.reportPresetIn(cfg).sections.find(x => x.id === secId);
-    s.modules = ['periodScope', 'periodPlan'];
-    s.inline = ['periodPlan'];
+    s.modules = ['periodOverallScope', 'periodOverallPlan'];
+    s.inline = ['periodOverallPlan'];
   });
   await tick();
-  await S.ACTIONS['report-mod-remove']({ sec: secId, mod: 'periodPlan' });
+  await S.ACTIONS['report-mod-remove']({ sec: secId, mod: 'periodOverallPlan' });
   await tick();
   const rawSec = S.reportPresets()[0].sections.find(x => x.id === secId);
-  ok('★modules 和 inline 里都没有它了', !rawSec.modules.includes('periodPlan') && !(rawSec.inline || []).includes('periodPlan'),
+  ok('★modules 和 inline 里都没有它了', !rawSec.modules.includes('periodOverallPlan') && !(rawSec.inline || []).includes('periodOverallPlan'),
     { modules: rawSec.modules, inline: rawSec.inline });
 
   section('②：向前/向后兼容 —— 老数据没有 inline，老版本也不认识 inline');
   ok('★老数据（section 里只有 modules、没有 inline）照样能渲染，全部纵向',
     (() => {
-      S.DB.reportConfig = { presets: [{ id: 'old', name: '老编排', sections: [{ id: 's1', title: '老区域', modules: ['periodScope', 'periodPlan'] }] }], activeId: 'old', rev: 1 };
+      S.DB.reportConfig = { presets: [{ id: 'old', name: '老编排', sections: [{ id: 's1', title: '老区域', modules: ['periodOverallScope', 'periodOverallPlan'] }] }], activeId: 'old', rev: 1 };
       const secs = S.reportSections();
       return secs[0].rows.length === 2 && secs[0].inline.length === 0;
     })());
@@ -206,18 +208,22 @@ async function main() {
 
   section('②：页面渲染 —— 并排的用 .rep-row 包起来，单独的不包');
   S.DB.settings.me = '测试管理员';
+  // P81 后期改版：periodStatus 现在是 'overview' 分类里唯一的模块，选上它会让这个分类在
+  // 添加器里没有候选可选（下面第 238 行要验证"每个分类都还有候选"），这里换成 dutyTree
+  // （'duty' 分类还有别的模块），不影响这块本来要测的"三个模块并排渲染"这件事本身
   await S.saveReportConfig(cfg => {
     const s = S.reportPresetIn(cfg).sections[0];
-    s.modules = ['periodScope', 'periodPlan', 'periodStatus'];
-    s.inline = ['periodPlan'];
+    s.modules = ['periodOverallScope', 'periodOverallPlan', 'dutyTree'];
+    s.inline = ['periodOverallPlan'];
   });
   await tick();
   S.goto('report');
   const rh = q('#page-report').innerHTML;
   ok('★出现了 .rep-row 并排容器', rh.includes('class="rep-row"'));
   ok('并排的模块带 rep-col（flex 子项）', rh.includes('panel rep-col'));
+  // periodOverallPlan 这轮改名"本期计划完成度"→"本期计划开展"
   ok('三个模块都渲染出来了',
-    rh.includes('本期涉及范围') && rh.includes('本期工作计划量') && rh.includes('本期完成进度'));
+    rh.includes('本期涉及范围') && rh.includes('本期计划开展') && rh.includes('各职责/工作推进情况'));
   ok('★窄屏自适应靠 CSS 而不是 JS：rep-row 是 flex-wrap，子项有 flex-basis',
     /\.rep-row \{[^}]*flex-wrap: wrap/.test(html) && /\.rep-row > \.rep-col \{[^}]*flex: 1 1 \d+px/.test(html));
   ok('flex 子项设了 min-width:0，否则里面一张定宽 SVG 就能把整行撑破',
@@ -227,21 +233,21 @@ async function main() {
   S.setReportConfigOpen(true);
   S.renderReport();
   const cfgH = q('#page-report').innerHTML;
-  ok('已选模块带移除按钮', /data-act="report-mod-remove"[^>]*data-mod="periodScope"/.test(cfgH));
-  ok('已选模块带上移/下移', /data-act="report-mod-move"[^>]*data-mod="periodScope"/.test(cfgH));
-  ok('已选模块带"同行"开关', /data-act="report-mod-inline"[^>]*data-mod="periodPlan"/.test(cfgH));
+  ok('已选模块带移除按钮', /data-act="report-mod-remove"[^>]*data-mod="periodOverallScope"/.test(cfgH));
+  ok('已选模块带上移/下移', /data-act="report-mod-move"[^>]*data-mod="periodOverallScope"/.test(cfgH));
+  ok('已选模块带"同行"开关', /data-act="report-mod-inline"[^>]*data-mod="periodOverallPlan"/.test(cfgH));
   ok('★设了同行的那个，开关是高亮(on)状态',
-    /data-act="report-mod-inline" data-sec="[^"]*" data-mod="periodPlan"/.test(cfgH)
-    && /class="toggle-view on" data-act="report-mod-inline"[^>]*data-mod="periodPlan"/.test(cfgH));
+    /data-act="report-mod-inline" data-sec="[^"]*" data-mod="periodOverallPlan"/.test(cfgH)
+    && /class="toggle-view on" data-act="report-mod-inline"[^>]*data-mod="periodOverallPlan"/.test(cfgH));
   ok('第一个模块的"同行"是禁用的',
-    /data-act="report-mod-inline"[^>]*data-mod="periodScope"[^>]*[\s\S]{0,120}opacity:\.3/.test(cfgH));
+    /data-act="report-mod-inline"[^>]*data-mod="periodOverallScope"[^>]*[\s\S]{0,120}opacity:\.3/.test(cfgH));
   ok('★添加器按分类分组，每个分类标题都在', S.REPORT_GROUPS.every(g => cfgH.includes(g.label)));
   // P66：一个模块只该出现一次，personBars 已经用在第四段（人员工作情况）了，不会再冒出来当候选——
   // 换一个默认编排里哪个区域都没用到的模块（doneTasks）来验证"没选的模块出现在添加器里"
   ok('没选的模块出现在添加器里', /data-act="report-mod-add"[^>]*data-mod="doneTasks"/.test(cfgH));
-  // 必须限定到"这个区域"的添加器：别的区域没选 periodScope，它们的添加器里当然还offer它
+  // 必须限定到"这个区域"的添加器：别的区域没选 periodOverallScope，它们的添加器里当然还offer它
   ok('已选的模块不会又出现在同一个区域的添加器里（避免重复添加）',
-    !cfgH.includes(`data-act="report-mod-add" data-sec="${secId}" data-mod="periodScope"`),
+    !cfgH.includes(`data-act="report-mod-add" data-sec="${secId}" data-mod="periodOverallScope"`),
     cfgH.includes(`data-act="report-mod-add" data-sec="${secId}" data-mod="doneTasks"`));
 
   section('②：改编排仍然要 config_report 权限');

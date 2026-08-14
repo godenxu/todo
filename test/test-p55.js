@@ -193,22 +193,26 @@ async function main() {
   ok('每个模块都有 key/label/desc', S.REPORT_MODULES.every(m => m.key && m.label && m.desc));
   ok('key 不重复', new Set(S.REPORT_MODULES.map(m => m.key)).size === S.REPORT_MODULES.length);
   ok('用户点名要的那几块都在',
-    ['periodScope', 'periodPlan', 'periodStatus', 'highPriority', 'overdueTasks', 'overdueMs', 'soonTasks', 'soonMs', 'personBars']
+    ['periodOverallScope', 'periodOverallPlan', 'periodStatus', 'highPriority', 'overdueTasks', 'overdueMs', 'soonTasks', 'soonMs', 'personBars']
       .every(k => !!S.REPORT_MODULE_MAP[k]));
 
-  section('⑤：默认编排就是汇报要念的四段（老数据 reportConfig 为 null 时自动回落到它）');
+  // P80 后期改版在最前面插了"处室工作整体统计"，原来的四段整体往后挪一位，变成五段；
+  // P81 后期改版又把 dashCards 拆成四个独立模块，periodScope/periodPlan 拆成
+  // periodOverallScope/periodOverallPlan——这里跟着改成新的模块 key
+  section('⑤：默认编排就是汇报要念的五段（老数据 reportConfig 为 null 时自动回落到它）');
   S.DB.reportConfig = null;
   const defSecs = S.reportSections();
-  ok('★没有任何配置时也拿得到四段（向后兼容，老共享文件不用改一个字）', defSecs.length === 4, defSecs.length);
-  ok('四段标题就是用户要的那四段',
-    defSecs.map(s => s.title).join('|') === '一、本期处室工作目标|二、本期处室工作进展|三、本期需要关注的工作|四、人员工作情况',
+  ok('★没有任何配置时也拿得到五段（向后兼容，老共享文件不用改一个字）', defSecs.length === 5, defSecs.length);
+  ok('五段标题就是用户要的那五段',
+    defSecs.map(s => s.title).join('|') === '一、处室工作整体统计|二、本期处室工作目标|三、本期处室工作进展|四、本期需要关注的工作|五、人员工作情况',
     defSecs.map(s => s.title));
-  ok('第一段是"涉及多少 + 计划完成多少"', defSecs[0].modules.join(',') === 'periodScope,periodPlan');
-  ok('第二段含整体进度（SPI 在这里）', defSecs[1].modules.includes('periodStatus'));
-  ok('第三段把高优先级/逾期/即将到期都放齐了',
-    ['highPriority', 'overdueTasks', 'overdueMs', 'soonTasks', 'soonMs'].every(k => defSecs[2].modules.includes(k)));
+  ok('第一段是处室工作整体统计（家底快照，不随周期变化）', defSecs[0].modules.join(',') === 'overallDuty,overallWork,overallTask,overallMs');
+  ok('第二段是"涉及多少 + 计划完成多少"', defSecs[1].modules.join(',') === 'periodOverallScope,periodOverallPlan');
+  ok('第三段含整体进度（SPI 在这里）', defSecs[2].modules.includes('periodStatus'));
+  ok('第四段把高优先级/逾期/即将到期都放齐了',
+    ['highPriority', 'overdueTasks', 'overdueMs', 'soonTasks', 'soonMs'].every(k => defSecs[3].modules.includes(k)));
   // "人员工作情况"模块已经被功能更完整的 personBars（各人任务量与完成率，含牵头/参与比例）取代
-  ok('第四段是人员工作情况（现在用 personBars 呈现）', defSecs[3].modules.join(',') === 'personBars');
+  ok('第五段是人员工作情况（现在用 personBars 呈现）', defSecs[4].modules.join(',') === 'personBars');
   ok('没配置时默认存档也拿得到（不会崩）', S.reportPresets().length === 1 && S.activeReportPreset().name === '默认编排');
 
   section('⑤：当期口径 —— 上期欠下来还没完成的任务要带进本期，不能凭空消失');
@@ -240,8 +244,8 @@ async function main() {
   S.DB.settings.me = '测试管理员';
   S.renderReport();
   const rh = q('#page-report').innerHTML;
-  ok('四个区域标题都渲染出来了',
-    ['一、本期处室工作目标', '二、本期处室工作进展', '三、本期需要关注的工作', '四、人员工作情况'].every(t => rh.includes(t)));
+  ok('五个区域标题都渲染出来了',
+    ['一、处室工作整体统计', '二、本期处室工作目标', '三、本期处室工作进展', '四、本期需要关注的工作', '五、人员工作情况'].every(t => rh.includes(t)));
   ok('区域用了 .rep-region-title 这个样式', rh.includes('rep-region-title'));
   ok('模块以面板形式挂在区域下面', rh.includes('本期涉及范围') && rh.includes('本期完成进度'));
   ok('高优先级那条任务的标题直接看得到', rh.includes('本期计划完成'));
@@ -249,9 +253,9 @@ async function main() {
 
   section('⑤：三个出口说的是同一件事（页面 / 纯文本 / 导出图片都跟着编排走）');
   const txt = S.buildReportText();
-  ok('★纯文本里也是同样四段、同样顺序',
-    ['一、本期处室工作目标', '二、本期处室工作进展', '三、本期需要关注的工作', '四、人员工作情况'].every(t => txt.includes(t))
-    && txt.indexOf('一、本期处室工作目标') < txt.indexOf('四、人员工作情况'));
+  ok('★纯文本里也是同样五段、同样顺序',
+    ['一、处室工作整体统计', '二、本期处室工作目标', '三、本期处室工作进展', '四、本期需要关注的工作', '五、人员工作情况'].every(t => txt.includes(t))
+    && txt.indexOf('一、处室工作整体统计') < txt.indexOf('五、人员工作情况'));
   // "人员工作情况"这个模块 key 已经被 personBars 取代，文本里带的模块名跟着变了
   ok('文本里带上了模块名', txt.includes('【本期涉及范围】') && txt.includes('【各人任务量与完成率】'));
   await S.exportReportImage();
@@ -274,7 +278,7 @@ async function main() {
   ok('每个模块要么在已选列表里、要么在分类添加器里，一个都不会漏掉',
     S.REPORT_MODULES.every(m => cfgH.includes(`data-mod="${m.key}"`)));
   ok('已经在编排里的模块出现在"已选"那一段（带移除按钮）',
-    /data-act="report-mod-remove"[^>]*data-mod="periodScope"/.test(cfgH));
+    /data-act="report-mod-remove"[^>]*data-mod="periodOverallScope"/.test(cfgH));
   // P66：一个模块只该出现一次，personBars 已经用在第四段了，不会再冒出来当候选——
   // 换一个默认编排里哪个区域都没用到的模块（doneTasks）来验证"没选的模块出现在添加器里"
   ok('没选的模块出现在添加器里（带＋号）',
@@ -286,34 +290,34 @@ async function main() {
   q('#prompt-input').value = 'P55新区域';
   await S.ACTIONS['modal-ok']();
   await tick(20);
-  ok('★添加区域生效了', S.reportSections().length === 5 && S.reportSections()[4].title === 'P55新区域');
-  ok('新区域默认不含任何模块', S.reportSections()[4].modules.length === 0);
+  ok('★添加区域生效了', S.reportSections().length === 6 && S.reportSections()[5].title === 'P55新区域');
+  ok('新区域默认不含任何模块', S.reportSections()[5].modules.length === 0);
   ok('配置真的写进了 DB.reportConfig（会随共享文件同步给全处）', !!S.DB.reportConfig && S.DB.reportConfig.rev >= 1);
   ok('记了是谁改的', S.DB.reportConfig.updated_by === '测试管理员');
 
-  const newSecId = S.reportSections()[4].id;
+  const newSecId = S.reportSections()[5].id;
   // P57：勾选框换成了"＋添加 / 移除"两个明确的动作
   await S.ACTIONS['report-mod-add']({ sec: newSecId, mod: 'doneTasks' });
   await tick(20);
-  ok('★添加模块生效', S.reportSections()[4].modules.includes('doneTasks'));
+  ok('★添加模块生效', S.reportSections()[5].modules.includes('doneTasks'));
   await S.ACTIONS['report-mod-remove']({ sec: newSecId, mod: 'doneTasks' });
   await tick(20);
-  ok('移除模块也生效', !S.reportSections()[4].modules.includes('doneTasks'));
+  ok('移除模块也生效', !S.reportSections()[5].modules.includes('doneTasks'));
 
   await S.ACTIONS['report-sec-move']({ id: newSecId, step: '-1' });
   await tick(20);
-  ok('★上移生效（从第 5 位挪到第 4 位）', S.reportSections()[3].id === newSecId);
+  ok('★上移生效（从第 6 位挪到第 5 位）', S.reportSections()[4].id === newSecId);
 
   S.ACTIONS['report-sec-rename']({ id: newSecId });
   q('#prompt-input').value = 'P55改过名的区域';
   await S.ACTIONS['modal-ok']();
   await tick(20);
-  ok('改名生效', S.reportSections()[3].title === 'P55改过名的区域');
+  ok('改名生效', S.reportSections()[4].title === 'P55改过名的区域');
 
   S.ACTIONS['report-sec-del']({ id: newSecId });
   await S.ACTIONS['modal-ok']();
   await tick(20);
-  ok('★删除区域生效，回到四段', S.reportSections().length === 4);
+  ok('★删除区域生效，回到五段', S.reportSections().length === 5);
   ok('删区域不动任何业务数据', S.DB.tasks.length === 3 && S.DB.works.length === 1);
 
   section('⑤：存档 —— 可以存多套编排随时切换');
@@ -323,7 +327,7 @@ async function main() {
   await tick(20);
   ok('★多了一套存档', S.reportPresets().length === 2);
   ok('切换到了新存档', S.activeReportPreset().name === '季度总结版');
-  ok('新存档是以当前这套为蓝本复制出来的', S.reportSections().length === 4);
+  ok('新存档是以当前这套为蓝本复制出来的', S.reportSections().length === 5);
   const defId = S.reportPresets().find(p => p.name === '默认编排').id;
   const newPresetSecIds = S.reportSections().map(s => s.id);
   const defSecIds = S.reportPresets().find(p => p.id === defId).sections.map(s => s.id);
@@ -333,12 +337,12 @@ async function main() {
   // 在新存档里删掉一段，验证不会串到默认存档去
   await S.ACTIONS['report-sec-move']({ id: newPresetSecIds[0], step: '1' });
   await tick(20);
-  ok('改新存档不影响默认存档', S.reportPresets().find(p => p.id === defId).sections[0].title === '一、本期处室工作目标');
+  ok('改新存档不影响默认存档', S.reportPresets().find(p => p.id === defId).sections[0].title === '一、处室工作整体统计');
 
   await S.ACTIONS['report-preset-switch']({}, { value: defId });
   await tick(20);
   ok('切回默认存档', S.activeReportPreset().id === defId);
-  ok('页面跟着切回默认编排', S.reportSections()[0].title === '一、本期处室工作目标');
+  ok('页面跟着切回默认编排', S.reportSections()[0].title === '一、处室工作整体统计');
 
   S.ACTIONS['report-preset-rename']();
   q('#prompt-input').value = '周例会版';
@@ -363,16 +367,16 @@ async function main() {
   S.ACTIONS['report-config-reset']();
   await S.ACTIONS['modal-ok']();
   await tick(20);
-  ok('★恢复默认后回到那四段', S.reportSections().map(s => s.title).join('|')
-    === '一、本期处室工作目标|二、本期处室工作进展|三、本期需要关注的工作|四、人员工作情况');
-  ok('第一段的模块也还原了', S.reportSections()[0].modules.join(',') === 'periodScope,periodPlan');
+  ok('★恢复默认后回到那五段', S.reportSections().map(s => s.title).join('|')
+    === '一、处室工作整体统计|二、本期处室工作目标|三、本期处室工作进展|四、本期需要关注的工作|五、人员工作情况');
+  ok('第一段的模块也还原了', S.reportSections()[0].modules.join(',') === 'overallDuty,overallWork,overallTask,overallMs');
 
   section('⑤：认不出来的模块 key 直接跳过，不让整页报告渲染不出来');
   await S.saveReportConfig(cfg => { S.reportPresetIn(cfg).sections[0].modules.push('未来版本才有的模块'); });
   ok('★脏 key 被滤掉，其它模块照常', !S.reportSections()[0].modules.includes('未来版本才有的模块')
-    && S.reportSections()[0].modules.includes('periodScope'));
+    && S.reportSections()[0].modules.includes('overallDuty'));
   S.renderReport();
-  ok('页面照样渲染得出来', q('#page-report').innerHTML.includes('一、本期处室工作目标'));
+  ok('页面照样渲染得出来', q('#page-report').innerHTML.includes('一、处室工作整体统计'));
 
   section('⑤：config_report 权限 —— 默认只有管理员能改编排');
   ok('权限项存在且在"操作"组', S.PERMISSIONS.some(p => p.key === 'config_report' && p.group === '操作'));
@@ -388,7 +392,7 @@ async function main() {
   ok('处室领导默认没有这个权限', !S.hasPermission('config_report'));
   S.renderReport();
   ok('★没权限的人看不到「报告编排」面板', !q('#page-report').innerHTML.includes('data-act="report-sec-add"'));
-  ok('但报告本身照样看得见（只是改不了编排）', q('#page-report').innerHTML.includes('一、本期处室工作目标'));
+  ok('但报告本身照样看得见（只是改不了编排）', q('#page-report').innerHTML.includes('一、处室工作整体统计'));
   const secsBefore = S.reportSections().length;
   S.setSnackPriorityUntil(0); q('#snack-msg').textContent = '';
   S.ACTIONS['report-sec-add']();

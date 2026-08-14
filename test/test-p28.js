@@ -47,13 +47,21 @@ async function main() {
   };
 
   section('工作台统计分组框：外观跟报告页"本期总览"一致（白底面板，不再刷彩色底）');
-  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'index.html'), 'utf8');
+  // 原来这里写死读项目里的 index.html，回退验证时传进来的回退副本路径完全没被用上——
+  // 跟其它测试文件一致，改成认 process.argv[2]，没传才退回真实文件
+  const src = require('fs').readFileSync(process.argv[2] || require('path').join(__dirname, '..', 'index.html'), 'utf8');
   const css = src.slice(src.indexOf('.stat-groups'), src.indexOf('.panel {'));
   ok('分组框用了跟面板一样的 surface 底色', /\.stat-group \{[^}]*background: var\(--surface\)/.test(css), css.slice(0, 300));
   ok('不再有任务维度的蓝色专属底色', !css.includes('.stat-group-task {'));
   ok('不再有里程碑维度的紫色专属底色', !css.includes('.stat-group-ms {'));
-  const minmax = (css.match(/minmax\((\d+)px/) || [])[1];
-  ok('卡片最小宽度收窄到 100px 以内', Number(minmax) < 100, minmax);
+  // P81 后期改版：卡片组从"grid + minmax 最小宽度"换成"flex + flex:1 1 0"，靠平分可用宽度
+  // 保证同一组卡片永远不折行（不再是"最小宽度收窄到能装下大多数情况"这种近似解）。
+  // .cards/.card 这两条基础规则定义在 .stat-groups 前面，不在上面截的 css 片段范围里，
+  // 这两条断言直接在整份源码 src 里找，不受截取范围影响
+  ok('★.cards 用 flex + flex-wrap: nowrap，不再是 grid + minmax（保证同组卡片永不折行）',
+    /\.cards \{[^}]*display: flex[^}]*flex-wrap: nowrap/.test(src));
+  ok('★.card 本身是 flex:1 1 0，可用宽度不够时整组等比缩窄，不是靠"最小宽度小一点"侥幸躲过折行',
+    /\.card \{[^}]*flex: 1 1 0/.test(src));
 
   section('共享文件夹默认值：处里实际的文件名');
   ok('默认文件名是"科技规划处工作管理.json"', S.DEFAULT_SHARE_FILE_NAME === '科技规划处工作管理.json', S.DEFAULT_SHARE_FILE_NAME);

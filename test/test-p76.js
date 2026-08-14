@@ -88,21 +88,34 @@ async function main() {
   ok('WORK_STATUS 那几行状态计数还在（没有因为加 SPI 把原来的弄丢）',
     workOverviewLines.length >= S.WORK_STATUS.length + 1);
 
-  /* ================= ⑥：dashCards ================= */
-  section('⑥：dashCards——text() 直接调用验证，8 个数字（任务/里程碑各 4 个）都在了');
-  const dashCardsLines = [];
-  S.REPORT_MODULE_MAP.dashCards.text(d, t => dashCardsLines.push(t));
-  const dashCardsText = dashCardsLines.join('\n');
-  ok('★任务维度这一行有"今日到期"（以前 text() 完全没提这个字段）', dashCardsText.includes('任务维度') && dashCardsText.includes('今日到期'));
-  ok('★任务维度这一行有"本周到期"（以前 text() 完全没提这个字段）', dashCardsText.includes('本周到期'));
-  ok('★里程碑维度单独成一行，也带上了今日/本周到期（以前 text() 完全没有里程碑维度这两个字段）',
-    dashCardsText.includes('里程碑维度') && /里程碑维度[^\n]*今日到期/.test(dashCardsText) && /里程碑维度[^\n]*本周到期/.test(dashCardsText));
+  /* ================= ⑥：dashCards 的继任者们 ================= */
+  // P81 后期改版：dashCards 拆成了职责/工作/任务/里程碑四个独立模块（overallDuty/overallWork/
+  // overallTask/overallMs），任务/里程碑维度的口径（总数+已完成/进行中/未开始/逾期，里程碑
+  // 没有进行中/未开始）没变，只是从"一个模块四个 stat-group"变成"四个各自独立的模块"
+  section('⑥：overallDuty/overallWork/overallTask/overallMs——text() 直接调用验证，四个维度的数字都在了');
+  const overallDutyLines = [];
+  S.REPORT_MODULE_MAP.overallDuty.text(d, t => overallDutyLines.push(t));
+  ok('★职责总览有总数', overallDutyLines.some(l => l.includes('总数')));
+  const overallWorkLines = [];
+  S.REPORT_MODULE_MAP.overallWork.text(d, t => overallWorkLines.push(t));
+  ok('★工作总览有总数/进行中/已完成/暂停', overallWorkLines.some(l =>
+    l.includes('总数') && l.includes('进行中') && l.includes('已完成') && l.includes('暂停')));
+  // P81 更后期改版：未开始并进"进行中"算，四张卡变成总数/已完成/进行中/逾期
+  const overallTaskLines = [];
+  S.REPORT_MODULE_MAP.overallTask.text(d, t => overallTaskLines.push(t));
+  ok('★任务总览有总数 + 已完成/进行中/逾期（未开始已经并进"进行中"了，不再单独出现）', overallTaskLines.some(l =>
+    l.includes('总数') && l.includes('已完成') && l.includes('进行中') && l.includes('逾期')));
+  const overallMsLines = [];
+  S.REPORT_MODULE_MAP.overallMs.text(d, t => overallMsLines.push(t));
+  ok('★里程碑总览有总数 + 已完成/未完成/逾期', overallMsLines.some(l =>
+    l.includes('总数') && l.includes('已完成') && l.includes('未完成') && l.includes('逾期')));
 
   /* ================= 回归：所有改过的模块一起塞进图片导出，不能抛异常 ================= */
   section('★回归——exportReportImage() 在没有真实 canvas 环境的沙盒里，塞进本轮全部改动的模块依然优雅降级');
   S.DB.reportConfig = {
     activeId: 'preset_p76', presets: [{ id: 'preset_p76', name: 'p76test', sections: [
-      { id: 'sec_p76', title: 'P76全面排查测试区', modules: ['personMatrix', 'myDesk', 'backlogTrend', 'planDueTrend', 'msGantt', 'workOverview', 'dashCards'], inline: [] },
+      { id: 'sec_p76', title: 'P76全面排查测试区',
+        modules: ['personMatrix', 'myDesk', 'backlogTrend', 'planDueTrend', 'msGantt', 'workOverview', 'overallDuty', 'overallWork', 'overallTask', 'overallMs'], inline: [] },
     ] }],
   };
   let threw = false;
