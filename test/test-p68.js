@@ -155,7 +155,7 @@ async function main() {
   const d5 = S.buildReportData('week', 0);
   const CHECK = {
     doneTasks: ['本期已完成任务', d5.doneInRange.length],
-    highPriority: ['高优先级未完成任务', d5.highPriTasks.length],
+    highPriority: ['高优先级待完成任务', d5.highPriTasks.length],
     overdueTasks: ['逾期任务', d5.overdue.length],
     overdueMs: ['逾期里程碑', d5.overdueMs.length],
     soonTasks: ['即将到期任务', d5.soonTasks.length],
@@ -174,8 +174,8 @@ async function main() {
   S.goto('report');
   const repH = q('#page-report').innerHTML;
   // highPriority 在默认编排第三段里，一定会被渲染出来（doneTasks/deliveredMs 不在默认编排，这里不测它们）
-  ok(`★"高优先级未完成任务（${d5.highPriTasks.length}）"真的出现在页面上`,
-    repH.includes(`高优先级未完成任务（${d5.highPriTasks.length}）`));
+  ok(`★"高优先级待完成任务（${d5.highPriTasks.length}）"真的出现在页面上`,
+    repH.includes(`高优先级待完成任务（${d5.highPriTasks.length}）`));
   ok(`逾期任务的数字也在`, repH.includes(`逾期任务（${d5.overdue.length}）`));
 
   console.log('\n' + '='.repeat(46));

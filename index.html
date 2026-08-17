@@ -756,7 +756,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260814054143';
+const APP_VERSION = 'v20260816195822';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -5471,7 +5471,7 @@ const REPORT_MODULES = [
       );
     } },
 
-  { key: 'highPriority', label: '高优先级未完成任务', desc: '本期涉及的任务里优先级为"高"且还没完成的',
+  { key: 'highPriority', label: '高优先级待完成任务', desc: '本期涉及的任务里优先级为"高"且还没完成的',
     group: 'attention', scope: 'period', personAware: 'either',
     titleCount: d => d.highPriTasks.length,
     html: d => reportTaskRows(d.highPriTasks, '本期没有高优先级的未完成任务 👍'),
@@ -5549,10 +5549,16 @@ const REPORT_MODULES = [
       msReportLevelStatsOf(d.deliveredInRange, DELIVERED_MS_LEVEL_ORDER).forEach(s => push(`- 层级「${s.label}」：${s.n} 个`));
       d.deliveredInRange.length ? d.deliveredInRange.forEach(m => { const mt = byId('task', m.task); push(`- ${fmtDate(m.actual_date)}　${m.deliverable || '（未填写交付物）'}（${mt ? mt.title : ''}）`); }) : push('- 无');
     },
-    // 图片导出要跟屏幕上看到的一致：筛选过就导出筛选后的那部分，不然截图跟正文对不上
-    canvas: (d, a) => a.msRows(reportDeliveredMsLevelFilter
-      ? d.deliveredInRange.filter(m => (m.report_level || 'section') === reportDeliveredMsLevelFilter) : d.deliveredInRange,
-      '（无）', false, 'actual_date', 'done') },
+    // 图片导出要跟屏幕上看到的一致：筛选过就导出筛选后的那部分，不然截图跟正文对不上。
+    // 之前这里漏了饼图——html() 明明是"饼图 + 清单"两段，canvas() 却只画了清单那一段，
+    // 图片里这个模块的饼图直接消失了。饼图本身跟着筛选走没有意义（它是用来点了筛的入口，
+    // 应该始终显示完整的层级分布），所以饼图喂 d.deliveredInRange（不筛），清单喂 filtered（筛）
+    canvas: (d, a) => {
+      const filtered = reportDeliveredMsLevelFilter
+        ? d.deliveredInRange.filter(m => (m.report_level || 'section') === reportDeliveredMsLevelFilter) : d.deliveredInRange;
+      a.pie(msReportLevelStatsOf(d.deliveredInRange, DELIVERED_MS_LEVEL_ORDER));
+      a.msRows(filtered, '（无）', false, 'actual_date', 'done');
+    } },
 
   { key: 'dutyTree', label: '各职责/工作推进情况', desc: '按职责汇总的进度条，可展开看每项工作',
     group: 'duty', scope: 'all', personAware: 'either',

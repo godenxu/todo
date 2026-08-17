@@ -167,10 +167,15 @@ async function main() {
 
   section('②：★图片导出（canvas 出口）要跟屏幕上看到的一致——筛选过就导出筛选后的那部分');
   await S.ACTIONS['report-delivered-ms-level-filter']({ level: 'department' });
-  let capturedList = null;
-  const mockApi = { msRows: (list) => { capturedList = list; } };
+  let capturedList = null, capturedPieData = null;
+  // P83 这轮 deliveredMs 的 canvas() 补上了饼图（见 REPORT_MODULES 里 deliveredMs 那段注释：
+  // 之前 html() 明明是"饼图+清单"两段，canvas() 只画了清单，图片里饼图消失了），mockApi 也
+  // 得跟着补上 pie，不然这个假 api 连 canvas() 都跑不完就先抛异常了
+  const mockApi = { msRows: (list) => { capturedList = list; }, pie: (data) => { capturedPieData = data; } };
   S.REPORT_MODULE_MAP.deliveredMs.canvas(d, mockApi);
   ok('★canvas 出口只拿到了筛选后的部门领导那一条', capturedList.length === 1 && capturedList[0].report_level === 'department');
+  ok('★饼图喂的是全量分布（不跟着筛选走）——三个层级都在，不只是筛出来的那一份',
+    capturedPieData.reduce((sum, s) => sum + s.n, 0) === d.deliveredInRange.length);
 
   section('②：文本导出不跟着屏幕上的筛选走——正式简报要完整记录，不该漏掉');
   const textLines = [];
