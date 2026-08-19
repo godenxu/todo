@@ -756,7 +756,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260816195822';
+const APP_VERSION = 'v20260818184829';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -3542,6 +3542,111 @@ function dashPersonTasks(person) {
   return visibleTasks().filter(t => !t.deleted_at && personUnion('task', t).includes(person));
 }
 
+/* 工作台"导出季度考核目标"：把这个人当前牵头/参与的工作转换成考核用的"指标"草稿——
+   指标粒度定在"工作"这一级，输出纯文本，不进 DB、不影响任何统计口径：
+   · 指标名称     = 工作名称，标注这个人在这项工作下是"牵头"还是"参与"（两者都有就都标）
+   · 指标详细描述 = 工作自己的"主要工作内容"（work.content）+ 这个人在这项工作下具体
+                    牵头/参与了哪些任务的列举——工作本身没有描述字段，任务也没有，
+                    这是唯一能拼出"这项指标具体是干什么"的两处素材
+   · 当前目标     = 跟随工作台当前选中的周期（周/月/季/年皆可），这项工作下这个人相关的
+                    任务里落在这个周期内的具体交付——优先用里程碑的"交付物"文字，任务
+                    没挂里程碑就退回"完成XX任务"；逾期还没交的也算进"当前目标"，不然
+                    一件明明还欠着的事反而因为不在周期窗口内被过滤掉、看不出来
+   · 年度目标     = 同一套提取逻辑，时间窗口换成这批数据所属的那个年度（跟着
+                    DB.settings.year 走，不写死"今年"——用户切到别的年度看历史数据时，
+                    "年度目标"该说的是那一年，不是系统今天的日期所在的年）
+   系统只负责把数据结构化拼出来，不做话术润色——任务标题、交付物文字本来就是操作性描述，
+   不是标准考核用语，复制出去之后大概率还需要用户自己按考核要求再改写一遍。 */
+function assessmentExtractGoalLines(taskList, rangeStart, rangeEnd, catchOverdue) {
+  const lines = [];
+  taskList.forEach(t => {
+    const ms = DB.milestones.filter(m => !m.deleted_at && m.task === t.id);
+    if (ms.length) {
+      const qualified = ms.filter(m => m.plan_date && (
+        (m.plan_date >= rangeStart && m.plan_date <= rangeEnd) ||
+        (catchOverdue && m.done !== '1' && m.plan_date < rangeStart)
+      )).sort((a, b) => (a.plan_date || '').localeCompare(b.plan_date || ''));
+      if (qualified.length) lines.push(`${t.title}：${qualified.map(m => m.deliverable || '（未填写交付物）').join('、')}`);
+    } else if (t.plan_date && (
+      (t.plan_date >= rangeStart && t.plan_date <= rangeEnd) ||
+      (catchOverdue && isOpen(t) && t.plan_date < rangeStart)
+    )) {
+      lines.push(`完成${t.title}`);
+    }
+  });
+  return lines;
+}
+function assessmentIndicatorRole(workTasks, person) {
+  const hasLead = workTasks.some(t => dashIsLeadTask(t, person));
+  const hasJoin = workTasks.some(t => !dashIsLeadTask(t, person));
+  return hasLead && hasJoin ? '牵头+参与' : (hasLead ? '牵头' : '参与');
+}
+function assessmentIndicatorDesc(work, workTasks, person) {
+  const parts = [];
+  if (work.content && work.content.length) parts.push(work.content.map((l, i) => `${i + 1}、${l}`).join(' '));
+  const led = workTasks.filter(t => dashIsLeadTask(t, person)).map(t => t.title);
+  const joined = workTasks.filter(t => !dashIsLeadTask(t, person)).map(t => t.title);
+  const roleParts = [];
+  if (led.length) roleParts.push(`牵头：${led.join('、')}`);
+  if (joined.length) roleParts.push(`参与：${joined.join('、')}`);
+  if (roleParts.length) parts.push(roleParts.join('；'));
+  return parts.join('；') || '（无补充说明）';
+}
+const ASSESSMENT_CN_NUM = ['一', '二', '三', '四', '五', '六', '七', '八', '九', '十',
+  '十一', '十二', '十三', '十四', '十五', '十六', '十七', '十八', '十九', '二十'];
+function buildAssessmentGoalsText(person, period, offset) {
+  if (!person) return '';
+  const tasks = dashPersonTasks(person);
+  if (!tasks.length) return `${person} 目前没有牵头或参与任何工作，无法生成考核目标。`;
+
+  const periodLabel = periodLabelFor(period, offset);
+  const { start: curStart, end: curEnd } = periodRange(period, offset);
+  const targetYear = DB.settings.year || new Date().getFullYear();
+  const yearStart = `${targetYear}-01-01`, yearEnd = `${targetYear}-12-31`;
+
+  const byWork = new Map();
+  tasks.forEach(t => {
+    if (!t.work) return;
+    if (!byWork.has(t.work)) byWork.set(t.work, []);
+    byWork.get(t.work).push(t);
+  });
+
+  const dutyGroups = new Map();
+  byWork.forEach((workTasks, workId) => {
+    const w = byId('work', workId);
+    if (!w || w.deleted_at) return;
+    const dutyCode = w.duty || '';
+    if (!dutyGroups.has(dutyCode)) dutyGroups.set(dutyCode, []);
+    dutyGroups.get(dutyCode).push({ work: w, workTasks });
+  });
+  if (!dutyGroups.size) return `${person} 目前没有牵头或参与任何工作，无法生成考核目标。`;
+
+  const dutyCodes = [...dutyGroups.keys()].sort((a, b) => a.localeCompare(b));
+  const lines = [`科技规划处 · ${person} · ${periodLabel}（${curStart} ～ ${curEnd}）考核目标`, '='.repeat(32), ''];
+
+  dutyCodes.forEach((code, di) => {
+    const duty = byId('duty', code);
+    const dutyName = duty && !duty.deleted_at ? duty.name : (code || '（未归属职责）');
+    lines.push(`${ASSESSMENT_CN_NUM[di] || String(di + 1)}、${dutyName}`);
+    lines.push('');
+    dutyGroups.get(code)
+      .sort((a, b) => (a.work.code || '').localeCompare(b.work.code || ''))
+      .forEach((item, wi) => {
+        const { work, workTasks } = item;
+        lines.push(`　${wi + 1}. ${work.name}（${assessmentIndicatorRole(workTasks, person)}）`);
+        lines.push(`　　指标名称：${work.name}`);
+        lines.push(`　　指标详细描述：${assessmentIndicatorDesc(work, workTasks, person)}`);
+        const curGoals = assessmentExtractGoalLines(workTasks, curStart, curEnd, true);
+        lines.push(`　　${periodLabel}目标：${curGoals.length ? curGoals.join('；') : `${periodLabel}内无具体交付节点`}`);
+        const yearGoals = assessmentExtractGoalLines(workTasks, yearStart, yearEnd, false);
+        lines.push(`　　年度目标：${yearGoals.length ? yearGoals.join('；') : '年内无具体交付节点'}`);
+        lines.push('');
+      });
+  });
+
+  return lines.join('\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
 function daysFromToday(d) {
   return Math.round((new Date(d + 'T00:00:00') - new Date(todayStr() + 'T00:00:00')) / 86400000);
 }
@@ -3769,6 +3874,11 @@ function renderDashboard() {
         ${allPeople().filter(p => p !== DB.settings.me).map(p => `<option value="${esc(p)}"${dashViewAsPerson === p ? ' selected' : ''}>${esc(p)}</option>`).join('')}
       </select></span>`
     : '';
+  // 按钮名字跟着周期走（"导出本季/本月/本周/本年考核目标"）——不写死"季度"，避免用户翻到别的
+  // 周期时，按钮名字跟实际导出内容的时间口径对不上。只有设了本机使用者（或管理员切了"查看谁"）
+  // 才有东西可导，没有人可看时按钮照样显示，点了给个提示，不做成禁用态（禁用态说不清"为什么点不了"）
+  const exportGoalsBtn = `<button class="btn" style="margin-left:14px" data-act="dash-export-goals"
+      title="把${esc(periodLabel)}相关的工作按考核指标格式整理成可复制的文本">📤 导出${esc(periodLabel)}考核目标</button>`;
 
   const dAll = buildReportData(dashPeriod, dashOffset, '');
   const dSelf = viewedPerson ? buildReportData(dashPeriod, dashOffset, viewedPerson) : dAll;
@@ -3802,7 +3912,7 @@ function renderDashboard() {
     ${hasPermission('config_dashboard') ? dashboardConfigPanelHTML() : ''}
     <div class="panel"><div class="panel-h">
       <span>统计周期：${esc(periodLabel)}（${esc(rangeStart)} ～ ${esc(rangeEnd)}）</span>
-      <span style="display:flex;align-items:center"><span class="seg-ctrl">${periodBtns}</span>${navBtns}${viewAsHTML}</span>
+      <span style="display:flex;align-items:center"><span class="seg-ctrl">${periodBtns}</span>${navBtns}${viewAsHTML}${exportGoalsBtn}</span>
     </div></div>
     ${sectionsHTML || '<div class="empty-mini">工作台还没有任何区域，去上面"工作台编排"里添加一个</div>'}
   </div>`;
@@ -8066,6 +8176,20 @@ const ACTIONS = {
     dashMsDutyExpanded.clear(); dashMsWorkExpanded.clear();
     renderDashboard();
   },
+  // "导出季度考核目标"：弹窗里放生成好的文本，"确定"按钮改造成"一键复制"——点了不关弹窗，
+  // 这样能反复复制、也能手动全选文本框自己 Ctrl+C，见 copyAssessmentGoalsText()
+  'dash-export-goals': () => {
+    const person = dashViewedPerson();
+    if (!person) { showSnack('请先设置本机使用者，才能导出考核目标'); return; }
+    const text = buildAssessmentGoalsText(person, dashPeriod, dashOffset);
+    const periodLabel = periodLabelFor(dashPeriod, dashOffset);
+    $('#modal-box').classList.add('wide');
+    openModal(`导出考核目标 · ${person} · ${periodLabel}`,
+      `<div class="hint" style="margin-bottom:6px">按"工作"整理成指标草稿，具体措辞建议复制后再按考核要求自己润色。</div>
+       <textarea class="modal-textarea" id="goals-ta" readonly style="height:380px">${esc(text)}</textarea>`,
+      '📋 一键复制', copyAssessmentGoalsText);
+    setTimeout(() => { const ta = $('#goals-ta'); if (ta) { ta.focus(); ta.select(); } }, 60);
+  },
 
   /* ---- 工作台编排（区域 + 模块）——跟报告页那套 report-sec-x / report-mod-x / report-preset-x
      是同一份写法（宽度倍数/同行/上下移动原样照抄），多了个 dash-mod-scope（按人/按整体）。
@@ -11262,6 +11386,32 @@ function closeModal() {
   syncCatchUp();   // 弹窗开着期间被跳过的那次同步，现在补上（弹窗一开一上午的情况很常见）
 }
 $('#modal-overlay').addEventListener('click', function (e) { if (e.target === this) closeModal(); });
+
+/* "导出考核目标"弹窗的复制按钮：不走 openModal 常规的"确定就关闭"流程——这里的"确定"
+   就是复制本身，点了应该给个反馈但留着弹窗，方便反复复制、或者手动全选自己 Ctrl+C。
+   这套应用常在非 HTTPS 的局域网共享文件夹场景下跑，navigator.clipboard 在非安全上下文里
+   可能整个不存在，所以优先用它、失败了退回 execCommand('copy') 这个老写法，两个都不行
+   就老实告诉用户自己复制，不装作成功了。 */
+async function copyAssessmentGoalsText() {
+  const ta = $('#goals-ta');
+  if (!ta) return;
+  ta.focus(); ta.select();
+  let ok = false;
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(ta.value);
+      ok = true;
+    }
+  } catch (e) { /* 常见于非安全上下文，退到下面的兼容写法 */ }
+  if (!ok) {
+    try { ok = document.execCommand('copy'); } catch (e) { ok = false; }
+  }
+  const btn = $('#modal-ok-btn');
+  if (btn) {
+    btn.textContent = ok ? '已复制 ✓' : '复制失败，请手动 Ctrl+C';
+    setTimeout(() => { if ($('#modal-overlay').classList.contains('show') && $('#modal-ok-btn')) $('#modal-ok-btn').textContent = '📋 一键复制'; }, 1600);
+  }
+}
 
 let snackTimer = null;
 /* ★ 优先提示不能被"已保存"这类顺口的成功提示悄悄盖掉 ★

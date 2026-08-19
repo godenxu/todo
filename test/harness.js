@@ -98,7 +98,13 @@ const sandbox = {
     documentElement: { scrollWidth: 1280 },
     activeElement: { tagName: 'BODY', blur() {} },
     body: mkEl('body'),
+    // "导出季度考核目标"复制按钮的兼容降级用得到——默认模拟"能成功"，
+    // 测复制失败的用例自己把这个换成 () => false
+    execCommand: () => true,
   },
+  // 默认模拟"安全上下文、clipboard API 能用"；测非安全上下文兜底逻辑的用例
+  // 自己把 navigator.clipboard 整个删掉或者把 writeText 换成会 reject 的版本
+  navigator: { clipboard: { writeText: async () => {} } },
   window: {
     _on: {},
     addEventListener(type, fn) { (this._on[type] = this._on[type] || []).push(fn); },
@@ -288,6 +294,9 @@ const exportTail = `
   get reportDeliveredMsLevelFilter(){return reportDeliveredMsLevelFilter}, setReportDeliveredMsLevelFilter(v){ reportDeliveredMsLevelFilter = v; },
   // P77：导出图片排版跟导出 PDF 对齐——图片里清单截断条数改用跟页面/PDF 同一个上限
   REPORT_LIST_LIMIT,
+  // 工作台"导出季度考核目标"：按工作把牵头/参与内容转换成指标草稿（名称/详细描述/当前目标/年度目标）
+  buildAssessmentGoalsText, assessmentExtractGoalLines, assessmentIndicatorRole, assessmentIndicatorDesc,
+  copyAssessmentGoalsText, dashIsLeadTask,
 };`;
 
 vm.createContext(sandbox);
