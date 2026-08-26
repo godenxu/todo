@@ -189,7 +189,7 @@ const exportTail = `
   get skipDamageAlertOnce(){return _skipDamageAlertOnce}, setSkipDamageAlertOnce(v){ _skipDamageAlertOnce = v; },
   get lastSnapshotAt(){return _lastSnapshotAt}, setLastSnapshotAt(v){ _lastSnapshotAt = v; },
   migrateMilestonesToTasks, cpRowHTML, recalcProgress, hasCheckpoints, migrateViewDataDefault,
-  updateCpProgressPreview, findCpOrderIssue,
+  updateCpProgressPreview, findCpOrderIssue, findDuplicateCpIssue,
   dateStrToDigits, digitsToDateStr, isValidDateStr, normalizeMaskedDateValue,
   maskDateInputLive, normalizeMaskedDateOnBlur, reconcileStatusAndProgress,
   pushLog, diffTask, dpCommit, ganttDataTable, ganttTableRows, get ganttSort(){return ganttSort},

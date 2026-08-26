@@ -30,17 +30,19 @@ async function main() {
   S.DB.settings.me = '测试管理员';
 
   /* ====================== ① 操作列 ====================== */
-  section('①：任务列表最右边那列只剩删除按钮');
+  section('①：任务列表最右边那列——详情按钮仍然是去掉的，复制按钮 P85 又加回来了（修正版，见 ACTIONS 里 task-copy 的注释）');
   const t0 = S.DB.tasks.find(t => !t.deleted_at);
   const rowHTML = S.renderTaskRow(t0);
   ok('删除按钮还在', rowHTML.includes('data-act="task-del"'));
   /* 这里查的是"操作列里还有几个按钮"，不是"整行里还有没有 task-detail"——
      任务编号那一格本身就带 task-detail（点编号打开详情是保留的功能），
      按整行搜会把它一起搜到，测了个假的 */
-  ok('操作列里只剩一个按钮', (rowHTML.match(/class="action-btn/g) || []).length === 1,
+  ok('操作列里是复制 + 删除两个按钮（P85 之前只有删除一个）', (rowHTML.match(/class="action-btn/g) || []).length === 2,
     (rowHTML.match(/class="action-btn[^"]*"/g) || []));
-  ok('★详情按钮（☰）去掉了', !rowHTML.includes('action-btn ms'));
-  ok('★复制按钮（⧉）去掉了', !rowHTML.includes('action-btn copy'));
+  ok('★详情按钮（☰）仍然是去掉的——点任务编号那一格就能打开详情，不需要再单独一个按钮', !rowHTML.includes('action-btn ms'));
+  // P85：复制按钮当年因为"复制出来是空壳、标题跟原任务分不清"被撤掉，这次带着"弹详情框editable
+  // + 连里程碑一起复制 + 保存时拦同名"这三样修正重新加了回来，详见 test-p85.js
+  ok('★复制按钮（⧉）P85 加回来了', rowHTML.includes('data-act="task-copy"') && rowHTML.includes('action-btn copy'));
   // 详情按钮撤掉不等于没法看详情——点任务编号那一格照样能打开
   const codeCell = S.renderCellValue('task', t0, S.fieldDef('task', 'code'), true);
   ok('★任务编号那一格仍然点得开详情（所以详情按钮才是多余的）',

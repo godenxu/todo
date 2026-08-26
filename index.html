@@ -756,7 +756,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260818184829';
+const APP_VERSION = 'v20260825220043';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -3354,7 +3354,9 @@ function renderTasks() {
     lead: st.batchMode
       ? [{ key: 'sel', label: st.sel.size && st.sel.size === _taskRows.length ? '☑' : '☐', act: 'sel-all', title: '全选 / 取消全选' }]
       : [],
-    tail: [{ key: 'action', label: '✕' }],
+    // 操作列表头照着行内的两个按钮摆——行内是"复制⧉ + 删除✕"两个图标挤一格，表头只显示
+    // 一个"✕"会让人误以为这一列只能删除，看不出旁边那颗复制图标是干什么的
+    tail: [{ key: 'action', label: '⧉ ✕' }],
   });
   _taskRows = query('task', {
     pool: taskPoolFor(st.view).filter(TASK_VIEW_MAP[st.view].match),
@@ -3420,11 +3422,11 @@ function renderTaskRow(t) {
   // 跟"彻底删除"放一起，不再单独占一整列
   const tail = del
     ? `<td class="cell-center"><button class="action-btn restore" data-act="task-restore" data-id="${t.id}" title="恢复">↩</button><button class="action-btn del" data-act="task-purge" data-id="${t.id}" title="彻底删除">🗑</button></td>`
-    // 操作列只留删除。原来还有"详情☰"和"复制⧉"两个按钮：
-    // 详情是多余的——点任务编号那一格就是打开详情（见 renderCellValue 里 code 列的处理），
-    // 有里程碑的任务双击进度格也会打开它，一列里塞三个图标反而容易点错；
-    // 复制功能整个撤掉了，理由见 ACTIONS 里"复制任务"那段说明
-    : `<td class="cell-center"><button class="action-btn del" data-act="task-del" data-id="${t.id}" title="删除">×</button></td>`;
+    // 操作列原来只留删除。"详情☰"按钮是多余的——点任务编号那一格就是打开详情（见 renderCellValue
+    // 里 code 列的处理），有里程碑的任务双击进度格也会打开它。"复制⧉"当年整个撤掉过，这次
+    // 重新加回来，但是修正版：点了直接弹详情框、连里程碑一起带过去，保存时还会拦同名——
+    // 具体是怎么修正的见 ACTIONS 里"task-copy"那段注释
+    : `<td class="cell-center"><button class="action-btn copy" data-act="task-copy" data-id="${t.id}" title="复制这条任务">⧉</button><button class="action-btn del" data-act="task-del" data-id="${t.id}" title="删除">×</button></td>`;
   const cells = UI.tasks.cols.map(k => renderCellValue('task', t, fieldDef('task', k), !del)).join('');
   return `<tr data-id="${t.id}" class="${cls}">${sel}${cells}${tail}</tr>`;
 }
@@ -8406,11 +8408,32 @@ const ACTIONS = {
     await Repo.upsert(d.entity, r);
     afterEdit(d.entity, d.id, d.field);
   },
-  /* 这里原来有个「复制任务」的动作，已整体移除。
-     它复制出来的任务跟原任务标题、所属工作、牵头人全都一样，只有 id 不同——
-     在列表里根本分不出哪条是哪条，而且它只复制任务本身、不复制里程碑，
-     复制出来的那条永远是个空壳，最后还是要一条条手工补。
-     新建任务本来就有完整的详情弹窗可以填，没必要留这条容易制造混乱的近路。 */
+  /* "复制任务"：直接弹出（跟新建任务一样的）详情弹窗，草稿字段照抄被复制那条——标题/所属
+     工作/牵头人/参与人/优先级/计划完成时间/来源/标签，连里程碑也一并复制过去（只复制字段值，
+     不带 id，当成全新记录），用户在弹窗里改动个别信息后再保存。这是这里原来「复制任务」
+     功能（已删除，见下方 git blame 能翻到的老注释）的修正版，专门解决它当年被撤掉的两个问题：
+     1）复制出来的标题跟原任务一模一样、列表里分不出谁是谁——这次保存时会硬拦（见
+        openTaskDetail 保存回调里 copyFrom 那段判断），逼着用户先改名才能存；
+     2）不复制里程碑、复制出来是空壳——这次连里程碑也复制过去了，同时新增了"同一任务下
+        两条里程碑完全重复"的硬拦（findDuplicateCpIssue），避免复制完忘记改，混进两条一样的。
+     状态/进度/实际完成日期不带过去：复制出来的是"一件新的事"，不该一开始就顶着原任务的
+     完成状态/进度/完成日期。 */
+  'task-copy': d => {
+    const orig = byId('task', d.id); if (!orig) return;
+    if (!isRecordOwnerOrParticipant('task', orig) && !hasPermission('view_others_detail')) {
+      showSnack('为了防止误操作，暂时不能复制他人任务');
+      return;
+    }
+    const draft = blank('task', {
+      work: orig.work, title: orig.title, owner: orig.owner, assignees: (orig.assignees || []).slice(),
+      status: 'todo', priority: orig.priority, plan_date: orig.plan_date,
+      progress: 0, actual_date: '', source: orig.source, custom: orig.custom,
+    });
+    const cps = DB.milestones.filter(m => m.task === orig.id && !m.deleted_at)
+      .sort((a, b) => (a.plan_date || '9999-99-99').localeCompare(b.plan_date || '9999-99-99'))
+      .map(m => ({ plan_date: m.plan_date, deliverable: m.deliverable, report_level: m.report_level, done: '0' }));
+    openTaskDetail(draft.id, draft, { title: orig.title, cps });
+  },
   'task-del': d => {
     const t = byId('task', d.id); if (!t) return;
     if (!canEditRecord('task', t)) { showSnack('为了防止误操作，只能编辑自己负责/参与的任务'); return; }
@@ -8524,6 +8547,20 @@ const ACTIONS = {
   'cp-insert-after': (d, el) => {
     const row = el.closest('[data-cp-row]');
     if (row) row.insertAdjacentHTML('afterend', cpRowHTML(null));
+    updateCpProgressPreview();
+  },
+  // 复制这一条里程碑：在它下面插一条新行，把这一行眼下（可能刚被用户改过、还没保存）
+  // 的字段值原样带过去——不带 id，所以保存时会当成一条全新的里程碑记录来建，不会跟原来那条共享/覆盖
+  'cp-copy-row': (d, el) => {
+    const row = el.closest('[data-cp-row]');
+    if (!row) return;
+    const copied = {
+      plan_date: normalizeMaskedDateValue(row.querySelector('.cp-date').value),
+      deliverable: row.querySelector('.cp-deliv').value,
+      report_level: row.querySelector('.cp-report-level').value,
+      done: row.querySelector('.cp-chk').checked ? '1' : '0',
+    };
+    row.insertAdjacentHTML('afterend', cpRowHTML(copied));
     updateCpProgressPreview();
   },
   'cp-remove-row': (d, el) => {
@@ -10087,6 +10124,24 @@ function findCpOrderIssue(cpData) {
   }
   return '';
 }
+/* 保存前拦一遍"这条任务下有没有两条里程碑完全一样"——新增"复制这条里程碑"按钮之后，
+   复制完不改直接保存就会出现这种情况。判定标准跟数据体检里 dupMs 那条清理逻辑保持一致
+   （见那边的注释）：日期、交付物、呈报层级、完成状态全都一样才算重复，任务本身在这里已经
+   是同一条，不用再比。这个跟"里程碑顺序看起来不对"不是一回事——顺序问题只是"看起来奇怪"，
+   用户可能真的就是要这个顺序，所以给了"仍然保存"的退路；两条一模一样的里程碑没有任何合理
+   场景需要保留，所以这里直接硬拦，不给绕过的选项。 */
+function findDuplicateCpIssue(cpData) {
+  const seen = new Map();
+  for (let i = 0; i < cpData.length; i++) {
+    const c = cpData[i];
+    const key = [c.plan_date, c.deliverable, c.report_level, c.done].join('|');
+    if (seen.has(key)) {
+      return `第 ${seen.get(key) + 1} 条和第 ${i + 1} 条里程碑完全一样（日期、交付物、呈报层级、完成状态都相同），请先修改再保存`;
+    }
+    seen.set(key, i);
+  }
+  return '';
+}
 // 编辑里程碑期间实时算一遍进度给用户看，但不写回 t.progress——真正落地只在保存成功之后（见 openTaskDetail 的保存回调）
 function updateCpProgressPreview() {
   const rows = $$('#cp-list [data-cp-row]');
@@ -10127,6 +10182,7 @@ function cpRowHTML(m) {
     </select>
     <label class="cp-done-lbl"><input type="checkbox" class="cp-chk"${m && m.done === '1' ? ' checked' : ''}> 已完成</label>
     <button type="button" class="action-btn" data-act="cp-insert-after" title="在这条下面插入一条">＋</button>
+    <button type="button" class="action-btn copy" data-act="cp-copy-row" title="复制这条里程碑">⧉</button>
     <button type="button" class="action-btn del" data-act="cp-remove-row" title="删除这条">×</button>
   </div>`;
 }
@@ -10281,7 +10337,11 @@ function openNewTask() {
   draft.owner = defaultTaskOwner(draft.work);
   openTaskDetail(draft.id, draft);
 }
-function openTaskDetail(id, draft) {
+// copyFrom（可选）：从"复制任务"按钮打开时传 { title, cps }——title 是被复制那条任务的标题，
+// 用来在保存时挡"改都没改就直接存"；cps 是复制过来的里程碑字段快照（不带 id，纯用来打底显示，
+// 跟 existingCps 是两回事，existingCps 必须仍然按草稿的新 id 去查，一条都查不到，
+// 这样保存时 cpData 才会把这些复制来的行当成全新记录来建，不会误认成"这就是原来那条"）
+function openTaskDetail(id, draft, copyFrom) {
   const isNew = !!draft;
   const t = isNew ? draft : byId('task', id);
   if (!t) return;
@@ -10299,6 +10359,10 @@ function openTaskDetail(id, draft) {
   const w = byId('work', t.work);
   const existingCps = DB.milestones.filter(m => m.task === t.id && !m.deleted_at)
     .sort((a, b) => (a.plan_date || '9999-99-99').localeCompare(b.plan_date || '9999-99-99'));
+  // 复制任务带过来的里程碑只用来决定"一开始显示哪几行"，不能替换 existingCps——
+  // existingCps 要保持"这条草稿 id 目前真实存在的里程碑"（新草稿永远是空的），保存时的
+  // 新增/删除判断才不会走样（见下面保存回调里 beforeKeys/keepIds 那段）
+  const seedCps = (copyFrom && copyFrom.cps && copyFrom.cps.length) ? copyFrom.cps : existingCps;
   const cell = f => {
     if (f.type === 'checkpoints') {
       if (!canEdit) {
@@ -10321,7 +10385,7 @@ function openTaskDetail(id, draft) {
       // 就不再需要底部单独一个"添加一条"的按钮；标签本身也挪到单独一行、左对齐，摆在第一条里程碑上方
       return `<div class="full-row"><label class="cp-section-label">${esc(f.label)}</label></div>
         <div class="full-row">
-          <div id="cp-list">${(existingCps.length ? existingCps : [null]).map(cpRowHTML).join('')}</div>
+          <div id="cp-list">${(seedCps.length ? seedCps : [null]).map(cpRowHTML).join('')}</div>
           <div id="cp-progress-preview" class="hint" style="margin-top:4px"></div>
         </div>`;
     }
@@ -10416,6 +10480,15 @@ function openTaskDetail(id, draft) {
       })).filter(d => d.plan_date || d.deliverable);
       const pendingOwner = 'owner' in collected ? collected.owner : t.owner;
       if (isNew && !(collected.title || '').trim()) { showSnack('任务标题不能为空'); return; }
+      // 从"复制任务"按钮打开的草稿：标题如果跟被复制的那条一字不差，列表里根本分不出哪条是哪条——
+      // 这正是旧版"复制任务"被撤掉的原因（见 ACTIONS 里"task-copy"那段注释），这次直接硬拦，
+      // 不给"仍然保存"的退路，逼着用户先动一下标题
+      if (isNew && copyFrom && copyFrom.title && (collected.title || '').trim() === copyFrom.title.trim()) {
+        showSnack('复制出来的任务名称跟原任务一模一样，容易分不清，请先修改标题再保存');
+        return;
+      }
+      const dupCpIssue = findDuplicateCpIssue(cpData);
+      if (dupCpIssue) { showSnack(dupCpIssue); return; }
       const doSave = async () => {
         snapshot();
         const before = clone(t);
