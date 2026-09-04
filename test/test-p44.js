@@ -92,7 +92,11 @@ async function main() {
   S.setFileHandle(makeFileHandle(store));
   ok('平时闸是开着的', S.syncBusy === false);
   let innerRan = false;
-  const p1 = S.withSyncGate(async () => { innerRan = true; await tick(30); return 'first'; });
+  /* P91 起互斥闸下沉了一层：真正串行化的是 runSyncSerial（syncToFile / pullFromFile 都走它），
+     withSyncGate 只剩"忙就跳过"这一个判断。原因是【用户保存】走的 Repo.persist → syncToFile
+     从来没进过这道闸，会跟后台定时同步同时读写同一个文件。所以这里改成用 runSyncSerial 占闸，
+     测的仍然是同一件事：同一时刻只准一条路径碰共享文件。 */
+  const p1 = S.runSyncSerial(async () => { innerRan = true; await tick(30); return 'first'; });
   ok('闸一旦被占用，标志位立刻置上（同步检查，不等 await 完）', S.syncBusy === true);
   const second = await S.withSyncGate(async () => { throw new Error('不该跑到这里'); });
   ok('★闸被占用时，第二个请求直接放弃（返回 false），不排队等待、也不会跟第一个并发执行',

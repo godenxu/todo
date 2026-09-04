@@ -58,8 +58,16 @@ async function main() {
 
   section('纯合并函数：syncPayload 不包含 settings');
   const payload = S.syncPayload(S.DB);
-  ok('只有业务字段，没有 settings', Object.keys(payload).sort().join(',') === 'changelog,duties,milestones,permissionMatrix,purged,reportConfig,shareConfig,tasks,users,works');
-  ok('settings（使用者/列宽等）确实被排除在外', !('settings' in payload));
+  /* ★ 这条原来是把字段名写死成一串比对的，结果 dashboardConfig（工作台编排）加进 DB 之后
+     没人发现它压根没进同步载荷——管理员编排完，同事那边根本收不到，配置面板上却写着"随共享文件同步"。
+     写死列表只能证明"跟我上次写的一样"，证明不了"该同步的都同步了"。
+     改成表达真正的不变量：DB 里除了明确属于本机私有的那几个字段，其余全部都必须进同步载荷。
+     以后再往 DB 里加字段，忘了同步这条就会立刻挂。 */
+  const LOCAL_ONLY = ['settings', 'syncBase'];   // 使用者/年度筛选；三方合并的本机基线
+  const shouldSync = Object.keys(S.DB).filter(k => LOCAL_ONLY.indexOf(k) === -1).sort();
+  ok('★DB 里该同步的字段一个不落地进了 syncPayload', Object.keys(payload).sort().join(',') === shouldSync.join(','),
+    { 载荷里有: Object.keys(payload).sort(), 期望: shouldSync });
+  ok('本机私有的字段确实被排除在外', LOCAL_ONLY.every(k => !(k in payload)));
 
   /* ★ 这一段的预期在 P48 变了 ★
      以前只要调用 syncToFile 就一定重写整个文件，哪怕本机一个字节的新内容都没有。

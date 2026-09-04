@@ -163,6 +163,7 @@ const exportTail = `
   renderData, optionsOf, stampMeta, softDelete, undelete, removeHard,
   cascadeSoftDeleteTask, cascadeRestoreTask, cascadeRemoveHardTask, undoRestoreList,
   touchedByOthersSince, UNDO_MAX_AGE_MS, get undoStack(){return undoStack},
+  runSyncSerial, withSyncGate, get syncBusy(){return _syncBusy},
   pushLoginLog, logKind, trimChangelog, CHANGELOG_LIMIT,
   logRangeBounds, filterLogs, renderLogs, LOG_PAGE_SIZE, LOG_RANGES, LOG_KINDS,
   pushAdminLog, pushAlertLog, roleLabel, ADMIN_LOG_KIND, ALERT_LOG_KIND,
@@ -192,12 +193,13 @@ const exportTail = `
   updateCpProgressPreview, findCpOrderIssue, findDuplicateCpIssue,
   // 三方合并（修"开着旧页面的人把同事刚改的值顶回去"）
   mergeRecordThreeWay, mergeEntityListWithBase, buildSyncBase, hasUnpushedFieldChange,
-  mergeableKeys, sameFieldValue, noteFieldConflicts,
+  mergeableKeys, sameFieldValue, noteFieldConflicts, normalizeMergedRecords, stampMeta, diffRecord, statsByPerson,
   // 结构化变更日志 + 按日志核对/修复
   diffRecordChanges, logRecordChange, auditByChangelog, repairByChangelog, auditValueText, auditPanelHTML,
   get auditIssues(){return _auditIssues}, setAuditIssues(v){ _auditIssues = v; },
   get auditShown(){return _auditShown}, setAuditShown(v){ _auditShown = v; },
-  checkClockSkew, CLOCK_SKEW_LIMIT_MS,
+  checkClockSkew, CLOCK_SKEW_LIMIT_MS, noteOldWriter, oldWriterPanelHTML,
+  setOldWriterWarned(v){ _oldWriterWarned = v; }, get oldWriterWarned(){return _oldWriterWarned},
   get clockSkewWarned(){return _clockSkewWarned}, setClockSkewWarned(v){ _clockSkewWarned = v; },
   get mergeFieldConflicts(){return _mergeFieldConflicts}, setMergeFieldConflicts(v){ _mergeFieldConflicts = v; },
   dateStrToDigits, digitsToDateStr, isValidDateStr, normalizeMaskedDateValue,

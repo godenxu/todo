@@ -756,7 +756,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260904033327';
+const APP_VERSION = 'v20260904044704';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -1349,6 +1349,9 @@ let DB = {
   // 报告页的区域/模块编排，跟权限矩阵一样是"整体对象"，见 reportSections()。老数据里没有这个字段，
   // 为 null 时一律回落到内置的默认编排，所以旧版本写出来的共享文件照样能用
   reportConfig: null,
+  // 工作台的区域/模块编排。跟 reportConfig 完全同一种东西（整体对象、带 rev/updated_at，
+  // 随共享文件同步给全处），只是管的是工作台那一页，见 saveDashboardConfig
+  dashboardConfig: null,
   purged: [],   // 彻底删除的墓碑，见 recordPurge()
   /* ★ 三方合并的「基线」：上一次跟共享文件对完账时，文件里那份数据长什么样 ★
      只存在本机（localStorage），刻意不进 syncPayload、不写进共享文件——它是"我这台机器
@@ -1479,6 +1482,16 @@ function mergeRecordThreeWay(entity, local, remote, base) {
   out.rev = Math.max(local.rev || 0, remote.rev || 0) + 1;
   out.updated_at = (local.updated_at || '') > (remote.updated_at || '') ? local.updated_at : remote.updated_at;
   out.updated_by = newerRecord(local, remote) ? (local.updated_by || '') : (remote.updated_by || '');
+  /* ★ merged_from：这条记录是一次三方合并的产物，里面装着别人的字段改动 ★
+     没有这个标记会出一个很隐蔽的事故：撤销（Ctrl+Z）靠 touchedByOthersSince 判断
+     "这条记录在我拍快照之后有没有被别人动过"，判据是 updated_by。而合并结果的 updated_by
+     记的是"版本比较胜出的那一方"——如果恰好是我，这条记录看起来就像"只有我动过"，
+     于是撤销会把整条拨回快照，连同里面同事的改动一起抹掉（而他毫不知情）。
+     记下"这次合并吸收了谁的改动"，撤销时一并当作"别人动过"来保护。
+     stampMeta 会清掉它：之后任何一次正常编辑都会产生新的快照基准，那之后的撤销
+     回退到的那份快照里本来就已经包含同事这次改动了，不需要再拦。 */
+  const otherBy = remote.updated_by || '';
+  if (otherBy && otherBy !== (local.updated_by || '')) out.merged_from = otherBy;
   return { rec: out, conflicts };
 }
 /* 逐条走三方合并。没有基线的记录（新升级上来、缓存被清过、对方新建的）退回原来的整条规则。 */
@@ -1495,6 +1508,38 @@ function mergeEntityListWithBase(entity, localList, remoteList, baseMap) {
     map.set(rec[pk], r.rec);
   });
   return [...map.values()];
+}
+/* ★ 合并进来的记录必须过一遍类型规整 ★
+   共享文件就是网盘上一个明文 JSON，处里谁都能用记事本打开改（这一点在越权检测那一节里
+   已经承认过、也没法阻止）。手工改出来的值类型很容易不对——本该是数组的参与人写成了
+   "张三,李四"，本该是数字的进度写成了 "80"。启动时 boot 会把所有记录规整一遍，
+   但同步是热路径：合并进来的记录直接进内存，一条坏记录就能让任务页整页渲染不出来
+   （renderTaskRow 对参与人调 .map）、按人统计直接抛异常（statsByPerson 调 .forEach），
+   而且要刷新页面才恢复——同事只会看到"页面突然白了"，根本联想不到是谁动了那个 JSON。
+   规整是幂等的，代价只是几百条记录扫一遍；顺带把坏值治好之后还会随下一次写入回到文件里，
+   等于自动修复。 */
+function normalizeMergedRecords(payload) {
+  [['duty', 'duties'], ['work', 'works'], ['milestone', 'milestones'], ['task', 'tasks']].forEach(([entity, listKey]) => {
+    (payload[listKey] || []).forEach(r => {
+      if (!r) return;
+      /* 参与人/标签这类多值字段被手工改坏时，最常见的形态是 "张三,李四" 或 "张三、李四" 一整串。
+         normalize 只按换行切（那是给多行文本框的输入形态准备的），整串会被当成一个人名，
+         于是人员名单、按人统计里就会冒出"张三,李四"这么一个假人。这里先按逗号/顿号切一道
+         （splitMulti 就是干这个的，CSV 导入一直在用），再交给 normalize 做类型规整。
+         刻意只在同步这条路径上多切这一道，不去动 normalize 本身——启动、新建记录、CSV 导入
+         都在用它，那几条路径的输入形态不一样，改公共函数容易顾此失彼。 */
+      schema(entity).fields.forEach(f => {
+        if (f.virtual) return;
+        if ((f.type === 'persons' || f.type === 'multi') && typeof r[f.key] === 'string' && r[f.key]) {
+          r[f.key] = r[f.key].split('\n')
+            .reduce((acc, line) => acc.concat(splitMulti(line)), [])
+            .map(s => String(s).trim()).filter(Boolean);
+        }
+      });
+      normalize(entity, r);
+    });
+  });
+  return payload;
 }
 /* 拿一份数据快照当基线。只留参与三方合并的四类业务记录——
    账号/权限矩阵/日志各有各的合并规则（心跳取最晚、角色要过授权检查、日志按 id 并集），
@@ -1568,6 +1613,13 @@ function syncPayload(db) {
     duties: db.duties, works: db.works, milestones: db.milestones, tasks: db.tasks,
     changelog: db.changelog, users: db.users, permissionMatrix: db.permissionMatrix, shareConfig: db.shareConfig,
     reportConfig: db.reportConfig || null,
+    /* ★ 曾经漏掉的一个字段 ★ 工作台编排配置面板上白纸黑字写着"编排随共享文件同步，
+       改完全处看到的工作台都会变"，saveDashboardConfig 也老老实实给它带上了 rev/updated_at
+       （那两个字段只有参与合并时才有意义）——唯独这里没把它放进同步载荷，于是它从来只落在
+       管理员自己那台机器的 localStorage 里。表现出来就是：管理员费劲编排完工作台，
+       同事打开看到的还是默认那套，而且谁也不知道问题出在哪。补上之后跟 reportConfig
+       走完全一样的路（整体对象比版本号，见 mergePermissionMatrix）。 */
+    dashboardConfig: db.dashboardConfig || null,
     purged: db.purged || [],
   };
 }
@@ -1680,6 +1732,7 @@ function hasLocalContribution(local, remote, base) {
   if (local.permissionMatrix && (!remote.permissionMatrix || newerRecord(local.permissionMatrix, remote.permissionMatrix))) return true;
   if (local.shareConfig && (!remote.shareConfig || newerRecord(local.shareConfig, remote.shareConfig))) return true;
   if (local.reportConfig && (!remote.reportConfig || newerRecord(local.reportConfig, remote.reportConfig))) return true;
+  if (local.dashboardConfig && (!remote.dashboardConfig || newerRecord(local.dashboardConfig, remote.dashboardConfig))) return true;
   return false;
 }
 /* =============================================================
@@ -1768,6 +1821,7 @@ function mergeSyncPayload(local, remote, base) {
     permissionMatrix: mergePermissionMatrix(local.permissionMatrix, remote.permissionMatrix),
     shareConfig: mergePermissionMatrix(local.shareConfig, remote.shareConfig),
     reportConfig: mergePermissionMatrix(local.reportConfig, remote.reportConfig),
+    dashboardConfig: mergePermissionMatrix(local.dashboardConfig, remote.dashboardConfig),
     purged,
   };
 }
@@ -2000,7 +2054,7 @@ async function idbClearHandle() {
 }
 
 function emptyRemotePayload() {
-  return { duties: [], works: [], milestones: [], tasks: [], changelog: [], users: [], permissionMatrix: null, shareConfig: null, reportConfig: null, purged: [] };
+  return { duties: [], works: [], milestones: [], tasks: [], changelog: [], users: [], permissionMatrix: null, shareConfig: null, reportConfig: null, dashboardConfig: null, purged: [] };
 }
 /* 读共享文件当前内容。返回 null 表示"这个文件的内容没法用"（不是合法 JSON，或者不是本应用的数据格式），
    调用方遇到 null 一律放弃本次写入——宁可这次不同步，也不能拿一份看不懂的文件当"空数据"覆盖掉。
@@ -2038,6 +2092,28 @@ function cacheRemoteWriteInfo(remote) {
   DB.settings.lastKnownWriteAt = remote.lastWriteAt || '';
   DB.settings.lastKnownWriteApp = remote.lastWriteApp || '';
   checkClockSkew(remote);
+  noteOldWriter(remote);
+}
+/* ★ 上线新版本期间：揪出"还在用旧 html 往共享文件里写"的同事 ★
+   停写门禁（checkAppVersion）是这么工作的：旧版客户端【读到】一次由更新版本写的文件之后，
+   才会把自己锁成只读。问题在于旧客户端自己写文件时，会把 lastWriteApp 盖回它自己那个旧版本号——
+   于是"这里有新版本"这个信号会被反复擦掉，另一台旧客户端可能迟迟读不到，一直用旧逻辑写下去。
+   旧版本的代码已经发出去了，改不动；能做的是在新版本这边把这件事【看见】：
+   每次读文件都看一眼"最后是谁、用哪一版写的"，比自己旧就记下来，在数据页列出来，
+   管理员据此去催人刷新。混版本期间这是唯一可靠的发现手段。 */
+let _oldWriterWarned = false;
+function noteOldWriter(remote) {
+  const app = (remote && remote.lastWriteApp) || '';
+  if (!app || app >= APP_VERSION) return;
+  DB.settings.oldWriter = {
+    by: (remote && remote.lastWriteBy) || '未署名', app,
+    at: (remote && remote.lastWriteAt) || '', seenAt: new Date().toISOString(),
+  };
+  // 一次会话只弹一次，别每 5 分钟一轮同步就刷一条；只提示看得到数据页的人（管理员），
+  // 普通同事收到这条也办不了什么，纯粹是噪音
+  if (_oldWriterWarned || !hasPermission('view_data')) return;
+  _oldWriterWarned = true;
+  showSnack(`⚠ ${DB.settings.oldWriter.by} 还在用旧版本（${app}）写入共享文件，请让他刷新页面换成新版`, { priority: true });
 }
 /* ★ 机器时钟不同步的检测 ★
    没有服务器就没有权威时间，所有"谁后改的"最终都要落到各自电脑的本地时钟上。
@@ -2078,7 +2154,45 @@ function checkClockSkew(remote) {
    写完之后再读一遍确认文件里是不是我们刚写的那一份：如果正好有人在这几毫秒里也写了，我们的内容会被盖掉，
    这时重新合并重写一次。只重试一次就够了——本机内存里的数据一条没少，就算这次还是没推上去，
    下一次保存、或者 5 分钟一轮的定时同步都会自然把它再推上去。 */
+/* ★★★ 碰共享文件的动作必须排队，一次只准一个 ★★★
+   原来只有"定时器 / 切回标签页 / 手动点立即同步"这三条路走 withSyncGate 串行化，
+   而【用户每一次保存】走的是 Repo.persist → syncToFile，压根不排队。于是很容易出现
+   保存和后台同步同时读写同一个文件句柄——withSyncGate 自己的注释早就说过这种并发
+   "行为没有保证"，只是当时漏掉了保存这条路。
+
+   加上三方合并之后这件事更要紧了：基线（DB.syncBase）的含义是"文件里现在是什么"，
+   它是在写入成功之后才对齐的。两个读—合并—写的循环交错跑，就可能出现
+   "基线记的是 A 这次合并的结果，文件里躺的却是 B 写进去的那份"——下一次合并就会把
+   同事的改动误判成我的、或者把我的误判成同事的，正好又踩回这次一直在修的那类事故。
+
+   排队而不是"忙就跳过"：跳过对定时器是合理的（下一轮自然会补），对用户的保存则绝对不行，
+   保存一次都不能丢。所以串行化下沉到真正碰文件的这两个函数上（syncToFile / pullFromFile），
+   它们互不调用，不存在"自己排队等自己"的死锁；withSyncGate 退化成一层"忙就别再排了"的
+   前置判断，语义不变。 */
+let _syncChain = Promise.resolve();
+let _syncBusy = false;    // 队列里还有没有活；定时器那几条"可以错过"的路径据此跳过（见 withSyncGate）
+let _syncPending = 0;
+function runSyncSerial(fn) {
+  /* 忙标记在【入队的那一刻】就同步置上，不等排到自己才置。
+     否则会留一个很别扭的窗口：同一段同步代码里连着发起两次，两次都看到"不忙"，
+     于是定时器那种"忙就跳过"的判断形同虚设（虽然最终还是会被队列排开，
+     但会白白多跑一轮读文件）。手动点"立即同步"时那句"正在同步中"的提示也依赖这个即时性。 */
+  _syncPending++;
+  _syncBusy = true;
+  const task = async () => {
+    try { return await fn(); }
+    finally { if (--_syncPending <= 0) { _syncPending = 0; _syncBusy = false; } }
+  };
+  // 前一个任务失败了也要接着跑下一个，否则一次网络盘抖动就会把后面所有同步永久卡死
+  const run = _syncChain.then(task, task);
+  _syncChain = run.then(() => {}, () => {});
+  return run;
+}
 async function syncToFile(db) {
+  if (!_fileHandle) return;
+  return runSyncSerial(() => syncToFileInner(db));
+}
+async function syncToFileInner(db) {
   if (!_fileHandle) return;
   if (_versionBlocked) return;   // 数据格式太旧，只准读不准写，免得把新版本的字段抹掉
   if (_staleAppBlocked) return;  // 这份 html 是旧版（缓存/没关标签页/旧拷贝），只准读不准写，见 checkAppVersion
@@ -2091,7 +2205,7 @@ async function syncToFile(db) {
     // 先把合并前的本机数据留一份引用，下面判断"有没有东西要推"要用它跟文件里的内容比，
     // 不能等 Object.assign 之后再比——那时候本机数据已经包含对方的内容了，永远比得出"没差别"
     const localPayload = syncPayload(db);
-    const merged = mergeSyncPayload(localPayload, cur.remote, db.syncBase);
+    const merged = normalizeMergedRecords(mergeSyncPayload(localPayload, cur.remote, db.syncBase));
     Object.assign(db, merged);
     rebuildIndex();
     /* ★ 必须放在 Object.assign 之后 ★
@@ -2150,6 +2264,10 @@ async function syncToFile(db) {
    拉取是只读的，没有这些顾虑，可以放心多拉几次。 */
 async function pullFromFile() {
   if (!_fileHandle) return false;
+  return runSyncSerial(pullFromFileInner);   // 跟 syncToFile 共用同一条队列，见那边的注释
+}
+async function pullFromFileInner() {
+  if (!_fileHandle) return false;
   const cur = await readSharedFile();
   if (!cur) return false;
   cacheRemoteWriteInfo(cur.remote);
@@ -2157,7 +2275,7 @@ async function pullFromFile() {
   // 拉取本身是只读的，就算判定成旧版也照样把数据读进来给人看——被拦掉的只有写入
   checkAppVersion(cur.remote);
   const localPayload = syncPayload(DB);
-  const merged = mergeSyncPayload(localPayload, cur.remote, DB.syncBase);
+  const merged = normalizeMergedRecords(mergeSyncPayload(localPayload, cur.remote, DB.syncBase));
   Object.assign(DB, merged);
   rebuildIndex();
   // 只读拉取同样要查：越权和误删不会因为"我这次没写"就不存在。
@@ -2262,6 +2380,10 @@ function stampMeta(rec) {
   rec.updated_at = now;
   rec.updated_by = DB.settings.me || '未署名';
   rec.rev = (rec.rev || 0) + 1;
+  // 一次正常编辑之后，这条记录的最新状态就是我改出来的，合并留下的那个"吸收过谁的改动"
+  // 标记到此为止（见 mergeRecordThreeWay 里 merged_from 那段）——留着只会让以后的撤销
+  // 白白多跳过一些本该能撤的记录
+  delete rec.merged_from;
   return rec;
 }
 
@@ -2508,7 +2630,11 @@ function migrateWorkIds() {
   const codeToId = new Map();
   let changed = false;
   DB.works.forEach(w => {
-    if (!w.id) { w.id = uid('w'); changed = true; }
+    // 跟里程碑迁移同一个道理（见 migrateMilestonesToTasks 里那段注释）：几台还留着老缓存的
+    // 机器会各自跑一遍这个迁移，随机 id 会让同一项工作在每台机器上变成不同的记录，
+    // 合并之后同一项工作出现好几条、任务还各自指向不同的那一条。工作编号是它天然的身份，
+    // 按编号算出确定的 id，几台机器算出来的就是同一个。没有编号的（极老的残缺数据）才退回随机。
+    if (!w.id) { w.id = w.code ? 'w_' + w.code : uid('w'); changed = true; }
     if (w.code && !codeToId.has(w.code)) codeToId.set(w.code, w.id);
   });
   if (!codeToId.size) return false;
@@ -2546,7 +2672,10 @@ function migrateTaskCodes() {
   });
   groups.forEach((list, workId) => {
     list.sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''));
-    list.forEach(t => { t.code = nextTaskCode(workId); changed = true; });
+    // 补编号是一次真实的数据改动，必须盖戳：不盖戳的话版本号跟共享文件里那条一模一样，
+    // 合并时判不出"我这边多了个编号"，这次补号推不出去，每台机器只能自己补自己的。
+    // 按创建时间排序生成，是确定性的——几台机器各自补出来的编号一致，不会打架
+    list.forEach(t => { t.code = nextTaskCode(workId); stampMeta(t); changed = true; });
   });
   return changed;
 }
@@ -2576,9 +2705,18 @@ function migrateMilestonesToTasks() {
   DB.tasks.forEach(t => {
     const oldMsId = t.milestone;
     const oldDeliv = (t.deliverable || '').trim();
+    /* ★ 迁移生成的 id 必须是"算出来的"，不能是随机的 ★
+       这个迁移在每台机器自己的启动流程里跑（boot 里读完 localStorage 就跑，早于第一次拉共享文件）。
+       如果 id 用 uid() 随机生成，几台还留着老缓存的机器各自迁移一遍，就会为同一条老数据
+       造出好几个 id 不同、内容一模一样的里程碑——合并规则按 id 认记录，认不出它们是同一条，
+       于是一条任务下冒出好几套重复里程碑。这正是数据体检里 dupMs 那一项要清理的现象之一。
+       改成按所属任务算出确定的 id：每台机器算出来的都一样，合并时自然就是同一条，不会重复。
+       一条任务最多只会迁出一条（下面两个分支互斥），所以 task id 就足够唯一。 */
+    const migId = 'm_mig_' + t.id;
     if (oldMsId && oldMsIndex.has(oldMsId)) {
       const old = oldMsIndex.get(oldMsId);
       DB.milestones.push(stampMeta(blank('milestone', {
+        id: migId,
         task: t.id,
         plan_date: old.plan_date || '',
         deliverable: oldDeliv || old.name || '',
@@ -2588,6 +2726,7 @@ function migrateMilestonesToTasks() {
       changed = true;
     } else if (oldDeliv) {
       DB.milestones.push(stampMeta(blank('milestone', {
+        id: migId,
         task: t.id, plan_date: t.plan_date || '', deliverable: oldDeliv,
         done: t.status === 'done' ? '1' : '0', actual_date: t.status === 'done' ? (t.actual_date || '') : '',
       })));
@@ -2910,7 +3049,11 @@ function snapshot() {
    只要成立，这条记录就整条保持现状、不参与回退——宁可少撤一点，也不能把同事的改动吞掉。 */
 function touchedByOthersSince(rec, ctx) {
   if (!rec) return false;
-  return (rec.updated_at || '') > ctx.at && (rec.updated_by || '') !== ctx.by;
+  if ((rec.updated_at || '') <= ctx.at) return false;          // 快照之后压根没动过
+  if ((rec.updated_by || '') !== ctx.by) return true;          // 最后一次是别人改的
+  /* 最后一次是"我"改的，但这条记录是三方合并的产物，里面装着同事的字段改动——
+     整条回退同样会把他的改动抹掉，所以一视同仁地保护（见 mergeRecordThreeWay 里 merged_from） */
+  return !!(rec.merged_from && rec.merged_from !== ctx.by);
 }
 /* ★ 撤销必须表现成"一次新的修改"，不能只是把内存里的数据拨回旧版本 ★
    合并规则是"版本号(rev)高的赢"。如果直接把快照里那份旧记录塞回 DB，它的版本号比共享文件里
@@ -8197,6 +8340,24 @@ function renderPermissions() {
 
    这里只做提示和提供出口，不自动清：本机缓存也可能正是唯一一份还没推上去的改动，
    二话不说清掉是会真丢数据的。 */
+/* 混版本上线期间的提示：谁还在用旧 html 往共享文件里写（见 noteOldWriter）。
+   为什么值得单独摆一块：旧版本客户端在读到新版本的写入之前照样能写，而它写入时又会把
+   "这里有新版本"这个标记盖掉——于是它可能很久都不会被停写门禁拦住，期间它仍然按旧规则
+   整条覆盖记录（正是这次修的那类事故）。上线那几天管理员盯着这一块，看到谁就催谁刷新。 */
+function oldWriterPanelHTML() {
+  const o = DB.settings.oldWriter;
+  if (!o || !o.app) return '';
+  return `<div class="panel sec-panel"><div class="panel-h">⚠ 还有人在用旧版本写入共享文件</div><div class="panel-b">
+    <div class="sec-item">
+      <div class="sec-txt">最近一次是 <b>${esc(o.by)}</b>，用的是 <code>${esc(o.app)}</code>（当前版本 <code>${esc(APP_VERSION)}</code>），
+        时间 ${esc(fmtLocalDateTime(o.at))}。
+        <div class="hint">旧版本没有这一版修掉的同步问题（开着旧页面改一个字段会把同事刚改的其它字段一起顶回去），
+        它每写一次都可能覆盖别人的改动。请让这位同事<b>关掉页面重新打开新版 html</b>——
+        刷新之后他那边会自动进入只读保护，不会再写坏数据。
+        <br>他重新打开新版之前的本机改动不会丢，换上新版后会正常合并上来。</div></div>
+      <button class="btn" data-act="dismiss-old-writer">知道了，先隐藏</button>
+    </div></div></div>`;
+}
 function localCachePanelHTML() {
   if (!_localCacheStale) return '';
   const from = _localCacheAppVersion ? `由 <code>${esc(_localCacheAppVersion)}</code> 写入` : '版本未知（这次改动之前留下的）';
@@ -8244,6 +8405,7 @@ function renderData() {
 
   $('#page-data').innerHTML = `<div class="pad">
     ${localCachePanelHTML()}
+    ${oldWriterPanelHTML()}
     <div class="panel"><div class="panel-h">数据概况</div><div class="panel-b hint">
       ${Object.entries(counts).map(([k, v]) => `${k}：<b>${v}</b>`).join(' &nbsp;·&nbsp; ')}<br>
       本地存储占用：约 <b>${(size / 1024).toFixed(0)} KB</b>（localStorage 上限通常 5 MB）<br>
@@ -9268,6 +9430,9 @@ const ACTIONS = {
       }, true);
   },
   'dismiss-cache-warn': () => { _localCacheStale = false; renderPage(); showSnack('已隐藏该提示'); },
+  // 隐藏"还有人用旧版本写入"的提示。下次再读到旧版本写的文件会重新出现——
+  // 这是有意的：只要还有人没升级，这条就该反复冒出来提醒
+  'dismiss-old-writer': () => { delete DB.settings.oldWriter; renderPage(); showSnack('已隐藏；如果那位同事还在用旧版本，下次同步会再次提示'); },
   'merge-damage-dismiss': () => {
     if (!requireRole('admin')) return;
     clearMergeAlert();
@@ -12154,11 +12319,13 @@ function syncBlocked() {
    网络盘上对同一个文件句柄几乎同时发起两次读写，行为没有保证：可能一个写覆盖另一个正读到一半的内容，
    也可能其中一次直接报错。与其让这种并发悄悄发生、只在极偶然的时机才暴露出问题，
    不如干脆规定错过就错过——下一轮定时器 / 下一次切回标签页 / 用户自己再点一下按钮，自然会补上。 */
-let _syncBusy = false;
+/* 真正的串行化已经下沉到 syncToFile / pullFromFile 里（见 runSyncSerial 上面那段注释）——
+   那才是唯一碰文件的地方，用户保存也走得到。这里剩下的职责只有一个：
+   定时器 / 切回标签页 / 手动按钮这三条"可以错过"的路径，发现队列里已经有活就别再排一个，
+   下一轮自然会补上。用户的保存不走这里，它一定排队、一定执行，不会被跳过。 */
 async function withSyncGate(fn) {
   if (_syncBusy) return false;
-  _syncBusy = true;
-  try { return await fn(); } finally { _syncBusy = false; }
+  return await fn();
 }
 /* ★ "同步一次"只有这一份实现，谁触发的都调它 ★
    这就是"立即同步"按钮点下去发生的全部事情：读—合并—写，然后立刻把当前页面重绘一遍。
@@ -12378,6 +12545,7 @@ async function connectSharedFile() {
       DB.permissionMatrix = mergePermissionMatrix(DB.permissionMatrix, remote.permissionMatrix);
       DB.shareConfig = mergePermissionMatrix(DB.shareConfig, remote.shareConfig);
       DB.reportConfig = mergePermissionMatrix(DB.reportConfig, remote.reportConfig);
+      DB.dashboardConfig = mergePermissionMatrix(DB.dashboardConfig, remote.dashboardConfig);
       if (!DB.users.some(u => u.name === DB.settings.me && !u.deleted_at)) DB.settings.me = '';
     } else {
       const merged = mergeSyncPayload(syncPayload(DB), remote, DB.syncBase);
@@ -12740,11 +12908,23 @@ async function applyCSVImport(entity, mode, text) {
         if (!rec[sc.pk]) continue;
       }
       if (entity === 'task' && !rec.code && rec.work) rec.code = nextTaskCode(rec.work);   // 兜底：仍没编号则按所属工作自动生成
-      ['created_at', 'updated_at', 'updated_by', 'deleted_at'].forEach(k => { const v = get(cols, k); if (v) rec[k] = v; });
-      rec.rev = Number(get(cols, 'rev')) || 1;
+      // created_at / deleted_at 属于数据本身（这条什么时候建的、是不是已删除），照 CSV 走；
+      // updated_at / updated_by / rev 是"最后一次由谁在什么时候改的"，见下面
+      ['created_at', 'deleted_at'].forEach(k => { const v = get(cols, k); if (v) rec[k] = v; });
       normalize(entity, rec);
       const list = coll(entity);
       const j = list.findIndex(x => x[sc.pk] === rec[sc.pk]);
+      const prev = j === -1 ? null : list[j];
+      /* ★ 导入必须当成"我现在改的"来盖戳 ★
+         原来是整条替换、并且 rev 直接取 CSV 里那一列（没有这列就写死 1）。
+         后果很隐蔽但很严重：线下整理的 Excel 基本不会带 rev 列，于是导进来的每一条 rev 都是 1，
+         而共享文件里那条可能已经是 rev 7 —— 合并时按"版本号大的赢"，导入的内容整批打不过文件里的旧值，
+         下一次同步就被悄悄回退掉。管理员看到的是"我导进去了、界面上也变了，过一会儿又变回去了"，
+         跟这次事故的表象一模一样，但成因完全不同。
+         正确做法：导入就是一次编辑——版本号在"CSV 里的值"和"本机现有那条"里取大的，再 +1，
+         时间戳和修改人记成现在、记成执行导入的这个人。这样它才压得住文件里的旧版本、推得出去。 */
+      rec.rev = Math.max(Number(get(cols, 'rev')) || 0, (prev && prev.rev) || 0);
+      stampMeta(rec);
       if (j === -1) list.push(rec); else list[j] = rec;
       n++;
     }

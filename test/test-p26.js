@@ -81,8 +81,10 @@ async function main() {
   ok('带上了 schemaVersion', fp.schemaVersion === S.DATA_SCHEMA_VERSION);
   ok('带上了这次写入的一次性标记 writeId', fp.writeId === 'w_test');
   ok('带上了写入者和 html 版本，方便出问题时排查', fp.lastWriteBy === S.DB.settings.me && fp.lastWriteApp === S.APP_VERSION);
+  // 只断言"文件自述"那几个字段不在载荷里；载荷该包含哪些字段由 test-p6 那条不变量守（见那边的注释）
   ok('syncPayload 本身不含这些字段（它们不该被合并、也不该被灌回内存 DB）',
-    Object.keys(S.syncPayload(S.DB)).sort().join(',') === 'changelog,duties,milestones,permissionMatrix,purged,reportConfig,shareConfig,tasks,users,works');
+    ['schemaVersion', 'writeId', 'lastWriteBy', 'lastWriteApp', 'lastWriteAt']
+      .every(k => !(k in S.syncPayload(S.DB))));
 
   section('checkDataVersion：文件版本不比我新 → 放行');
   S.setVersionBlocked(false);
