@@ -116,7 +116,15 @@ async function main() {
   const dMonth = S.buildReportData('month');
   const dQuarter = S.buildReportData('quarter');
   const dYear = S.buildReportData('year');
-  ok('本月的统计范围比本周宽（起始日更早或相等）', dMonth.rangeStart <= d.rangeStart);
+  /* ★ 这里原来断言的是"本月起始日 ≤ 本周起始日"，那是错的 ★
+     周是按自然周（周一起算）划的，月是按自然月划的，两者不对齐：本周一旦跨月界
+     （比如 8/31 周一 ~ 9/6 周日，今天是 9/4），本月起始日 9/1 反而晚于本周起始日 8/31，
+     断言必挂——挂不挂纯粹取决于跑测试那天是不是落在这种周里，跟被测代码毫无关系。
+     "月比周宽"真正的意思是跨度更长，改成比天数，任何一天跑都成立。 */
+  const spanDays = dd => Math.round((new Date(dd.rangeEnd) - new Date(dd.rangeStart)) / 86400000) + 1;
+  ok('本月的统计范围比本周宽（跨度天数更多）', spanDays(dMonth) > spanDays(d), { month: spanDays(dMonth), week: spanDays(d) });
+  ok('本周、本月都把今天包含在内', d.rangeStart <= S.todayStr() && S.todayStr() <= d.rangeEnd
+    && dMonth.rangeStart <= S.todayStr() && S.todayStr() <= dMonth.rangeEnd);
   ok('本季的统计范围比本月宽', dQuarter.rangeStart <= dMonth.rangeStart);
   ok('本年的统计范围比本季宽', dYear.rangeStart <= dQuarter.rangeStart);
   ok('本月完成的任务（今天完成）也能被本月周期统计到', dMonth.doneInRange.some(t => t.id === 'p14_done_this_week'));

@@ -190,6 +190,16 @@ const exportTail = `
   get lastSnapshotAt(){return _lastSnapshotAt}, setLastSnapshotAt(v){ _lastSnapshotAt = v; },
   migrateMilestonesToTasks, cpRowHTML, recalcProgress, hasCheckpoints, migrateViewDataDefault,
   updateCpProgressPreview, findCpOrderIssue, findDuplicateCpIssue,
+  // 三方合并（修"开着旧页面的人把同事刚改的值顶回去"）
+  mergeRecordThreeWay, mergeEntityListWithBase, buildSyncBase, hasUnpushedFieldChange,
+  mergeableKeys, sameFieldValue, noteFieldConflicts,
+  // 结构化变更日志 + 按日志核对/修复
+  diffRecordChanges, logRecordChange, auditByChangelog, repairByChangelog, auditValueText, auditPanelHTML,
+  get auditIssues(){return _auditIssues}, setAuditIssues(v){ _auditIssues = v; },
+  get auditShown(){return _auditShown}, setAuditShown(v){ _auditShown = v; },
+  checkClockSkew, CLOCK_SKEW_LIMIT_MS,
+  get clockSkewWarned(){return _clockSkewWarned}, setClockSkewWarned(v){ _clockSkewWarned = v; },
+  get mergeFieldConflicts(){return _mergeFieldConflicts}, setMergeFieldConflicts(v){ _mergeFieldConflicts = v; },
   dateStrToDigits, digitsToDateStr, isValidDateStr, normalizeMaskedDateValue,
   maskDateInputLive, normalizeMaskedDateOnBlur, reconcileStatusAndProgress,
   pushLog, diffTask, dpCommit, ganttDataTable, ganttTableRows, get ganttSort(){return ganttSort},
