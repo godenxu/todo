@@ -295,10 +295,12 @@ async function main() {
   ok('这条记录带 target/roleTo，所有人的机器从此认这个角色',
     S.DB.changelog.some(e => e.kind === S.ADMIN_LOG_KIND && e.target === '张三' && e.roleTo === 'staff'));
 
-  section('④-4 两条同步路径都挂了检测（只挂一条就等于留了个后门）');
-  // 函数定义那一行也长这个样子，所以全文应该正好出现 3 次：1 处定义 + 2 处调用
+  section('④-4 三条同步路径都挂了检测（漏一条就等于留了个后门）');
+  /* 原来只有"保存"和"只读拉取"两条路。P99 补上了第三条：「重新连接共享文件夹」——
+     它跟另外两条走同一种合并，却一直没挂熔断，而那恰恰是本机缓存和文件差异最大、
+     最容易一次少掉一大片记录的时刻。函数定义那一行也长这个样子，所以全文应该正好出现 4 次。 */
   const 出现次数 = (html.match(/noteMergeAlerts\(localPayload, merged\)/g) || []).length;
-  ok('★两条路径都调了（定义 1 处 + 调用 2 处 = 3）', 出现次数 === 3, 出现次数);
+  ok('★三条路径都调了（定义 1 处 + 调用 3 处 = 4）', 出现次数 === 4, 出现次数);
   /* ★必须在 Object.assign 之后调★——真机验证时踩到的坑：放在之前的话，
      assign 会把 DB.changelog 换成 merged.changelog，刚追加的告警当场蒸发，
      "挡住了但没人知道"。这里直接检查两处调用都排在 assign+rebuildIndex 后面 */

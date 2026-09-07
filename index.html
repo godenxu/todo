@@ -756,7 +756,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260906203104';
+const APP_VERSION = 'v20260906224903';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -1445,6 +1445,21 @@ let _mergeFieldConflicts = [];   // 本次合并里"两人同时改了同一个�
 /* 一条记录的三方合并。base 是"上次对账时文件里那份"。
    返回合并后的记录；真冲突（两边都改了同一字段且值不同）追加进 _mergeFieldConflicts。 */
 function mergeRecordThreeWay(entity, local, remote, base) {
+  /* ★ 别想着用 rev 判断"文件是不是被旧内容盖过了" ★
+
+     这里试过一版这样的兜底：既然基线是"上次对账时文件里那份"，那么 remote.rev < base.rev
+     就说明文件退回去了（写入竞争造成的），这时保留本机那份就行——听上去很合理，
+     手工构造的场景也确实过了。多设备长跑仿真直接把它证伪了：一台离线很久的设备恢复联网后
+     改了任务的牵头人，那次改动被这条规则当成"过期内容"整个丢掉。
+
+     前提错在哪：rev 是【每条记录各自的、每台设备独立 +1】的计数，不是文件级的版本号。
+     两台设备对同一条记录各改一次，都从 5 加到 6；一台合并过的会变成 max+1；
+     离线久的那台手里基数低，它的合法新编辑 rev 天生就比别人小。
+     所以 rev 小 ≠ 内容旧，拿它当"文件倒退"的判据必然误伤真实改动。
+
+     判断"文件是不是被旧内容盖过"必须用真正的文件级因果关系，也就是写入链（writeIds）——
+     那是 noteClobberedWrite 在做的事，它记的是"我那次写还在不在这条链上"，
+     跟每条记录的 rev 无关。这一层就老老实实逐字段合并，不要自作聪明。 */
   const keys = mergeableKeys(entity);
   const decided = {};
   let localChanged = false, remoteChanged = false;
@@ -1808,12 +1823,69 @@ function filePayload(businessPayload, db, writeId, remote) {
     lastWriteAt: new Date().toISOString(),
   });
 }
-// 权限矩阵是一整个对象，不是逐条记录的列表，没法按 pk 合并——谁的版本号/时间更新就整体采用谁的；
-// 共享文件夹配置（shareConfig）跟权限矩阵是同一种"整体对象"形状，合并规则复用这一个函数
-function mergePermissionMatrix(local, remote) {
+/* 权限矩阵是一整个对象，不是逐条记录的列表，没法按 pk 合并——谁的版本号/时间更新就整体采用谁的；
+   共享文件夹配置、报告页编排、工作台编排跟它是同一种"整体对象"形状，合并规则复用这一个函数。
+
+   ★ 整体采用意味着输的那一方【整份改动全部丢弃】，所以必须让人看得见 ★
+   逐条业务记录有三方合并保护，真撞上同一个字段还会写一条冲突日志（见 noteFieldConflicts）；
+   这四个整体对象一直是完全无声的——两个管理员从同一版各改一处，一方的改动直接消失，
+   界面上没有任何痕迹。"我把工作台编排改好了，第二天又变回去了"这种事，
+   过去只能靠猜，日志里一个字都查不到。
+
+   怎么判断是"并发修改"而不是"对方比我新、我照单全收"：看版本号。
+     · 对方 rev 比我高 → 他是在我这版基础上改的，我这边没改过 → 正常，不记
+     · 我 rev 比对方高 → 我是在他那版基础上改的 → 正常，不记
+     · 两边 rev 一样、内容却不同 → 只可能是从同一版各改了一次 → 真冲突，记一条
+   label 不传就不记（首次连接那条路径是"本机配置 vs 文件"，不算并发修改，别制造噪音）。 */
+let _objConflicts = [];   // 本次合并里被整份覆盖掉的配置对象，供 noteFieldConflicts 一并报出来
+const WHOLE_OBJ_META = ['rev', 'updated_at', 'updated_by', 'created_at'];
+function sameWholeObject(a, b, alsoIgnore) {
+  const skip = WHOLE_OBJ_META.concat(alsoIgnore || []);
+  const strip = o => {
+    const c = Object.assign({}, o);
+    skip.forEach(k => delete c[k]);
+    return JSON.stringify(c);
+  };
+  return strip(a) === strip(b);
+}
+/* 账号也是"整条比新旧、输的一方整份丢弃"，跟上面那四个配置对象是同一种形状，
+   所以同一种问题也在：两个有权限的人同时动同一个账号（一个改角色、一个重置 PIN），
+   一方的操作直接消失，而且【一声不吭】——管理员重置完 PIN，对方还是登不进来，谁也不知道为什么。
+
+   逐条业务记录有三方合并保护，账号没有（它的合并规则里还夹着心跳取最大、角色提升授权检查，
+   套三方合并会把那几条精心设计的规则绕开，见 buildSyncBase 的注释）。既然挡不住，至少要看得见。
+   判据跟配置对象一样：两边 rev 相同、内容却不同 → 只可能是从同一版各改了一次。
+
+   ★ 心跳字段必须排除在"内容"之外 ★ lastSeenAt/lastAppVersion 是 markUserSeen 直接写的，
+   刻意不走 stampMeta（理由见 mergeUserPresence），所以它俩天天不一样而 rev 纹丝不动。
+   不排除的话，每台设备每轮同步都会报一堆假冲突。 */
+const USER_HEARTBEAT_KEYS = ['lastSeenAt', 'lastAppVersion'];
+function noteUserConflicts(localUsers, remoteUsers) {
+  const rm = new Map((remoteUsers || []).filter(u => u && u.name).map(u => [u.name, u]));
+  (localUsers || []).forEach(l => {
+    if (!l || !l.name) return;
+    const r = rm.get(l.name);
+    if (!r) return;
+    if ((l.rev || 0) !== (r.rev || 0)) return;
+    if (sameWholeObject(l, r, USER_HEARTBEAT_KEYS)) return;
+    _objConflicts.push({
+      label: `账号「${l.name}」`, taken: newerRecord(r, l) ? 'theirs' : 'mine',
+      mine: l.updated_by || '', theirs: r.updated_by || '', at: r.updated_at || '',
+    });
+  });
+}
+function mergePermissionMatrix(local, remote, label) {
   if (!remote) return local;
   if (!local) return remote;
-  return newerRecord(remote, local) ? remote : local;
+  const takeRemote = newerRecord(remote, local);
+  if (label && (local.rev || 0) === (remote.rev || 0) && !sameWholeObject(local, remote)) {
+    _objConflicts.push({
+      label, taken: takeRemote ? 'theirs' : 'mine',
+      mine: local.updated_by || '', theirs: remote.updated_by || '',
+      at: (takeRemote ? local : remote).updated_at || '',
+    });
+  }
+  return takeRemote ? remote : local;
 }
 /* 「最近连接」时间（users[].lastSeenAt）必须单独按"取较晚的那个"合并，不能跟着整条记录走。
    它是 markUserSeen 直接写上去的心跳，刻意不走 stampMeta——否则每台设备每同步一次
@@ -1879,8 +1951,20 @@ function hasLocalContribution(local, remote, base) {
     const v = (e && e[key]) || '';
     return (mx === null || v < mx) ? v : mx;
   }, null);
+  /* ★ "比对方最老的那条还老就别推了"这条过滤，原来是无条件生效的，那是错的 ★
+
+     它的本意是：日志和墓碑都是按时间排序封顶的，对方那份要是已经满了，把一条更老的推回去
+     只会立刻被裁掉，来回打架没有意义。这个道理只在【对方那份确实已经顶到上限】时才成立。
+
+     没到上限时它会造成真丢东西，而且触发条件一点也不苛刻：
+       共享文件里的墓碑本来就不多（生产环境当前只有 7 条，而且都是最近记的），
+       某台机器的表慢十来分钟，它新记的那条墓碑时间戳就比文件里最老的还早，
+       于是被判成"没东西要推"——这次彻底删除永远推不出去，那条记录会从别人的机器上原样飘回来，
+       表现出来就是"删不干净"。日志同理：那条变更记录推不上去，"按日志核对数据"也就查不到它。
+     实测复现过。判据改成"只有对方那份满了才谈得上被裁掉"，没满就一律推。 */
   const theirLog = new Set((remote.changelog || []).map(e => e.id));
-  const oldestLogAt = oldestOf(remote.changelog, 'at');
+  const theirLogFull = (remote.changelog || []).length >= CHANGELOG_LIMIT;
+  const oldestLogAt = theirLogFull ? oldestOf(remote.changelog, 'at') : null;
   if ((local.changelog || []).some(e => !theirLog.has(e.id) && (oldestLogAt === null || (e.at || '') >= oldestLogAt))) return true;
 
   /* ★ 心跳（users[].lastSeenAt）必须单独比一次 ★
@@ -1892,8 +1976,10 @@ function hasLocalContribution(local, remote, base) {
   const theirSeen = new Map((remote.users || []).map(u => [u.name, u.lastSeenAt || '']));
   if ((local.users || []).some(u => u && u.name && (u.lastSeenAt || '') > (theirSeen.get(u.name) || ''))) return true;
 
+  // 墓碑跟日志同理，见上面那段：只有对方那份顶到上限了，"太老"才等于"会被裁掉"
   const theirPurged = new Set((remote.purged || []).map(p => p.entity + ' ' + p.id));
-  const oldestPurgeAt = oldestOf(remote.purged, 'at');
+  const theirPurgedFull = (remote.purged || []).length >= PURGED_LIMIT;
+  const oldestPurgeAt = theirPurgedFull ? oldestOf(remote.purged, 'at') : null;
   if ((local.purged || []).some(p => !theirPurged.has(p.entity + ' ' + p.id) && (oldestPurgeAt === null || (p.at || '') >= oldestPurgeAt))) return true;
 
   // 权限矩阵/共享文件夹配置是整个对象比版本，跟 mergePermissionMatrix 的规则保持一致
@@ -1968,11 +2054,13 @@ function guardRoleIntegrity(localUsers, mergedUsers, mergedChangelog) {
 // 不传（或某条记录没有基线）自动退回原来的整条比较规则，见 mergeEntityListWithBase
 function mergeSyncPayload(local, remote, base) {
   _mergeFieldConflicts = [];
+  _objConflicts = [];      // 整体配置对象被整份覆盖的情况，跟字段冲突一起在 noteFieldConflicts 里报
   const b = base || {};
   // 先把两边的墓碑并起来，再拿并集去筛每一类记录——
   // 只要有任何一台设备记得"这条被彻底删过"，它就不该在合并结果里重新出现
   const purged = mergePurged(local.purged, remote.purged);
   const changelog = mergeChangelog(local.changelog, remote.changelog);
+  noteUserConflicts(local.users, remote.users);   // 同一个账号被两边各改一次 → 记下来，别悄悄丢
   const mergedUsers = mergeUserPresence(
     applyPurged('user', 'name', mergeByPk('name', local.users, remote.users), purged),
     local.users, remote.users);
@@ -1990,10 +2078,10 @@ function mergeSyncPayload(local, remote, base) {
     tasks: mergedTasks,
     changelog,
     users: guard.users,
-    permissionMatrix: mergePermissionMatrix(local.permissionMatrix, remote.permissionMatrix),
-    shareConfig: mergePermissionMatrix(local.shareConfig, remote.shareConfig),
-    reportConfig: mergePermissionMatrix(local.reportConfig, remote.reportConfig),
-    dashboardConfig: mergePermissionMatrix(local.dashboardConfig, remote.dashboardConfig),
+    permissionMatrix: mergePermissionMatrix(local.permissionMatrix, remote.permissionMatrix, '权限矩阵'),
+    shareConfig: mergePermissionMatrix(local.shareConfig, remote.shareConfig, '共享文件夹配置'),
+    reportConfig: mergePermissionMatrix(local.reportConfig, remote.reportConfig, '报告页编排'),
+    dashboardConfig: mergePermissionMatrix(local.dashboardConfig, remote.dashboardConfig, '工作台编排'),
     purged,
   };
 }
@@ -2118,6 +2206,18 @@ function noteMergeAlerts(localPayload, merged) {
    就是因为覆盖发生得无声无息。现在每一次都写进日志，事后翻得到、也能拿"按日志核对"查出来。
    同一次合并里的所有冲突合并成一条，不刷屏。 */
 function noteFieldConflicts() {
+  /* 整体配置对象被整份覆盖的，单独报一条：它跟"某条任务的某个字段被覆盖"完全不是一回事——
+     丢掉的是一整份编排/一整套权限设置，而且没有任何逐字段保护能救回来，只能靠人重新配一遍。
+     所以文案要直说"你刚才那份改动被覆盖了、请重新确认一下"。 */
+  const objs = _objConflicts;
+  _objConflicts = [];
+  if (objs.length) {
+    const one = c => `${c.label}：我这边是${c.mine || '未署名'}改的、${c.theirs || '同事'}那边也改了，`
+      + `本次整份采用${c.taken === 'mine' ? '我这边的（对方那份改动被覆盖）' : '对方的（我这边那份改动被覆盖）'}`;
+    pushAlertLog(`同步时发现 ${objs.length} 处"同一份配置被两个人同时改动"：${objs.map(one).join('；')}。`
+      + `这类配置是整份生效的，输的那一方改了什么全部丢失，请到对应页面确认一下是不是你要的那一份。`);
+    showSnack(`⚠ ${objs.map(o => o.label).join('、')}有并发修改，其中一份被覆盖了，详见「日志」页`, { priority: true });
+  }
   const list = _mergeFieldConflicts;
   _mergeFieldConflicts = [];
   if (!list.length) return;
@@ -2253,6 +2353,8 @@ async function readSharedFile() {
   let parsed = null;
   try { parsed = JSON.parse(text); } catch (e) { return null; }
   if (!isValidShareData(parsed)) return null;
+  // 结构性损坏在这里就治好，别让它一路捅到合并里去抛异常（见 sanitizeRemotePayload 那段注释）
+  noteBrokenSharedFile(sanitizeRemotePayload(parsed));
   return { remote: parsed, mtime: file.lastModified };
 }
 // 缓存"读到的这份文件是谁、什么时候、用哪个版本的 html 写的"——纯本机展示用（不进共享文件），
@@ -2462,21 +2564,31 @@ function runSyncSerial(fn) {
   _syncChain = run.then(() => {}, () => {});
   return run;
 }
+/* ★ 返回值不是装饰：Repo.persist 要靠它决定"改动还没同步出去"那个红色提示该不该撤 ★
+     'written'  真的写进共享文件了
+     'nochange' 读到并合并了，确认本机没有文件里还没有的东西——等价于已经对上账
+     'blocked'  被门禁挡住（数据格式太旧 / 这份 html 是旧版 / 根本没连上），没写
+     'badfile'  共享文件读出来不是本应用的数据格式，没写——这条路【自己已经弹过一句更具体的提示】了
+     'failed'   连着几轮都被别人抢先，没写
+   ★ badfile 和 failed 必须分开 ★ 两者都是"没写成"，但 badfile 那条路已经告诉用户
+   "共享文件夹可能选错了"；调用方再补一句泛泛的"这次没能写进共享文件"，只会把更具体的那句盖掉
+   （两条都是 priority 提示，后来的赢）。分开之后：具体的话留在原地，泛泛的那句只在真的
+   "被人抢先、没别的话可说"时才出现。 */
 async function syncToFile(db) {
-  if (!_fileHandle) return;
+  if (!_fileHandle) return 'blocked';
   return runSyncSerial(() => syncToFileInner(db));
 }
 async function syncToFileInner(db) {
-  if (!_fileHandle) return;
-  if (_versionBlocked) return;   // 数据格式太旧，只准读不准写，免得把新版本的字段抹掉
-  if (_staleAppBlocked) return;  // 这份 html 是旧版（缓存/没关标签页/旧拷贝），只准读不准写，见 checkAppVersion
+  if (!_fileHandle) return 'blocked';
+  if (_versionBlocked) return 'blocked';   // 数据格式太旧，只准读不准写，免得把新版本的字段抹掉
+  if (_staleAppBlocked) return 'blocked';  // 这份 html 是旧版（缓存/没关标签页/旧拷贝），只准读不准写，见 checkAppVersion
   /* 重试次数从 2 提到 3：多了一道"写之前再确认文件没被抢先"的检查，
      检查不通过会 continue 重来一轮——那一轮不算真的失败，不该占掉唯一的一次重试机会 */
   for (let attempt = 0; attempt < 3; attempt++) {
     const cur = await readSharedFile();
-    if (!cur) { showSnack('共享文件内容不是本应用的数据格式，本次没有写入，请确认共享文件夹没选错'); return; }
-    if (!checkDataVersion(cur.remote)) return;
-    if (!checkAppVersion(cur.remote)) return;   // 刚发现自己是旧版：这次写入就地取消
+    if (!cur) { showSnack('共享文件内容不是本应用的数据格式，本次没有写入，请确认共享文件夹没选错'); return 'badfile'; }
+    if (!checkDataVersion(cur.remote)) return 'blocked';
+    if (!checkAppVersion(cur.remote)) return 'blocked';   // 刚发现自己是旧版：这次写入就地取消
     cacheRemoteWriteInfo(cur.remote);   // 记一下"我这次写之前，文件里是谁写的"，供排查同步问题用
     // ★ 必须赶在合并之前：发现上次写被盖掉时它会把基线回滚，而合并正是拿基线当参照
     noteClobberedWrite(cur.remote, db);
@@ -2511,7 +2623,7 @@ async function syncToFileInner(db) {
       // 没写文件，那文件里现在就是刚读到的这一份——基线对齐到它
       db.syncBase = buildSyncBase(cur.remote);
       db.settings.lastSyncAt = new Date().toISOString();   // 确实跟文件对过账了，新鲜度要更新
-      return;
+      return 'nochange';
     }
     /* 「最近连接」心跳只在真的要写的时候搭顺风车，绝不为它单独写一次文件。
        代价是这一列的含义变成"最近一次真正保存过改动"，而不是"最近一次打开着页面"——
@@ -2551,9 +2663,13 @@ async function syncToFileInner(db) {
       _preWriteBase = preBase;
       db.settings.lastWriteId = writeId;
       db.settings.lastWriteIdAt = new Date().toISOString();
-      return;
+      return 'written';
     }
   }
+  /* 连着几轮都没写成（写前确认发现被抢先、或者写后校验发现被盖）。本机数据一条没少，
+     下一次保存或定时同步会再推一次——但绝不能对外声称"同步好了"，
+     否则 Repo.persist 会把那个红色的"还没同步出去"提示撤掉，用户就以为存上了。 */
+  return 'failed';
 }
 
 /* 只把共享文件里的最新内容读进来合并，不写回去。
@@ -2641,8 +2757,31 @@ const Repo = {
         // 心跳（markUserSeen）已经挪进 syncToFile 里、只在真的要写文件时才记——
         // 放在这里会让每次 persist 都改到 users，于是"本机有没有新东西要推"永远判定为有，
         // 那个"没改动就别写"的优化会被自己人废掉
-        await syncToFile(db);
-        if (db.settings.pendingSync) { db.settings.pendingSync = false; flush(); }   // 积压的改动这次一起推上去了
+        /* ★ 必须看同步到底成没成，不能"没抛异常就当成功" ★
+           syncToFile 有好几条【不抛异常但确实没写进去】的路：数据格式门禁挡住、
+           这份 html 是旧版被停写、共享文件读出来不是本应用的格式、连着几轮都被别人抢先。
+           原来这里不看返回值，一律把 pendingSync 撤掉——顶栏那个"改动还没同步出去"的红色提示
+           当场就没了，用户以为存好了，实际上共享文件里一个字都没有。
+           这正是当初加 pendingSync 要防的那件事（见上面那段注释里"改了一天、管理员什么都看不到"），
+           只是漏了这几条路。现在只有真写进去了、或者确认过"本机没有文件里还没有的东西"，才算同步过账。 */
+        const res = await syncToFile(db);
+        if (res === 'written' || res === 'nochange') {
+          if (db.settings.pendingSync) { db.settings.pendingSync = false; flush(); }   // 积压的改动这次一起推上去了
+        } else {
+          db.settings.pendingSync = true; flush();
+          // 'blocked' 的那两种情况（版本门禁/旧版停写）界面上已经有整屏的门禁在说话了，
+          // 这里再弹一次纯属刷屏；'failed' 是真出了岔子，得说一声
+          /* ★ 这条必须用 priority ★ 曾经把它降成普通提示（为了不抢占别处的提示），那是错的：
+             调用 Repo.persist 的地方，套路都是"await 完就 showSnack('已保存')"。普通提示会被
+             紧随其后那句"已保存"直接盖掉，用户看到的还是"已保存"三个字，压根不知道没推出去——
+             这正是 showSnack 上面那段注释描述的老问题（"不是没检测到，是检测到了但提示被自己人盖住了"），
+             priority 窗口就是为它设计的。
+             ★ 只对 'failed' 说话 ★ 'blocked' 有整屏的门禁在解释，'badfile' 那条路自己已经说过
+             "共享文件夹可能选错了"——那句比这句具体得多，再补一句只会把它盖掉。 */
+          if (res === 'failed') {
+            showSnack('这次没能写进共享文件（可能有同事同时在保存），改动已存在本机，稍后会自动补推', { priority: true });
+          }
+        }
       } catch (e) {
         db.settings.pendingSync = true; flush();
         showSnack('共享文件同步失败：' + (e && e.message ? e.message : e) + '（本机已存，恢复连接后会自动补推）', { priority: true });
@@ -4447,13 +4586,14 @@ function dashboardSections() {
    明确的按钮。 */
 async function saveDashboardConfig(mutate) {
   const cur = DB.dashboardConfig || {};
-  const next = {
+  // 同 saveReportConfig：先铺一层 cur，别把配置对象上的其它字段拼没了
+  const next = Object.assign({}, cur, {
     presets: clone(dashboardPresets()),
     activeId: activeDashboardPreset().id,
     rev: (cur.rev || 0) + 1,
     updated_at: new Date().toISOString(),
     updated_by: DB.settings.me || '未署名',
-  };
+  });
   mutate(next);
   DB.dashboardConfig = next;
   await Repo.persist(DB);
@@ -7237,13 +7377,18 @@ function reportSections() {
    要退回原样有"恢复默认编排"这个明确的按钮。 */
 async function saveReportConfig(mutate) {
   const cur = DB.reportConfig || {};
-  const next = {
+  /* 先铺一层 cur，再覆盖这次要改的几项。★ 不能凭空拼一个只有这五个字段的新对象 ★
+     权限矩阵那边（perm-toggle 里 next 的构造）为这件事专门写过注释：配置对象上除了这几项，
+     还可能挂着迁移标记之类的元数据，也可能是更新版本的 html 加的新字段。重新拼一个新对象
+     就把它们悄悄丢了——本机看不出来，但这份配置随共享文件同步给全处，
+     混版本期间等于用旧版把新版的字段抹掉一次。 */
+  const next = Object.assign({}, cur, {
     presets: clone(reportPresets()),
     activeId: activeReportPreset().id,
     rev: (cur.rev || 0) + 1,
     updated_at: new Date().toISOString(),
     updated_by: DB.settings.me || '未署名',
-  };
+  });
   mutate(next);
   DB.reportConfig = next;
   await Repo.persist(DB);
@@ -10115,16 +10260,14 @@ const ACTIONS = {
   },
   'backup-toggle': async (d, el) => {
     if (!requirePermission('system_admin')) return;
-    updateShareConfig({ autoBackupEnabled: !!el.checked });
-    await Repo.persist(DB);
+    await updateShareConfig({ autoBackupEnabled: !!el.checked });   // 落盘收在函数里了，不用再各自跟一句
     renderPage();
     showSnack(el.checked ? '已开启定期备份' : '已关闭定期备份');
   },
   'backup-interval-change': async (d, el) => {
     if (!requirePermission('system_admin')) return;
     const h = Math.max(BACKUP_MIN_HOURS, Number(el.value) || 24);
-    updateShareConfig({ autoBackupHours: h });
-    await Repo.persist(DB);
+    await updateShareConfig({ autoBackupHours: h });
     renderPage();
     showSnack(`备份间隔已设为 ${h} 小时`);
   },
@@ -10133,8 +10276,7 @@ const ACTIONS = {
     if (!requirePermission('system_admin')) return;
     const fileName = $('#share-file-name').value.trim() || DEFAULT_SHARE_FILE_NAME;
     snapshot();
-    updateShareConfig({ fileName });
-    await Repo.persist(DB);
+    await updateShareConfig({ fileName });
     renderPage();
     showSnack('已保存共享文件夹设置');
   },
@@ -12811,16 +12953,80 @@ function effectiveShareCfg() {
 // 改共享文件夹设置的这几个动作（备份开关/间隔/文件名）共用同一条更新路径：
 // 在现有配置基础上打补丁，而不是各自重新拼一个新对象——否则先改了备份间隔，
 // 再去存文件名的那个动作会把间隔这种"当时没提到"的字段悄悄冲掉
-function updateShareConfig(patch) {
-  const cfg = Object.assign(effectiveShareCfg(), patch);
+/* ★ 这里曾经把版本号整条线弄丢了，改的时候务必看完 ★
+   原来是 Object.assign(effectiveShareCfg(), patch)。effectiveShareCfg() 的职责是"把配置读出来、
+   填好默认值、夹好取值范围"，它【只返回那四个业务字段】，rev/updated_at/created_at 一个不带。
+   于是 stampMeta 看到的是一个没有 rev 的新对象，每次都从 0 加到 1——**改多少次 rev 都是 1**。
+
+   而这几个配置是随共享文件同步给全处的，合并规则是"整体对象比 newerRecord"：
+   rev 一样就退到比 updated_at，那正是各自电脑的本地时钟，而处里的机器时钟并不同步
+   （checkClockSkew 就是为它写的）。后果实测确认过：表慢十分钟的那台机器，
+   哪怕后动手改，盖出来的时间戳也更早，改动会被别人的旧值顶回去；
+   更要命的是"再改一次把版本号顶上去"这条常规自救路也没了——rev 永远是 1。
+   表现出来就是"我改的备份间隔/回收站保留期过一阵又变回去了"，而且那台机器上永远改不动。
+
+   修法：先铺一层现有的 DB.shareConfig（把 rev/updated_at/created_at 以及将来可能新增的
+   未知字段都保住），再用规范化后的值覆盖那四个业务字段，最后打补丁。这样 stampMeta 拿得到旧 rev，
+   版本号能正常递增，时钟只在"两边版本号真的打平"时才需要出场。 */
+async function updateShareConfig(patch) {
+  const cfg = Object.assign({}, DB.shareConfig || {}, effectiveShareCfg(), patch);
   stampMeta(cfg);
   DB.shareConfig = cfg;
+  /* ★ 落盘收在这个函数里，不留给每个调用点自己记得加 ★
+     原来它只改内存，四个调用点各自在后面跟一句 Repo.persist——结果"改回收站保留期"那一处漏了，
+     而且写成了 await updateShareConfig(...)，看上去像是等过了（它当时是同步函数，
+     await 一个非 Promise 等于什么都没等到）。
+     后果：保留期改完只在内存里，刷新就回到原值，全处其他人永远看不到；
+     而这个值决定"多久以前删的算过期、可以被彻底清理"——管理员从 60 天改成 180 天以为生效了，
+     下次清空回收站仍按 60 天算，可能真的多删东西。
+     "靠每个调用点记得补一句"这种结构迟早还会再漏一次，所以收进来。 */
+  await Repo.persist(DB);
 }
 // 判断从共享文件里读到的内容像不像本应用自己的数据格式——跟 importBackup() 校验备份文件用同一个最低标准。
 // 选错文件夹时，那个文件夹里的同名文件很可能是别的用途的 json，内容对不上，这时候不能当成"连接成功"，
 // 否则要么把无关数据当空文件覆盖掉，要么把无关数据的字段硬凑进 DB 里
 function isValidShareData(obj) {
   return !!obj && Array.isArray(obj.duties) && Array.isArray(obj.tasks);
+}
+/* ★ 结构坏掉的共享文件，必须在进合并之前就治好 ★
+
+   共享 JSON 是网盘上的明文文件，处里每个人在操作系统层面都能拿记事本改它——这一点在
+   越权检测那一节里已经承认过、也没法阻止；normalizeMergedRecords 就是为"值被改坏"写的防护。
+   但它防的是【值】，防不住【结构】：只要有人把 changelog 改成 `{}`、把 users 改成一个对象、
+   或者在 tasks 里留下一个 null，合并第一步就会抛 "(remote || []).forEach is not a function"。
+   而 isValidShareData 只看 duties/tasks 两个字段，这种文件在它眼里完全合法。
+
+   后果不是某条数据不对，是【全处所有人的同步一起瘫痪】：每次保存都走进 Repo.persist 的
+   catch，顶栏一直红着，弹出来的还是一句用户完全看不懂的 JS 报错。
+
+   所以：该是数组的字段，不是数组就当空的、列表里的 null 和非对象项直接滤掉，然后照常往下走。
+   丢掉的那点东西本来就已经是不可用的（forEach 都调不了），换来的是系统能继续转；
+   而且修好的结构会随下一次写入回到文件里，自动痊愈。同时记一条告警——
+   共享文件被改坏这种事绝不能悄悄咽下去。 */
+const REMOTE_LIST_KEYS = ['duties', 'works', 'milestones', 'tasks', 'changelog', 'users', 'purged'];
+function sanitizeRemotePayload(remote) {
+  if (!remote) return [];
+  const bad = [];
+  REMOTE_LIST_KEYS.forEach(k => {
+    // 字段压根没有是正常的：老版本写的文件就没有 purged，那是"缺省"，不是"坏了"
+    if (remote[k] === undefined || remote[k] === null) return;
+    if (!Array.isArray(remote[k])) { bad.push(`${k} 不是列表`); remote[k] = []; return; }
+    const n = remote[k].length;
+    const kept = remote[k].filter(r => r && typeof r === 'object');
+    // 没滤掉任何东西就别换数组：文件没坏的时候，这个函数应当一个字节都不动
+    if (kept.length !== n) { remote[k] = kept; bad.push(`${k} 里有 ${n - kept.length} 条空记录`); }
+  });
+  return bad;
+}
+let _brokenFileWarned = false;   // 一次会话只报一次：一轮同步会读好几次文件，不能读一次弹一次
+function noteBrokenSharedFile(bad) {
+  if (!bad.length || _brokenFileWarned) return;
+  _brokenFileWarned = true;
+  const msg = `共享文件的结构被改坏了（${bad.join('、')}），已按空内容处理并继续同步，`
+    + `修好的结构会在下一次保存时写回文件。这通常是有人直接用记事本编辑过共享 JSON——`
+    + `请确认一下这几项内容有没有丢，必要时从「数据」页的备份恢复。`;
+  pushAlertLog(msg);
+  showSnack('⚠ ' + msg, { priority: true });
 }
 async function connectSharedFile() {
   if (!('showDirectoryPicker' in window)) { showSnack('这个浏览器不支持文件系统访问，换 Chrome / 360 等 Chromium 内核浏览器再试'); return; }
@@ -12835,19 +13041,28 @@ async function connectSharedFile() {
     const fileName = effectiveShareCfg().fileName;
     const handle = await dirHandle.getFileHandle(fileName, { create: true });
     const text = await (await handle.getFile()).text();
-    let remote = { duties: [], works: [], milestones: [], tasks: [], changelog: [], users: [], permissionMatrix: null, shareConfig: null };
+    // 空载荷用跟同步路径同一份定义，别在这里另抄一份——以前这里就少了 reportConfig/dashboardConfig/purged，
+    // 将来再加字段又会漏掉一处
+    let remote = emptyRemotePayload();
     if (text.trim()) {
       let parsed;
       try { parsed = JSON.parse(text); } catch (e) { parsed = null; }
       if (!isValidShareData(parsed)) {
-        showSnack('这个文件夹里的文件不是本应用的数据格式，连接失败，请确认选对了共享文件夹');
+        // 连接失败是必须让人看见的错误：用 priority，别被同一时刻别的提示（比如"这一轮没推成"）压住
+        showSnack('这个文件夹里的文件不是本应用的数据格式，连接失败，请确认选对了共享文件夹', { priority: true });
         return;   // 不算连接成功：不设置 _fileHandle，也不记这台设备"连过"
       }
+      // 跟 readSharedFile 一样，结构性损坏先治好再往下走
+      noteBrokenSharedFile(sanitizeRemotePayload(parsed));
       remote = parsed;
     }
     // 文件是更新版本的 html 写的：不连了，直接挡住要求先换新版；否则一编辑就会把新版本的字段抹掉
     if (!checkDataVersion(remote)) return;
     if (!checkAppVersion(remote)) return;   // 同理：本机这份 html 落后于共享文件里见过的版本，先别连
+    /* 跟同步/拉取那两条路一样，记一下"文件里最后是谁、用哪一版写的"。
+       它顺带做两件事：查两台机器的时钟差（checkClockSkew）、发现还有人用旧版 html 在写（noteOldWriter）。
+       以前这条路上没有，于是"刚连上共享文件夹"这个最该体检一下的时刻反而什么都不查。 */
+    cacheRemoteWriteInfo(remote);
     // 这台设备第一次真正连上共享文件夹：本机之前可能一直在用演示数据，也可能有人趁着还没连上时
     // 自己建过账号——这些都不能拿去跟共享文件"合并"，直接以共享文件为准，避免测试数据/自建账号
     // 污染大家的真实数据。shareConfig/permissionMatrix 是管理员在本机配置、可能还没来得及连接就
@@ -12879,9 +13094,25 @@ async function connectSharedFile() {
          漏掉的后果跟当初在同步路径上漏掉是一模一样的：文件被人用记事本改坏过的话，
          一连上就可能整页渲染不出来；任务进度也会停在合并前那个旧值上，顺着 SPI 污染报表。 */
       noteClobberedWrite(remote, DB);   // 上次写被人盖掉的话，这里也要发现（刷新过就只报警，见函数注释）
-      const merged = normalizeMergedRecords(mergeSyncPayload(syncPayload(DB), remote, DB.syncBase));
+      const localPayload = syncPayload(DB);   // 合并前那份，下面报熔断要拿它跟合并结果比
+      const merged = normalizeMergedRecords(mergeSyncPayload(localPayload, remote, DB.syncBase));
       reconcileDerivedAfterMerge(merged);
       Object.assign(DB, merged);
+      /* ★ 这两句也是补的，而且比上面那两道工序更要紧 ★
+         noteMergeAlerts 是「合并熔断」：一次合并里凭空少掉一大片记录时报警、并留一个回滚入口。
+         而"重新连接共享文件夹"恰恰是【最容易出现大规模差异】的时刻——本机缓存着一份数据，
+         文件里是另一份，一合就可能少掉几十条。这条路上没有熔断，等于把这套保护最该起作用的
+         场合空着（真出过事：本机缓存着真实数据的机器连了演示文件夹，两份直接合到了一起，
+         全程没有任何告警）。它同时还负责把 guardRoleIntegrity 挡下的越权提权报出来。
+
+         noteFieldConflicts 记「两个人同时改了同一个字段 / 同一份配置被整份覆盖」。
+         漏掉它不只是"这次没报"——那两个数组会在下一次 mergeSyncPayload 开头被清空，
+         这次连接时发生的冲突就此【永久丢失】，日志里一个字都查不到。
+
+         必须放在 Object.assign 之后：它们会往 DB.changelog 里追加告警，
+         放前面会被紧接着的 assign 整个换掉（同步路径那边早就踩过这个坑，注释在 syncToFileInner 里）。 */
+      noteMergeAlerts(localPayload, merged);
+      noteFieldConflicts();
     }
     /* 刚跟文件对完账，文件里就是 remote 这一份——基线对齐到它，后面每一次合并才有参照。
        规整已经改成"返回副本、不就地改"（见 normalizeRecordCopy），所以这里拍下来的

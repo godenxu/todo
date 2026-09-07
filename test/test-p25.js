@@ -149,6 +149,16 @@ async function main() {
   section('connectSharedFile()：文件内容不合法（选错文件夹）时，连接失败，不采信、不记为"连过"');
   raw.indexedDB = makeFakeIndexedDB();
   raw.window.showDirectoryPicker = async () => makeFakeDirHandle('别的文件夹', () => '{"这不是":"本应用的数据格式"}');
+  /* 断言提示文案之前先把"优先提示独占窗口"清掉——不然前面某次 Repo.persist 发现
+     "这次没能写进共享文件"时弹的那条 priority 提示，会在 1.5 秒内压住这里要验的这一条。
+     harness 就是为这种情况留的 setSnackPriorityUntil 口子（见它上面那段注释）。 */
+  /* ★ 先把前面挂起的异步排空，再清"优先提示独占窗口" ★
+     前面几段留下的 Repo.persist 有可能还在飞，它一落地就会弹一条 priority 提示
+     （"这次没能写进共享文件"）。如果它恰好落在 connectSharedFile 之后，
+     就会把这里要验的那条盖掉——两条都是 priority，后来的赢。
+     这是偶发的时序问题：单跑常常碰不上，全量跑就冒出来。 */
+  await tick(30);
+  S.setSnackPriorityUntil(0);
   await S.connectSharedFile();
   ok('没有设置 _fileHandle', !S.fileHandle);
   ok('提示说明了原因', q('#snack-msg').textContent.includes('不是本应用的数据格式'), q('#snack-msg').textContent);
@@ -192,6 +202,13 @@ async function main() {
   S.DB.users.push({ name: '测试管理员', role: 'admin', salt: '', hash: '', iterations: 0 });
   S.setFileHandle({ fake: true });
   const dutiesBefore = S.DB.duties.length;
+  /* 清一次"优先提示独占窗口"：普通提示在窗口内是【直接被丢弃】的（不是被覆盖），
+     而前面那次 connectSharedFile 用的假句柄写完读不回自己写的内容，
+     于是 syncToFile 重试用尽返回 'failed'，弹了一条 priority 提示，窗口 1.5 秒——
+     整个测试跑完都不到 1.5 秒，下面这条普通提示就永远写不进去了。
+     （真实的文件句柄写完读得回来，不会走到那条路；这是测试替身不完整带来的副作用。） */
+  await tick(5);
+  S.setSnackPriorityUntil(0);
   S.ACTIONS['reset-all']();
   ok('数据没有被清空（职责数量不变）', S.DB.duties.length === dutiesBefore);
   ok('提示说明了原因', q('#snack-msg').textContent.includes('已连接共享文件夹'), q('#snack-msg').textContent);

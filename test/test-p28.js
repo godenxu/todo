@@ -109,8 +109,24 @@ async function main() {
 
   section('真离线（句柄都没有）仍然照旧显示离线模式');
   S.setFileHandle(null); S.setNeedPermissionRestore(false); S.setOfflineMode(true);
+  /* ★ 必须先把"有改动未同步"这个标记清掉，这条断言才测得到它想测的东西 ★
+     顶栏那个小按钮的优先级是"有改动未同步 > 授权待恢复 > 离线模式"（见 renderShell 里那段注释）。
+     P98 之后 pendingSync 变得更"诚实"了——同步被门禁挡住、文件读不出来、连着几轮被别人抢先，
+     这些"没抛异常但确实没写进去"的情况现在都会把它置上（原来一律当成功、直接把标记撤掉，
+     用户以为存好了，其实共享文件里一个字都没有）。于是跑到这一步时它常常是 true，
+     顶栏显示的是更严重的那一条，"离线模式"根本轮不上。 */
+  S.DB.settings.pendingSync = false;
   S.renderShell();
-  ok('这种情况下才显示"离线模式"', q('#share-connect-hint').innerHTML.includes('离线模式'));
+  ok('这种情况下才显示"离线模式"', q('#share-connect-hint').innerHTML.includes('离线模式'),
+    q('#share-connect-hint').innerHTML.slice(0, 260));
+  // 顺手把那条优先级钉住——它一直没被测过，而它决定了"离线"和"有活儿没推上去"哪个先说
+  S.DB.settings.pendingSync = true;
+  S.renderShell();
+  ok('★同时又离线、又有改动没推上去时，先说更严重的那条（有改动未同步）',
+    q('#share-connect-hint').innerHTML.includes('有改动未同步')
+    && !q('#share-connect-hint').innerHTML.includes('离线模式'),
+    q('#share-connect-hint').innerHTML.slice(0, 200));
+  S.DB.settings.pendingSync = false;
 
   section('★ 授权待恢复时，挂上"点页面任何地方就自动恢复"的一次性监听');
   // requestPermission 必须在用户手势里调用（平台规则），所以退而求其次：

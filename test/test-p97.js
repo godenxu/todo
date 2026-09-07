@@ -78,8 +78,8 @@ async function main() {
     const fs = require('fs'), path = require('path');
     const src = fs.readFileSync(process.argv[2] || path.join(__dirname, '..', 'index.html'), 'utf8');
     const fn = src.slice(src.indexOf('async function connectSharedFile'),
-      src.indexOf('async function connectSharedFile') + 4200);
-    ok('★合并结果过了类型规整', /const merged = normalizeMergedRecords\(mergeSyncPayload\(syncPayload\(DB\), remote, DB\.syncBase\)\)/.test(fn));
+      src.indexOf('async function connectSharedFile') + 6000);
+    ok('★合并结果过了类型规整', /const merged = normalizeMergedRecords\(mergeSyncPayload\(localPayload, remote, DB\.syncBase\)\)/.test(fn));
     ok('★合并之后重算了派生字段', /reconcileDerivedAfterMerge\(merged\);/.test(fn));
     ok('★这条路径也查"上次写有没有被人盖掉"', /noteClobberedWrite\(remote, DB\);/.test(fn));
     ok('★首次连接（整份采用文件内容）同样过规整', /normalizeMergedRecords\(DB\);\s*\/\/ 那份文件谁都能用记事本改/.test(fn));

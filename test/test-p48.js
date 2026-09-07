@@ -99,12 +99,26 @@ async function main() {
       Object.assign({}, empty, { shareConfig: { rev: 2, updated_at: '2026-01-02T00:00:00.000Z' } }),
       Object.assign({}, empty, { shareConfig: { rev: 1, updated_at: '2026-01-01T00:00:00.000Z' } })) === true);
 
-  section('★①：changelog / purged 是封顶的，不能因为"我还留着对方已经淘汰的老条目"就一直判定要推');
-  // 对方最旧的一条是 2026-06-01；我这边多出来的那条比它还老，说明是对方已经淘汰掉的历史，不该算"新东西"
-  ok('★我多出来的是比对方最旧那条还老的条目 → 不算新东西（否则会推上去、被淘汰、再推，永远停不下来）',
+  section('★①：changelog / purged 是封顶的——但只有对方那份【真的满了】，才谈得上"我这条会被淘汰"');
+  /* ★ 这一段的口径在 P98 里改过，断言跟着翻了方向 ★
+     原来是无条件生效的：只要我多出来的那条比对方最旧的还老，就判定"不用推"。
+     道理只在对方那份已经顶到上限时才成立，没满时它会真丢东西，而且触发条件一点不苛刻——
+     共享文件里的墓碑本来就不多（生产环境当前只有 7 条、都是最近记的），某台机器的表慢十来分钟，
+     它新记的那条墓碑时间戳就比文件里最老的还早，于是这次彻底删除永远推不出去，
+     那条记录会从别人机器上原样飘回来。详见 hasLocalContribution 里那段注释和 P98。 */
+  const fullLog = () => Array.from({ length: S.CHANGELOG_LIMIT }, (_, i) => ({ id: 'f' + i, at: '2026-06-01T00:00:00.000Z' }));
+  ok('★对方那份已经顶到上限、我多出来的又比它最旧的还老 → 推上去也会立刻被淘汰，不用推',
+    S.hasLocalContribution(
+      Object.assign({}, empty, { changelog: fullLog().concat([{ id: 'old', at: '2026-01-01T00:00:00.000Z' }]) }),
+      Object.assign({}, empty, { changelog: fullLog() })) === false);
+  ok('★★对方那份没满 → 不管多老都必须推（原来这里会把表慢的机器刚记的日志判成"不用推"，永久丢掉）',
     S.hasLocalContribution(
       Object.assign({}, empty, { changelog: [{ id: 'old', at: '2026-01-01T00:00:00.000Z' }, { id: 'keep', at: '2026-07-01T00:00:00.000Z' }] }),
-      Object.assign({}, empty, { changelog: [{ id: 'keep', at: '2026-07-01T00:00:00.000Z' }, { id: 'x', at: '2026-06-01T00:00:00.000Z' }] })) === false);
+      Object.assign({}, empty, { changelog: [{ id: 'keep', at: '2026-07-01T00:00:00.000Z' }, { id: 'x', at: '2026-06-01T00:00:00.000Z' }] })) === true);
+  ok('★★墓碑同理：对方那份没满时，再老的墓碑也必须推（否则"彻底删除"会删不干净）',
+    S.hasLocalContribution(
+      Object.assign({}, empty, { purged: [{ entity: 'task', id: 'gone', at: '2026-01-01T00:00:00.000Z' }] }),
+      Object.assign({}, empty, { purged: [{ entity: 'task', id: 'other', at: '2026-06-01T00:00:00.000Z' }] })) === true);
   ok('我多出来的是比对方最旧那条更新的条目 → 确实是新东西，要推',
     S.hasLocalContribution(
       Object.assign({}, empty, { changelog: [{ id: 'fresh', at: '2026-08-01T00:00:00.000Z' }] }),
