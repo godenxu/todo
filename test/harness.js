@@ -194,6 +194,7 @@ const exportTail = `
   // 三方合并（修"开着旧页面的人把同事刚改的值顶回去"）
   mergeRecordThreeWay, mergeEntityListWithBase, buildSyncBase, hasUnpushedFieldChange,
   mergeableKeys, sameFieldValue, noteFieldConflicts, normalizeMergedRecords, stampMeta, diffRecord, statsByPerson,
+  reconcileDerivedAfterMerge, computeSPI,
   // 结构化变更日志 + 按日志核对/修复
   diffRecordChanges, logRecordChange, auditByChangelog, repairByChangelog, auditValueText, auditPanelHTML,
   get auditIssues(){return _auditIssues}, setAuditIssues(v){ _auditIssues = v; },

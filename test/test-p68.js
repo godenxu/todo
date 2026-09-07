@@ -147,10 +147,16 @@ async function main() {
     plan_date: S.offsetDate(-3), owner: '甲', assignees: [] });
   await S.Repo.upsert('milestone', { id: 'p68_overdue_ms', task: 'p68_t', deliverable: 'P68逾期里程碑',
     plan_date: S.offsetDate(-2), done: '0' });
+  /* ★ 这两条的日期原来写的是 offsetDate(2)（今天+2 天），会看跑测试那天是星期几而随机失败 ★
+     "即将到期"的口径是【今天 ≤ 计划日期 ≤ 本期结束】（见 buildReportData 里 soonTasks/soonMs）。
+     本周是自然周（周一到周日），所以只要恰好在周六/周日跑测试，今天+2 就落到下一周去了，
+     不在窗口内 → soonMs 变成 0 → 断言挂掉。被测代码一点问题都没有，纯粹是测试数据自己
+     没考虑周末。改成用"本期最后一天"：它一定 ≥ 今天、也一定在窗口内，哪天跑都成立。 */
+  const weekEnd = S.periodRange('week', 0).end;
   await S.Repo.upsert('task', { id: 'p68_soon', work: 'p68_w', title: 'P68即将到期任务', status: 'todo',
-    plan_date: S.offsetDate(2), owner: '甲', assignees: [] });
+    plan_date: weekEnd, owner: '甲', assignees: [] });
   await S.Repo.upsert('milestone', { id: 'p68_soon_ms', task: 'p68_t', deliverable: 'P68即将到期里程碑',
-    plan_date: S.offsetDate(2), done: '0' });
+    plan_date: weekEnd, done: '0' });
   S.rebuildIndex();
   const d5 = S.buildReportData('week', 0);
   const CHECK = {

@@ -756,7 +756,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260904044704';
+const APP_VERSION = 'v20260906180008';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -1541,6 +1541,50 @@ function normalizeMergedRecords(payload) {
   });
   return payload;
 }
+/* ★ 合并之后重算"由别条记录推出来"的字段 ★
+   任务的进度是按它名下里程碑的完成比例算出来、然后【存在任务记录上】的。平时谁改里程碑，
+   谁的机器就会顺手重算一次再保存，所以那个数字跟着任务记录一起同步出去，是对的。
+   但合并会打破这个前提：甲和乙各给同一条任务加了一个里程碑，合并之后这条任务名下
+   有了双方的里程碑（这是对的），可任务上存的进度还是各自机器上按"只有自己那一份"算出来的旧值——
+   两人算的都是 1/3=33%，合并后实际是 1/4=25%，谁也没错，但结果就是错的。
+   而且没有任何机制会纠正它：recalcProgress 只在任务详情保存、宽表导入、体检修复、
+   启动迁移这几处调用，全都不在同步路径上。除非有人重新打开这条任务再存一次，
+   这个数字会一直错着——它还会顺着 computeSPI 污染工作台/报告页上给领导看的 SPI。
+
+   两个刻意的分寸：
+   · 只重算进度，不动状态。进度掉下来是否就该把"已完成"打回"进行中"，那是有主观判断的事，
+     同步时悄悄改状态比数字不准更吓人（"我明明标了已完成，同步一下自己变回去了"）。
+     这类矛盾交给数据体检的 progressMismatch 那一项，由人看着决定。
+   · 不盖 stampMeta。进度是算出来的、不是谁"改"的，盖戳会把最后修改人记成碰巧合并的那个人，
+     污染"谁改的"这条线索（撤销保护和按日志核对都依赖它），还会顺手清掉 merged_from 标记。
+     不盖戳也传得出去：基线比对（hasUnpushedFieldChange）看得见这个字段变了，
+     而且每台机器算出来的结果一样，不会来回打架。
+   返回改了几条：调用方据此决定"这次必须写文件"——否则修好的值只留在本机，共享文件里还是错的。 */
+function reconcileDerivedAfterMerge(payload) {
+  const stat = new Map();
+  (payload.milestones || []).forEach(m => {
+    if (!m || m.deleted_at || !m.task) return;
+    if (!stat.has(m.task)) stat.set(m.task, { total: 0, done: 0 });
+    const c = stat.get(m.task);
+    c.total++;
+    if (m.done === '1') c.done++;
+  });
+  let fixed = 0;
+  const list = payload.tasks || [];
+  list.forEach((t, i) => {
+    if (!t || t.deleted_at) return;
+    const c = stat.get(t.id);
+    if (!c || !c.total) return;   // 名下没有里程碑的任务，进度是手填的，不能碰
+    const p = Math.round(c.done / c.total * 100);
+    if (p === (Number(t.progress) || 0)) return;
+    /* 换成一份副本再改，不在原对象上动手：合并结果里的记录有可能就是"文件里读出来的那个对象"
+       （本机没改过这条时会直接沿用），就地改会把它一起改掉，后面拿它建基线就会把
+       "修正后的值"当成"文件里本来就是这样"，反而永远不会把修好的值写回文件 */
+    list[i] = Object.assign({}, t, { progress: p });
+    fixed++;
+  });
+  return fixed;
+}
 /* 拿一份数据快照当基线。只留参与三方合并的四类业务记录——
    账号/权限矩阵/日志各有各的合并规则（心跳取最晚、角色要过授权检查、日志按 id 并集），
    逐字段合并对它们没有意义，也不该把那些精心设计过的规则绕开，所以刻意不纳入。 */
@@ -2206,6 +2250,8 @@ async function syncToFileInner(db) {
     // 不能等 Object.assign 之后再比——那时候本机数据已经包含对方的内容了，永远比得出"没差别"
     const localPayload = syncPayload(db);
     const merged = normalizeMergedRecords(mergeSyncPayload(localPayload, cur.remote, db.syncBase));
+    // 合并可能改变了某条任务名下的里程碑集合，进度要跟着重算（见 reconcileDerivedAfterMerge）
+    const derivedFixed = reconcileDerivedAfterMerge(merged);
     Object.assign(db, merged);
     rebuildIndex();
     /* ★ 必须放在 Object.assign 之后 ★
@@ -2223,7 +2269,11 @@ async function syncToFileInner(db) {
        读—合并这一步已经做完了，对方的新内容已经进到本机了，该看到的都看到了；
        缺的只是"把我的推上去"，而我根本没有要推的。这种情况下写入不但没意义，
        还会在挂载盘上白白刷一次缓存、跟别人抢一次文件。 */
-    if (!hasLocalContribution(localPayload, cur.remote, db.syncBase)) {
+    /* derivedFixed：这次合并重算出了跟文件里不一样的进度，必须写出去。
+       不能只靠下面那个判断——它比的是"合并前的本机"和"文件"，而重算是合并之后才发生的，
+       两边都看不见它。漏掉这一步的话，修正只留在本机，共享文件里那个错数字会一直错下去，
+       每台机器各自默默修一遍，谁也没把它推上去。 */
+    if (!derivedFixed && !hasLocalContribution(localPayload, cur.remote, db.syncBase)) {
       // 没写文件，那文件里现在就是刚读到的这一份——基线对齐到它
       db.syncBase = buildSyncBase(cur.remote);
       db.settings.lastSyncAt = new Date().toISOString();   // 确实跟文件对过账了，新鲜度要更新
@@ -2276,6 +2326,7 @@ async function pullFromFileInner() {
   checkAppVersion(cur.remote);
   const localPayload = syncPayload(DB);
   const merged = normalizeMergedRecords(mergeSyncPayload(localPayload, cur.remote, DB.syncBase));
+  reconcileDerivedAfterMerge(merged);   // 只读拉取同样要重算；修好的值由下一次保存推出去
   Object.assign(DB, merged);
   rebuildIndex();
   // 只读拉取同样要查：越权和误删不会因为"我这次没写"就不存在。
