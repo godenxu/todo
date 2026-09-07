@@ -194,12 +194,20 @@ const exportTail = `
   // 三方合并（修"开着旧页面的人把同事刚改的值顶回去"）
   mergeRecordThreeWay, mergeEntityListWithBase, buildSyncBase, hasUnpushedFieldChange,
   mergeableKeys, sameFieldValue, noteFieldConflicts, normalizeMergedRecords, stampMeta, diffRecord, statsByPerson,
+  normalizeRecordCopy,
   reconcileDerivedAfterMerge, computeSPI,
   // 结构化变更日志 + 按日志核对/修复
   diffRecordChanges, logRecordChange, auditByChangelog, repairByChangelog, auditValueText, auditPanelHTML,
   get auditIssues(){return _auditIssues}, setAuditIssues(v){ _auditIssues = v; },
   get auditShown(){return _auditShown}, setAuditShown(v){ _auditShown = v; },
   checkClockSkew, CLOCK_SKEW_LIMIT_MS, noteOldWriter, oldWriterPanelHTML,
+  // 写入竞争：写前确认 + 写入链（writeIds）+ 事后发现被覆盖并回滚基线
+  buildWriteIdRing, WRITE_ID_RING, WRITE_RING_RESET, sameFileVersion,
+  detectClobberedWrite, noteClobberedWrite, CLOBBER_WINDOW_MS,
+  rollbackBaseForClobber,
+  clearSyncBaseline,
+  get lastWriteId(){return _lastWriteId}, setLastWriteId(v){ _lastWriteId = v; },
+  get preWriteBase(){return _preWriteBase}, setPreWriteBase(v){ _preWriteBase = v; },
   setOldWriterWarned(v){ _oldWriterWarned = v; }, get oldWriterWarned(){return _oldWriterWarned},
   get clockSkewWarned(){return _clockSkewWarned}, setClockSkewWarned(v){ _clockSkewWarned = v; },
   get mergeFieldConflicts(){return _mergeFieldConflicts}, setMergeFieldConflicts(v){ _mergeFieldConflicts = v; },
@@ -217,6 +225,7 @@ const exportTail = `
   facetBlock, personFacet, personFacetBlock, personUnion, renderToolbar,
   mergeEntityList, mergeChangelog, syncPayload, mergeSyncPayload, syncToFile, mergeByPk, hasLocalContribution,
   recordPurge, mergePurged, applyPurged, PURGED_LIMIT, rebuildIndex,
+  dropMilestonesOfPurgedTasks,
   connectSharedFile, disconnectSharedFile, tryReconnectSharedFile, newerRecord, isValidShareData,
   get fileHandle(){return _fileHandle}, setFileHandle(h){ _fileHandle = h; },
   get dirHandle(){return _dirHandle}, setDirHandle(h){ _dirHandle = h; },

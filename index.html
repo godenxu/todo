@@ -756,7 +756,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260906180008';
+const APP_VERSION = 'v20260906203104';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -1518,25 +1518,44 @@ function mergeEntityListWithBase(entity, localList, remoteList, baseMap) {
    而且要刷新页面才恢复——同事只会看到"页面突然白了"，根本联想不到是谁动了那个 JSON。
    规整是幂等的，代价只是几百条记录扫一遍；顺带把坏值治好之后还会随下一次写入回到文件里，
    等于自动修复。 */
+/* 规整一条记录。★ 不就地改：值真的需要变时返回一份改好的副本，否则原样返回那个对象 ★
+
+   为什么必须是"副本"：合并结果里的记录，有一大半就是【从文件里读出来的那个对象本身】
+   （本机没改过这条时，合并会直接沿用远端那份，不复制）。就地规整会把"文件里读到的那份"
+   一起改掉，于是紧接着拿它建基线（buildSyncBase(cur.remote)）时，记下来的是【规整之后】的值——
+   而共享文件里躺着的还是那个坏值。基线一旦这样撒谎，后果有两层：
+     · 下一轮合并会认为"本机这个字段跟文件里一模一样"，于是规整好的值永远推不回文件，
+       下面注释里说的"顺带自动修复"根本不会发生；
+     · 更要紧的是，它属于"基线跟文件对不上"这一类问题，跟写入竞争那条是同一个病根
+       （见 noteClobberedWrite 那段），这种谎言迟早会以别的形态咬回来。
+   返回副本之后，规整好的值相对基线就是一次"本机改动"，会正常随下一次写入推回共享文件，真正修好。 */
+function normalizeRecordCopy(entity, r) {
+  const before = JSON.stringify(r);
+  const c = JSON.parse(before);
+  /* 参与人/标签这类多值字段被手工改坏时，最常见的形态是 "张三,李四" 或 "张三、李四" 一整串。
+     normalize 只按换行切（那是给多行文本框的输入形态准备的），整串会被当成一个人名，
+     于是人员名单、按人统计里就会冒出"张三,李四"这么一个假人。这里先按逗号/顿号切一道
+     （splitMulti 就是干这个的，CSV 导入一直在用），再交给 normalize 做类型规整。
+     刻意只在同步这条路径上多切这一道，不去动 normalize 本身——启动、新建记录、CSV 导入
+     都在用它，那几条路径的输入形态不一样，改公共函数容易顾此失彼。 */
+  schema(entity).fields.forEach(f => {
+    if (f.virtual) return;
+    if ((f.type === 'persons' || f.type === 'multi') && typeof c[f.key] === 'string' && c[f.key]) {
+      c[f.key] = c[f.key].split('\n')
+        .reduce((acc, line) => acc.concat(splitMulti(line)), [])
+        .map(s => String(s).trim()).filter(Boolean);
+    }
+  });
+  normalize(entity, c);
+  return JSON.stringify(c) === before ? r : c;   // 本来就是好的，就还用原来那个对象，别白白换一批新对象
+}
 function normalizeMergedRecords(payload) {
   [['duty', 'duties'], ['work', 'works'], ['milestone', 'milestones'], ['task', 'tasks']].forEach(([entity, listKey]) => {
-    (payload[listKey] || []).forEach(r => {
+    const list = payload[listKey] || [];
+    list.forEach((r, i) => {
       if (!r) return;
-      /* 参与人/标签这类多值字段被手工改坏时，最常见的形态是 "张三,李四" 或 "张三、李四" 一整串。
-         normalize 只按换行切（那是给多行文本框的输入形态准备的），整串会被当成一个人名，
-         于是人员名单、按人统计里就会冒出"张三,李四"这么一个假人。这里先按逗号/顿号切一道
-         （splitMulti 就是干这个的，CSV 导入一直在用），再交给 normalize 做类型规整。
-         刻意只在同步这条路径上多切这一道，不去动 normalize 本身——启动、新建记录、CSV 导入
-         都在用它，那几条路径的输入形态不一样，改公共函数容易顾此失彼。 */
-      schema(entity).fields.forEach(f => {
-        if (f.virtual) return;
-        if ((f.type === 'persons' || f.type === 'multi') && typeof r[f.key] === 'string' && r[f.key]) {
-          r[f.key] = r[f.key].split('\n')
-            .reduce((acc, line) => acc.concat(splitMulti(line)), [])
-            .map(s => String(s).trim()).filter(Boolean);
-        }
-      });
-      normalize(entity, r);
+      const c = normalizeRecordCopy(entity, r);
+      if (c !== r) list[i] = c;
     });
   });
   return payload;
@@ -1561,6 +1580,30 @@ function normalizeMergedRecords(payload) {
      而且每台机器算出来的结果一样，不会来回打架。
    返回改了几条：调用方据此决定"这次必须写文件"——否则修好的值只留在本机，共享文件里还是错的。 */
 function reconcileDerivedAfterMerge(payload) {
+  let fixed = 0;
+  /* ★ 一、合并可能造出"任务在回收站里、名下却有活着的里程碑" ★
+     删任务是级联的（cascadeSoftDeleteTask 会把名下里程碑一起标记删除），但"名下"指的是
+     【删的那台机器当时看得到的那些】。甲刚给任务 T 加了个里程碑还没推上去，乙就把 T 删进了回收站——
+     乙机器上没有那个里程碑，自然不会带上它；合并之后 T 在回收站里躺着，那个里程碑却活着，
+     界面上永远打不开（里程碑只能从任务详情里进），却照样算进里程碑总数、甘特图和交付统计。
+     数据体检里的 msOfDeletedTask 就是收拾这类残留的，但那要人想起来去点一下。
+     在这里顺手补齐级联，跟重算进度是同一类事：都是"由别条记录决定的状态"，合并之后必须重新对齐。
+     用任务自己的删除时间，不另起一个——这样任务被恢复时（cascadeRestoreTask 会把名下
+     所有已删除的里程碑一并恢复）它们会原样回来，不会变成删不掉也恢复不了的孤儿。 */
+  const delAt = new Map();
+  (payload.tasks || []).forEach(t => { if (t && t.deleted_at && t.id) delAt.set(t.id, t.deleted_at); });
+  if (delAt.size) {
+    const msList = payload.milestones || [];
+    msList.forEach((m, i) => {
+      if (!m || m.deleted_at || !m.task) return;
+      const at = delAt.get(m.task);
+      if (!at) return;
+      // 同样换副本再改，理由跟下面重算进度那段一样（不能就地改"文件里读出来的那个对象"）
+      msList[i] = Object.assign({}, m, { deleted_at: at });
+      fixed++;
+    });
+  }
+  // ★ 二、重算进度
   const stat = new Map();
   (payload.milestones || []).forEach(m => {
     if (!m || m.deleted_at || !m.task) return;
@@ -1569,7 +1612,6 @@ function reconcileDerivedAfterMerge(payload) {
     c.total++;
     if (m.done === '1') c.done++;
   });
-  let fixed = 0;
   const list = payload.tasks || [];
   list.forEach((t, i) => {
     if (!t || t.deleted_at) return;
@@ -1589,6 +1631,18 @@ function reconcileDerivedAfterMerge(payload) {
    账号/权限矩阵/日志各有各的合并规则（心跳取最晚、角色要过授权检查、日志按 id 并集），
    逐字段合并对它们没有意义，也不该把那些精心设计过的规则绕开，所以刻意不纳入。 */
 const SYNC_BASE_ENTITIES = [['duty', 'duties'], ['work', 'works'], ['milestone', 'milestones'], ['task', 'tasks']];
+/* 把"我对共享文件的全部记忆"一次清干净。
+   基线（我上次看到文件是什么样）和写入链标记（我上次写进去的是哪一次、那次写之前基线什么样）
+   是同一件事的两半，任何一个"本机数据整批换掉"的动作都必须两半一起清——
+   只清基线不清标记的话，下一次同步会拿一个跟现在这份数据毫无关系的旧标记去问
+   "我那次写还在链上吗"，答案必然是不在，于是白报一次"你的保存被覆盖了"。
+   三个调用点：从备份恢复、以共享文件为准重置本机缓存、播种演示数据。 */
+function clearSyncBaseline(db) {
+  db.syncBase = null;
+  if (db.settings) { db.settings.lastWriteId = ''; db.settings.lastWriteIdAt = ''; }
+  _lastWriteId = '';
+  _preWriteBase = null;
+}
 function buildSyncBase(payload) {
   const out = {};
   SYNC_BASE_ENTITIES.forEach(([entity, listKey]) => {
@@ -1633,19 +1687,69 @@ function mergePurged(local, remote) {
   // 被挤掉的都是很久以前删的，那时候的记录早就在所有设备上消失了，不会再复活
   return [...map.values()].sort((a, b) => (a.at || '').localeCompare(b.at || '')).slice(-PURGED_LIMIT);
 }
-// 按墓碑把记录从合并结果里剔掉。
-// 只有"墓碑时间晚于这条记录最后一次改动"才剔——否则说明这条是墓碑之后重新建的同编号记录
-// （职责/工作的主键是人填的编号，删掉之后完全可能再建一个一样的），不能连新的一起误杀
+/* 按墓碑把记录从合并结果里剔掉。
+
+   留了一个例外：墓碑之后【重新建】的同编号记录不能连着一起误杀。职责的主键就是人填的编号，
+   删掉之后完全可能再建一个一模一样编号的，那是一条全新的记录，不该被旧墓碑压死。
+
+   ★ 这道口子原来开得太大，是一次修 bug ★
+   原来【所有实体】都享受这个豁免，判据是"记录最后一次改动时间晚于墓碑时间"。多设备长跑仿真里
+   反复复现出这么一条路：
+     甲把一条任务彻底删了，墓碑时间 10:00；
+     乙那台机器的表快 7 分钟（处里的机器时钟并不同步，这是已知事实，checkClockSkew 就是为它写的），
+     乙手里还留着这条任务的旧副本 → 时间戳看上去比墓碑还晚 → 这条"已经彻底删掉"的记录活了回来。
+   把判据换成 created_at 也堵不住：乙【新建】的记录，created_at 同样带着它那台机器快掉的 7 分钟。
+   只要判据是时间戳，时钟不同步就能让彻底删除失效。
+
+   所以改成按主键的性质分两种：
+   · 主键是人填的编号（职责的 code、账号的姓名）——删掉之后确实可能再建一个一模一样的，
+     豁免必须保留；判据用 created_at（"这条是什么时候建出来的"才是这件事的证据，
+     而"最后被谁改过一下"根本不能证明它是新建的）。这类重建是隔了很久的人工动作，
+     几分钟的时钟差影响不到判断。
+   · 主键是随机 id（工作/任务/里程碑）——同一个 id 不可能再被生成出来，
+     所以"墓碑之后重建的同 id 记录"这种东西根本不存在，豁免一点用没有，
+     留着只会让彻底删除被时钟差打败。一律剔除。 */
 function applyPurged(entity, pk, list, purged) {
   if (!purged || !purged.length) return list;
   const dead = new Map();
   purged.forEach(p => { if (p.entity === entity) dead.set(p.id, p.at || ''); });
   if (!dead.size) return list;
+  const rebuildable = pk !== 'id';   // 人填的主键才可能"删掉之后重建一个同编号的"
   return list.filter(r => {
     const at = dead.get(r[pk]);
     if (at === undefined) return true;
-    return (r.updated_at || r.created_at || '') > at;
+    if (!rebuildable) return false;
+    return (r.created_at || r.updated_at || '') > at;
   });
+}
+/* ★ 任务被彻底删除时，别人手里那些"还没同步过来的"里程碑也要一起清掉 ★
+
+   彻底删除任务走的是 cascadeRemoveHardTask：它会给这条任务【以及本机看得到的那些里程碑】
+   各留一块墓碑。问题是"本机看得到的"这几个字——多设备仿真里复现出这么一条路：
+
+     甲 给任务 T 加了一个里程碑 M，还没同步出去；
+     乙 把 T 软删除、接着彻底删除。乙的机器上根本没有 M，自然不会给 M 留墓碑；
+     合并之后：T 被墓碑清掉了，M 却没有墓碑、活了下来 —— 成了一个永远打不开、
+     永远恢复不了、却照样算进统计和甘特图的无主里程碑。
+
+   这正是处里反映过的"共享 JSON 越来越大、里面一堆对不上任务的里程碑"的来路之一
+   （另一条早期来路"删任务不连带删里程碑"已经在 cascadeSoftDeleteTask 里修掉了）。
+   数据体检里的 orphanMs 能事后清，但那要人去点；在合并这一步直接拦住才是根治。
+
+   规则很硬：任务的主键是随机 id，彻底删掉之后不可能再有同 id 的任务被建出来，
+   所以"指向一块任务墓碑"的里程碑一定是垃圾，跟它是谁建的、什么时候建的都没关系。
+   不额外给它们补墓碑：每台设备在合并时都会独立地套用同一条规则，补墓碑只会白白撑大文件。
+
+   tasks 是合并之后的任务名单。有了它才敢下手：只清"任务确实已经不在名单里"的那些。
+   applyPurged 留了一道"墓碑之后重建的同编号记录不误杀"的口子（职责用得上），万一哪天
+   有任务从那道口子里活下来，这里就不该连它的里程碑一起端掉——那就成了新的丢数据。 */
+function dropMilestonesOfPurgedTasks(milestones, purged, tasks) {
+  if (!purged || !purged.length) return milestones;
+  const alive = new Set((tasks || []).map(t => t && t.id));
+  const deadTasks = new Set();
+  purged.forEach(p => { if (p && p.entity === 'task' && !alive.has(p.id)) deadTasks.add(p.id); });
+  if (!deadTasks.size) return milestones;
+  return milestones.filter(m => !(m && deadTasks.has(m.task)));
 }
 function mergeChangelog(local, remote) {
   const map = new Map((local || []).map(e => [e.id, e]));
@@ -1672,13 +1776,33 @@ function payloadSchemaVersion(obj) {
   const v = obj && obj.schemaVersion;
   return typeof v === 'number' ? v : 1;
 }
+/* ★ 写入链（writeIds）★ 文件里保留最近若干次写入的标记，形成一条"这份内容是从哪一路写过来的"的链。
+   每次写入 = 我读到的那份的链 + 我这次的标记。于是任何一台设备事后都能问一句：
+   「我上次写进去的那个标记，还在这条链上吗？」
+     在 → 后来的每一次写入都是在我那份的基础上接着改的，我的改动在里面；
+     不在 → 有人拿着比我更早的内容写了一次，把我那次写整个盖掉了（见 detectClobberedWrite）。
+   这是修"写后校验挡不住的那一半"用的，它挡不住的形态见 syncToFileInner 里那段注释。
+
+   ★ 哨兵 WRITE_RING_RESET ★ 混版本期间旧版 html 不认识这个字段，它一写文件链就断了（整段没了）。
+   这时新版本重建链时放一个哨兵进去，表示"这条链中间被截断过，据此判断不出谁被盖了"，
+   读到哨兵的设备一律跳过检测——宁可漏报，也绝不能在换版本那几天满屏误报。
+   哨兵会随后续写入自然挤出链外，链重新变得可信。 */
+const WRITE_ID_RING = 200;              // 链长。按处里 10 来个人集中填写的节奏，足够覆盖到下一次回来看文件
+const WRITE_RING_RESET = '*reset*';
+function buildWriteIdRing(remote, writeId) {
+  const prev = (remote && Array.isArray(remote.writeIds))
+    ? remote.writeIds.filter(x => typeof x === 'string')
+    : [WRITE_RING_RESET];               // 老版本写过（或全新文件）→ 链不完整，插哨兵
+  return prev.concat(writeId).slice(-WRITE_ID_RING);
+}
 // 真正落到文件里的内容 = 业务数据 + 一层"文件自述"信息（谁、用哪个版本的 html、哪一次写的）。
 // 这几个字段刻意不进 syncPayload：它们不是业务数据，不该被合并、也不该被 Object.assign 灌回内存里的 DB。
 // writeId 是每次写入随机生成的一次性标记，用来在写完之后确认"文件里现在这份确实是我刚写的那一份"
-function filePayload(businessPayload, db, writeId) {
+function filePayload(businessPayload, db, writeId, remote) {
   return Object.assign({}, businessPayload, {
     schemaVersion: DATA_SCHEMA_VERSION,
     writeId,
+    writeIds: buildWriteIdRing(remote, writeId),
     lastWriteBy: db.settings.me || '未署名',
     lastWriteApp: APP_VERSION,
     lastWriteAt: new Date().toISOString(),
@@ -1855,11 +1979,15 @@ function mergeSyncPayload(local, remote, base) {
   // 角色提升要过一遍授权检查（见上面那段注释）；挡下来的记在 _integrityAlerts 里等着报警
   const guard = guardRoleIntegrity(local.users, mergedUsers, changelog);
   _integrityAlerts = guard.alerts;
+  // 任务先算出来：里程碑要按"所属任务是不是被彻底删了"再筛一道，得先有任务名单
+  const mergedTasks = applyPurged('task', 'id', mergeEntityListWithBase('task', local.tasks, remote.tasks, b.task), purged);
   return {
     duties: applyPurged('duty', 'code', mergeEntityListWithBase('duty', local.duties, remote.duties, b.duty), purged),
     works: applyPurged('work', 'id', mergeEntityListWithBase('work', local.works, remote.works, b.work), purged),
-    milestones: applyPurged('milestone', 'id', mergeEntityListWithBase('milestone', local.milestones, remote.milestones, b.milestone), purged),
-    tasks: applyPurged('task', 'id', mergeEntityListWithBase('task', local.tasks, remote.tasks, b.task), purged),
+    milestones: dropMilestonesOfPurgedTasks(
+      applyPurged('milestone', 'id', mergeEntityListWithBase('milestone', local.milestones, remote.milestones, b.milestone), purged),
+      purged, mergedTasks),
+    tasks: mergedTasks,
     changelog,
     users: guard.users,
     permissionMatrix: mergePermissionMatrix(local.permissionMatrix, remote.permissionMatrix),
@@ -2187,6 +2315,108 @@ function checkClockSkew(remote) {
   pushAlertLog(msg);
   showSnack('⚠ ' + msg, { priority: true });
 }
+/* ★★★ 检测"我那次写被人用过期内容盖掉了" ★★★
+
+   写后校验（写完读回来看是不是自己那份）只挡住了竞争的一半——【别人在我写完之后、
+   我校验之前插一脚】那一半。另一半它天生看不见：
+
+     乙 读文件（拿到 v0）……（网盘上读一次几十到几百毫秒，读完还要合并、序列化）
+     甲 改了状态并同步：读 v0 → 合并 → 写 v1 → 校验读回 v1，是自己的，一切正常，
+        基线对齐到 v1
+     乙 这时才写：它手里那份是 v0，压根不知道甲写过 → 文件变成 v2（没有甲那次改动）。
+        乙自己的校验同样通过（文件里确实是乙刚写的），乙也毫无察觉。
+
+   到这里甲的改动已经从文件里没了，而且两台机器都显示一切正常。更糟的是甲的基线现在在撒谎：
+   它说"文件里有我这个值"。于是甲下一轮合并会逐字段判定「这个字段我没改过、是对方改的」，
+   把自己那个值主动改回乙手里那个旧值——而且不会自己恢复。这正是处里那次"同事明明改了状态、
+   日志里也查得到，过一阵又变回去"的形态。
+
+   两层处理：
+   1) 收窄窗口：写之前再确认一次文件没被人动过（见 syncToFileInner 里那次 fresh 读取）。
+      把危险区间从「读+解析+合并+序列化+写」缩短到「确认+写」。
+   2) 兜住漏网的：靠写入链（writeIds）事后发现，并把基线【回滚到那次写之前那份】。
+      回滚之后，那次写里改过的字段重新被判定成"本机改动还没推上去"，下一轮同步会把它们重新推出去；
+      对方那次覆盖里连带弄丢的、别人的改动，也会被同一次合并一起带回来。
+      顺带记一条告警日志——这种事必须让人看得见，不能默默修完了事。 */
+let _lastWriteId = '';        // 本机最后一次"写入并校验通过"的标记
+let _preWriteBase = null;     // 那次写之前的基线。只留在内存里：刷新页面就没了，那时只报警不回滚
+                              // （完整基线是几百 KB，再往 localStorage 里塞一份不划算，而事故都发生在连续会话里）
+const CLOBBER_WINDOW_MS = 30 * 60 * 1000;   // 只对"最近半小时内那次写"做判断，太久以前的标记本来就该被挤出链外
+function detectClobberedWrite(remote, db) {
+  const id = _lastWriteId || (db.settings && db.settings.lastWriteId) || '';
+  if (!id) return false;
+  const at = (db.settings && db.settings.lastWriteIdAt) || '';
+  if (!at || Date.now() - new Date(at).getTime() > CLOBBER_WINDOW_MS) return false;
+  const ring = remote && remote.writeIds;
+  if (!Array.isArray(ring) || !ring.length) return false;   // 老版本写过这个文件，链断了，判断不了
+  if (ring.indexOf(WRITE_RING_RESET) !== -1) return false;  // 链中间被截断过，同上
+  return ring.indexOf(id) === -1;                           // 我那次写不在链上 → 被盖了
+}
+/* ★ 回滚基线：必须逐条判，不能整份倒回去 ★
+
+   直觉上"把基线倒回那次写之前"就行了：那次写里的改动会重新被判成"本机改动还没推上去"，
+   下一轮自动补推。多设备长跑仿真里这么做确实修好了绝大多数，但也造出了一个新问题：
+
+     乙 那次写里，除了它自己改的东西，还捎带着它从文件里【吸收】进来的别人的改动
+     （合并结果本来就是两边的并集）。基线整份倒回去之后，这些"只是路过"的值也一并被
+     重新当成"乙的本机改动"。而这中间丙可能已经就同一个字段写了更新的一版——
+     于是乙一补推，就拿一个它根本没改过的旧值把丙刚写的顶掉了。仿真里真的抓到了这一幕。
+
+   护栏很自然：只回滚【文件里那条记录的版本号没有超过我写进去的那一版】的记录。
+   版本号超过了，说明这条记录在我那次写之后又被人正经改过——我那次写已经不是它最新的一句话了，
+   就别拿旧的去顶。代价是这类记录上我那次的改动补推不回来（仍然会记告警让人知道），
+   换来的是绝不会反过来毁掉别人更新的编辑——这个方向的错误比漏修严重得多。 */
+function rollbackBaseForClobber(db, remote) {
+  const pre = _preWriteBase, cur = db.syncBase;
+  if (!pre || !cur) return false;
+  const out = {};
+  SYNC_BASE_ENTITIES.forEach(([entity, listKey]) => {
+    const pk = schema(entity).pk;
+    const remoteMap = new Map(((remote && remote[listKey]) || []).filter(r => r && r[pk] != null).map(r => [r[pk], r]));
+    const curMap = cur[entity] || {}, preMap = pre[entity] || {};
+    const m = {};
+    Object.keys(curMap).forEach(id => {
+      const mine = curMap[id];                       // 我那次写进文件的那一版
+      const rem = remoteMap.get(id);
+      const advanced = rem && (rem.rev || 0) > (mine.rev || 0);   // 我写完之后又被人正经改过
+      m[id] = advanced ? mine : (preMap[id] || mine);
+    });
+    // 我那次写之前有、写完之后基线里没有的（比如那次写把它彻底删了）：沿用旧基线，别凭空丢参照
+    Object.keys(preMap).forEach(id => { if (!(id in m)) m[id] = preMap[id]; });
+    out[entity] = m;
+  });
+  db.syncBase = out;
+  return true;
+}
+/* 发现被盖之后要做的事。返回是否真的发现了（供测试和日志用）。
+   必须在合并【之前】调用：它会改 db.syncBase，而合并正是拿它当参照。 */
+function noteClobberedWrite(remote, db) {
+  if (!detectClobberedWrite(remote, db)) return false;
+  const who = (remote && remote.lastWriteBy) || '某位同事';
+  const rolled = rollbackBaseForClobber(db, remote);
+  /* 只报一次：链上没有我那个标记这件事，在我下次写成功之前每一轮同步都成立，
+     不清掉的话会每 5 分钟刷一条告警。清掉之后本机手里的值已经通过回滚重新变成"待推送"，
+     下一次写入会带上新的标记，检测重新生效。 */
+  _lastWriteId = '';
+  if (db.settings) { db.settings.lastWriteId = ''; db.settings.lastWriteIdAt = ''; }
+  _preWriteBase = null;
+  const msg = `刚才那次保存被${who}用一份过期内容覆盖了（多人同时保存时的写入竞争）。`
+    + (rolled ? '系统已把这些改动重新标记为待同步，下一次保存会自动补推上去，' : '本页刷新过，没法自动补推，')
+    + '请到日志页核对一下你最近改的那几条是不是还在。';
+  pushAlertLog(msg);
+  showSnack('⚠ ' + msg, { priority: true });
+  return true;
+}
+// 两次读到的是不是同一份文件内容。writeId 是新版本才有的，老文件退回比"最后写入时间"，
+// 再没有就比文件系统的修改时间（网盘上精度可能只到秒，所以它只是最后一道兜底）
+function sameFileVersion(a, b) {
+  if (!a || !b) return false;
+  const ra = a.remote || {}, rb = b.remote || {};
+  if (ra.writeId || rb.writeId) return ra.writeId === rb.writeId;
+  if (ra.lastWriteAt || rb.lastWriteAt) return ra.lastWriteAt === rb.lastWriteAt;
+  return a.mtime === b.mtime;
+}
+
 /* 把当前数据同步进共享文件。
 
    ★ 这里刻意"每次都先读出来合并再写"，不做任何"文件时间戳没变就直接覆盖"的优化 ★
@@ -2240,12 +2470,16 @@ async function syncToFileInner(db) {
   if (!_fileHandle) return;
   if (_versionBlocked) return;   // 数据格式太旧，只准读不准写，免得把新版本的字段抹掉
   if (_staleAppBlocked) return;  // 这份 html 是旧版（缓存/没关标签页/旧拷贝），只准读不准写，见 checkAppVersion
-  for (let attempt = 0; attempt < 2; attempt++) {
+  /* 重试次数从 2 提到 3：多了一道"写之前再确认文件没被抢先"的检查，
+     检查不通过会 continue 重来一轮——那一轮不算真的失败，不该占掉唯一的一次重试机会 */
+  for (let attempt = 0; attempt < 3; attempt++) {
     const cur = await readSharedFile();
     if (!cur) { showSnack('共享文件内容不是本应用的数据格式，本次没有写入，请确认共享文件夹没选错'); return; }
     if (!checkDataVersion(cur.remote)) return;
     if (!checkAppVersion(cur.remote)) return;   // 刚发现自己是旧版：这次写入就地取消
     cacheRemoteWriteInfo(cur.remote);   // 记一下"我这次写之前，文件里是谁写的"，供排查同步问题用
+    // ★ 必须赶在合并之前：发现上次写被盖掉时它会把基线回滚，而合并正是拿基线当参照
+    noteClobberedWrite(cur.remote, db);
     // 先把合并前的本机数据留一份引用，下面判断"有没有东西要推"要用它跟文件里的内容比，
     // 不能等 Object.assign 之后再比——那时候本机数据已经包含对方的内容了，永远比得出"没差别"
     const localPayload = syncPayload(db);
@@ -2284,9 +2518,22 @@ async function syncToFileInner(db) {
        但这恰恰是排查"同事改了东西我这边没看到"时真正想知道的那个时间点，
        而且原来那个也从来不是实时在线心跳（没有服务器，做不到）。 */
     if (db.settings.me) markUserSeen(db.settings.me);
+    /* ★ 写之前再读一次，确认文件还是我合并时那一份 ★
+       合并 240KB 数据要解析、逐条比对、再序列化，这段时间里别人完全可能已经写过一轮了。
+       在这里发现的话，代价只是重来一遍合并；不在这里发现的话，就会拿一份过期内容
+       把对方刚写的东西整个盖掉（见上面 noteClobberedWrite 那段注释里的时序）。
+       这一步不能替代事后检测——确认完到写完之间仍有窗口——但它把最长的那一段
+       （解析+合并+序列化）挪出了危险区间。 */
+    const fresh = await readSharedFile();
+    if (fresh && !sameFileVersion(fresh, cur)) continue;   // 有人抢先写了：拿新内容重新合并一轮
+    /* 这次写所依据的基线，留一份深拷贝：万一这次写又被人用过期内容盖掉，回滚的目标就是它。
+       刻意拖到确定要写的这一刻才拷——基线是整份数据的副本（几百 KB），
+       而绝大多数同步轮次是"没东西可推、根本不写"的，那些轮次白拷一次纯属浪费。
+       合并本身不改 db.syncBase，所以在这里拷跟在合并前拷是同一份东西。 */
+    const preBase = db.syncBase ? JSON.parse(JSON.stringify(db.syncBase)) : null;
     const writeId = uid('w');
     const w = await _fileHandle.createWritable();
-    await w.write(JSON.stringify(filePayload(merged, db, writeId)));
+    await w.write(JSON.stringify(filePayload(merged, db, writeId, cur.remote)));
     await w.close();
     const after = await _fileHandle.getFile();
     _lastSyncedMtime = after.lastModified;
@@ -2298,6 +2545,12 @@ async function syncToFileInner(db) {
          校验没通过（有人在这几毫秒里也写了）时刻意不更新基线：那时候文件里是别人的内容，
          认成自己的会让下一轮把对方的改动误判成"我改的"，那就本末倒置了。 */
       db.syncBase = buildSyncBase(merged);
+      /* 记下"我这次写的标记"和"写之前那份基线"：万一之后有人拿着比这更早的内容写了一次、
+         把这次写整个盖掉，就靠这两样发现并回滚（见 noteClobberedWrite） */
+      _lastWriteId = writeId;
+      _preWriteBase = preBase;
+      db.settings.lastWriteId = writeId;
+      db.settings.lastWriteIdAt = new Date().toISOString();
       return;
     }
   }
@@ -2324,6 +2577,10 @@ async function pullFromFileInner() {
   if (!checkDataVersion(cur.remote)) return false;
   // 拉取本身是只读的，就算判定成旧版也照样把数据读进来给人看——被拦掉的只有写入
   checkAppVersion(cur.remote);
+  /* 只读拉取同样要先查"上次写有没有被盖掉"。不查的话下面那句"基线对齐到文件当前内容"
+     会把被覆盖的结果坐实成基线，本机手里那份改动就再也推不出去了——
+     定时软同步每 5 分钟就跑一次拉取，比保存频繁得多，漏在这里等于白修。 */
+  noteClobberedWrite(cur.remote, DB);
   const localPayload = syncPayload(DB);
   const merged = normalizeMergedRecords(mergeSyncPayload(localPayload, cur.remote, DB.syncBase));
   reconcileDerivedAfterMerge(merged);   // 只读拉取同样要重算；修好的值由下一次保存推出去
@@ -9470,7 +9727,9 @@ const ACTIONS = {
       '确定重置', async () => {
         DB.duties = []; DB.works = []; DB.milestones = []; DB.tasks = [];
         DB.changelog = []; DB.purged = [];
-        DB.syncBase = null;   // 本机数据整个清掉了，旧基线不再对应任何东西，留着只会误导下一次合并
+        // 本机数据整个清掉了，旧基线不再对应任何东西，留着只会误导下一次合并；
+        // 写入链标记也要一起清（它跟基线是同一件事的两半，见 clearSyncBaseline）
+        clearSyncBaseline(DB);
         rebuildIndex();
         const ok = await pullFromFile();
         if (!ok) { showSnack('读取共享文件失败，本机数据已清空但没能拉回来，请检查网盘后点顶栏「立即同步」', { priority: true }); return; }
@@ -11884,6 +12143,13 @@ async function purgeRecycleBin(days) {
     showSnack('请先连接共享文件夹再清空回收站——没连上时本机看到的不一定是全处的完整数据，可能误删', { priority: true });
     return;
   }
+  /* ★ 先跟共享文件对一次账，再算"该彻底删哪些" ★
+     上面那道闸只保证"连着共享文件夹"，不保证"手里这份是最新的"。同事刚从回收站恢复出来的记录，
+     如果还没同步到本机，本机就会照旧把它算进该彻底删的名单里。
+     以前这还有救——墓碑遇到"时间戳更晚的记录"会失效，被误删的记录能自己飘回来；
+     现在墓碑对随机 id 的记录是硬删（见 applyPurged 里那段），删掉就真回不来了，
+     所以这一步必须补上。拉取是只读的，失败了也不影响下面的流程（大不了还是按本机这份算）。 */
+  try { await pullFromFile(); } catch (e) {}
   const keep = days || recycleKeepDays();
   const { rows, purgeable, bytes } = recycleTotals(keep);
   if (!purgeable) { showSnack(`没有超过 ${keep} 天的已删除记录`); return; }
@@ -12002,8 +12268,10 @@ function importBackup(text) {
       /* 备份还原是"整体换成另一份数据"，跟"我在这条记录上改了哪几个字段"不是一回事。
          留着旧基线的话，还原进来的每个字段都会被当成"我刚改的"推上共享文件，
          等于拿一份历史备份去覆盖同事们这段时间的正常改动。清掉基线 → 这次合并退回原来的
-         整条比较规则（谁版本号高听谁的），跟这个功能一直以来的行为保持一致。 */
-      DB.syncBase = null;
+         整条比较规则（谁版本号高听谁的），跟这个功能一直以来的行为保持一致。
+         写入链标记同样要清：备份里可能带着另一台机器、另一次会话留下的标记，
+         拿它去问"我那次写还在链上吗"必然答不在，会白报一次"你的保存被覆盖了"。 */
+      clearSyncBaseline(DB);
       DB.changelog = Array.isArray(d.changelog) ? d.changelog : [];
       // 墓碑跟着备份一起还原。老备份文件没有这个字段，按空处理即可：
       // 备份是"整体替换"，替换进来的那批记录本来就没有对应的墓碑
@@ -12586,23 +12854,38 @@ async function connectSharedFile() {
     // 已经存在的设置，继续用原来"谁的版本更新听谁的"规则，不能被一个全新空文件的 null 值冲掉
     const firstEverConnect = !(await hasEverConnectedShare());
     if (firstEverConnect) {
-      DB.duties = remote.duties || [];
-      DB.works = remote.works || [];
-      DB.milestones = remote.milestones || [];
-      DB.tasks = remote.tasks || [];
-      DB.changelog = remote.changelog || [];
-      DB.users = remote.users || [];
-      DB.purged = remote.purged || [];   // 墓碑也整体听共享文件的，本机那些只针对演示数据的墓碑没有意义
+      /* 用 slice() 各自拿一份数组，不要跟 remote 共用同一个数组对象：
+         下面的 normalizeMergedRecords 会把规整好的记录换进列表里，共用数组的话
+         remote 里的内容会跟着一起变，紧接着 buildSyncBase(remote) 拍下来的就不是
+         "文件里原样是什么"了——那正是 normalizeRecordCopy 那段注释在防的事。 */
+      DB.duties = (remote.duties || []).slice();
+      DB.works = (remote.works || []).slice();
+      DB.milestones = (remote.milestones || []).slice();
+      DB.tasks = (remote.tasks || []).slice();
+      DB.changelog = (remote.changelog || []).slice();
+      DB.users = (remote.users || []).slice();
+      DB.purged = (remote.purged || []).slice();   // 墓碑也整体听共享文件的，本机那些只针对演示数据的墓碑没有意义
       DB.permissionMatrix = mergePermissionMatrix(DB.permissionMatrix, remote.permissionMatrix);
       DB.shareConfig = mergePermissionMatrix(DB.shareConfig, remote.shareConfig);
       DB.reportConfig = mergePermissionMatrix(DB.reportConfig, remote.reportConfig);
       DB.dashboardConfig = mergePermissionMatrix(DB.dashboardConfig, remote.dashboardConfig);
       if (!DB.users.some(u => u.name === DB.settings.me && !u.deleted_at)) DB.settings.me = '';
+      normalizeMergedRecords(DB);          // 那份文件谁都能用记事本改，整份采用之前先过一遍类型规整
+      reconcileDerivedAfterMerge(DB);
     } else {
-      const merged = mergeSyncPayload(syncPayload(DB), remote, DB.syncBase);
+      /* ★ 这条路径以前漏了两道工序 ★ 它跟定时同步/保存走的是同一种合并，却没跟着补上
+         「合并结果类型规整」和「合并之后重算派生字段」。而这条路径一点也不冷门——
+         文件读写授权不跨页面存活，刷新之后点一次"重新连接共享文件夹"走的就是这里。
+         漏掉的后果跟当初在同步路径上漏掉是一模一样的：文件被人用记事本改坏过的话，
+         一连上就可能整页渲染不出来；任务进度也会停在合并前那个旧值上，顺着 SPI 污染报表。 */
+      noteClobberedWrite(remote, DB);   // 上次写被人盖掉的话，这里也要发现（刷新过就只报警，见函数注释）
+      const merged = normalizeMergedRecords(mergeSyncPayload(syncPayload(DB), remote, DB.syncBase));
+      reconcileDerivedAfterMerge(merged);
       Object.assign(DB, merged);
     }
-    // 刚跟文件对完账，文件里就是 remote 这一份——基线对齐到它，后面每一次合并才有参照
+    /* 刚跟文件对完账，文件里就是 remote 这一份——基线对齐到它，后面每一次合并才有参照。
+       规整已经改成"返回副本、不就地改"（见 normalizeRecordCopy），所以这里拍下来的
+       确实是"文件里原样是什么"，不会把规整之后的值误记成文件里本来的样子。 */
     DB.syncBase = buildSyncBase(remote);
     rebuildIndex();
     await idbSetHandle(dirHandle);
@@ -13234,7 +13517,7 @@ const TASK_TPL = [
 
 function seedAll() {
   const year = DB.settings.year || new Date().getFullYear();
-  DB.syncBase = null;   // 演示数据整批换掉，旧基线对不上任何记录了
+  clearSyncBaseline(DB);   // 演示数据整批换掉，旧基线和写入链标记都对不上任何东西了
   DB.duties = SEED_DUTIES.map(([code, category, name]) => stampMeta(blank('duty', { code, category, name })));
   DB.works = SEED_WORKS.map(([code, duty, name, content, owner, collaborators]) =>
     stampMeta(blank('work', { code, duty, name, content, owner, collaborators, year, status: 'doing' })));
