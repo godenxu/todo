@@ -128,8 +128,12 @@ async function main() {
     const fs = require('fs'), path = require('path');
     const src = fs.readFileSync(process.argv[2] || path.join(__dirname, '..', 'index.html'), 'utf8');
     const n = (src.match(/clearSyncBaseline\(DB\);/g) || []).length;
-    ok('★三个"整批换掉数据"的入口都改成走这一个收口函数（从备份恢复 / 以共享文件为准重置 / 播种演示数据）',
-      n === 3, n);
+    /* P100 追加两处：断开共享连接、首次连接（整份采用共享文件）。
+       它们同样是"本机对共享文件的记忆整批作废"的时刻——漏掉的后果实测过：
+       断开再连另一个共享文件夹，第一次同步就会拿旧文件的 lastWriteId 去问链，
+       必然答不在，白报一条"你的保存被覆盖了"，还会拿另一个文件的基线做回滚。 */
+    ok('★五个"整批换掉数据/整批作废记忆"的入口都走这一个收口函数（备份恢复 / 以共享文件为准重置 / 播种演示数据 / 断开连接 / 首次连接）',
+      n === 5, n);
     ok('★★没有地方再单独写 DB.syncBase = null（漏一处就是一处误报）', !/DB\.syncBase = null;/.test(src));
   }
 

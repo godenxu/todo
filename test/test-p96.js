@@ -183,7 +183,9 @@ async function main() {
     const fs = require('fs'), path = require('path');
     const src = fs.readFileSync(process.argv[2] || path.join(__dirname, '..', 'index.html'), 'utf8');
     ok('★随机 id 的实体不再享受"重建豁免"', /const rebuildable = pk !== 'id';[\s\S]{0,200}if \(!rebuildable\) return false;/.test(src));
-    ok('★人填编号的实体按创建时间判', /return \(r\.created_at \|\| r\.updated_at \|\| ''\) > at;/.test(src));
+    ok('★人填编号的实体按创建时间判', /return \(r\.created_at \|\| r\.updated_at \|\| ''\) > \(e\.at \|\| ''\);/.test(src));
+    // P100：墓碑可以被撤销，applyPurged 必须认这条声明
+    ok('★被撤销的墓碑不再拦住记录', /if \(purgeIsUndone\(e\)\) return true;/.test(src));
     ok('★合并里程碑时接上了"所属任务被彻底删除"这一道', /milestones: dropMilestonesOfPurgedTasks\(/.test(src));
     ok('★任务名单先算出来再传给它（不能凭空猜哪些任务还在）',
       /const mergedTasks = applyPurged\('task'[\s\S]{0,600}?purged, mergedTasks\)/.test(src));

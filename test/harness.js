@@ -226,6 +226,8 @@ const exportTail = `
   mergeEntityList, mergeChangelog, syncPayload, mergeSyncPayload, syncToFile, mergeByPk, hasLocalContribution,
   recordPurge, mergePurged, applyPurged, PURGED_LIMIT, rebuildIndex,
   dropMilestonesOfPurgedTasks,
+  // P100：墓碑可撤销（撤销彻底删除 / 合并熔断回滚）
+  purgeIsUndone, purgeRank, revokePurge, revokePurgesFor, nextPurgeAt, latestPurgeAt, PURGE_RESTORE_LISTS,
   connectSharedFile, disconnectSharedFile, tryReconnectSharedFile, newerRecord, isValidShareData,
   sanitizeRemotePayload, noteBrokenSharedFile, REMOTE_LIST_KEYS,
   setBrokenFileWarned(v){ _brokenFileWarned = v; }, get brokenFileWarned(){return _brokenFileWarned},

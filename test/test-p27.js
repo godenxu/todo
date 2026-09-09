@@ -149,9 +149,18 @@ async function main() {
   S.snapshot();
   await S.Repo.removeHard('task', 'p27_undo');
   ok('删掉了，且有墓碑', !S.byId('task', 'p27_undo') && S.DB.purged.some(p => p.id === 'p27_undo'));
+  const deadAt = (S.DB.purged.find(p => p.id === 'p27_undo') || {}).at || '';
   await S.undoLast();
   ok('撤销后记录回来了', !!S.byId('task', 'p27_undo'));
-  ok('墓碑也一起撤掉了（不然下次合并又会把它筛掉，撤销白撤）', !S.DB.purged.some(p => p.id === 'p27_undo'));
+  /* P100 改了做法：不是把墓碑从本机数组里抠掉（那只在本机有效，共享文件里那块还在，
+     下一轮合并取并集又捡回来），而是留一条同一把钥匙、时间更晚的"作废"声明，
+     它能随同步传给所有人。见 revokePurge。 */
+  const undoTomb = S.DB.purged.filter(p => p.id === 'p27_undo');
+  ok('墓碑没被悄悄抠掉，而是换成了一条能传出去的"作废"声明', undoTomb.length === 1 && undoTomb[0].undone === true, undoTomb);
+  ok('★作废声明的时间戳比原来那块墓碑晚（否则合并取最晚时会选中旧的那块，等于没撤）',
+    (undoTomb[0].at || '') > deadAt, [undoTomb[0] && undoTomb[0].at, deadAt]);
+  ok('★被撤销之后，墓碑对合并不再起作用', S.applyPurged('task', 'id',
+    [S.byId('task', 'p27_undo')], S.DB.purged).length === 1);
   // 端到端确认一次：撤销之后再跟共享文件合并一轮，记录必须还在
   const h = makeFakeFileHandle(JSON.stringify(S.filePayload(payload(), S.DB, 'w0')));
   S.setFileHandle(h);

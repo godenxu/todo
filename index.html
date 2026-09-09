@@ -756,7 +756,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260906224903';
+const APP_VERSION = 'v20260908173135';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -1690,13 +1690,88 @@ function hasUnpushedFieldChange(entity, localList, baseMap) {
    一条墓碑约 80 字节，4000 条也就 300KB 上下；而它换掉的是成百上千条完整记录，
    净下来共享文件是小了不是大了。 */
 const PURGED_LIMIT = 4000;
+/* ★★★ 墓碑必须能撤销 ★★★
+   彻底删除会留一块墓碑（recordPurge），任何一台设备只要看见它，就把同 id 的记录从合并结果里剔掉。
+   问题是"撤销彻底删除"这件事一直只做了一半：撤销（Ctrl+Z）和合并熔断回滚都会把记录塞回本机列表，
+   却只能在【本机】把墓碑删掉——而那块墓碑早就随上一次保存进了共享文件，mergePurged 取的是并集，
+   下一轮合并立刻把它捡回来，applyPurged 再把刚恢复的记录原样杀掉一遍。
+   第十一轮实测：彻底删掉一条任务之后按 Ctrl+Z，界面提示"已撤销"，任务一条都没回来——
+   因为撤销自己就要落盘，Repo.persist 当场同步了一轮，恢复出来的记录在同一次动作里就被
+   自己的墓碑清掉了。合并熔断那个"一键回滚"同理：告警里被彻底删掉的那部分，点了等于没点。
+
+   所以撤销不能靠"本机把墓碑删掉"，必须是一条【能传出去的撤销声明】：
+   同一把钥匙（entity + id）不变，时间戳往后挪一格，打上 undone 标记。
+   mergePurged 对同一把钥匙取时间最晚的那条，于是这条声明会在所有设备上压过原来那块墓碑；
+   applyPurged 见到 undone 就当这块墓碑不存在。将来真要再删一次，recordPurge 会写一条更晚的
+   普通墓碑，同样压得住——两个方向都只靠"谁的时间戳更晚"这一条规则，不引入新的优先级概念。
+
+   混版本期间的行为：旧版 html 不认识 undone，会把这条声明当成一块普通墓碑，于是它那台机器上
+   恢复出来的记录还是看不见。这不算新增损失（改之前它本来就看不见），而且旧版一旦读到新版写的文件
+   就会被停写门禁锁成只读（checkAppVersion），传不出去，刷新换成新版之后自然就对了。 */
+function purgeIsUndone(p) { return !!(p && p.undone); }
+/* ★ 同一把钥匙上"谁说了算"必须是一个全序，不能只比时间戳 ★
+   多设备长跑仿真（sim10）抓到过这一幕：甲记下墓碑、乙撤销墓碑，两条的 at 恰好一模一样
+   （两台机器都还没看见对方那条，各自按自己的时钟盖了同一个毫秒）。这时"取时间最晚的"分不出胜负，
+   落到数组顺序上——而每台设备的数组顺序都是【自己的在前、文件里的在后】，
+   于是甲永远留自己那条、乙永远留自己那条，两边对同一条记录的死活【永久对不齐】，
+   而且双方都判定"我没有新东西要推"，谁也纠正不了谁。
+
+   所以平局要有一条所有设备都算得出同一个答案的规矩，这里定两级：
+     · at 相同时，【撤销声明赢】——本系统的一贯取舍是宁可留着让人再删一次，也不能删错（见 CLAUDE 里那条约束）；
+     · 连 undone 都相同（两台机器同一毫秒各记了一块普通墓碑，或各写了一条撤销），按记录人的名字定，
+       纯粹为了让每台机器算出同一个结果；这种情况下两条说的是同一件事，选谁都不影响死活。
+   排出来的字符串直接比大小即可，at 用的是等长的 ISO 时间戳，字典序就是时间序。 */
+function purgeRank(p) {
+  if (!p) return '';
+  return (p.at || '') + '|' + (p.undone ? '1' : '0') + '|' + (p.by || '');
+}
+/* 同一把钥匙上的新条目必须比旧条目晚，否则 mergePurged 取最晚时会选中旧的那条。
+   不能只信本机的"现在"——处里的机器时钟并不同步（checkClockSkew 就是为它写的），
+   在一台慢十分钟的机器上撤销一块刚由别人记下的墓碑，本机的"现在"可能反而更早。 */
+function nextPurgeAt(prevAt) {
+  const now = new Date().toISOString();
+  if (!prevAt || now > prevAt) return now;
+  return new Date(new Date(prevAt).getTime() + 1).toISOString();
+}
+// 同一把钥匙上现有条目里最晚的那个时间戳
+function latestPurgeAt(entity, id) {
+  return (DB.purged || []).reduce((mx, p) =>
+    (p && p.entity === entity && p.id === id && (p.at || '') > mx) ? (p.at || '') : mx, '');
+}
+// 撤销一块墓碑：不是删掉它，而是换成一条能同步出去的"这块墓碑作废了"的声明（见上面那段）
+function revokePurge(entity, id) {
+  if (!Array.isArray(DB.purged)) DB.purged = [];
+  const at = nextPurgeAt(latestPurgeAt(entity, id));
+  DB.purged = DB.purged.filter(p => !(p && p.entity === entity && p.id === id));
+  DB.purged.push({ entity, id, at, by: DB.settings.me || '未署名', undone: true });
+}
+/* 把一份"删之前的数据"里出现过的记录，对应的墓碑统统作废。
+   撤销（Ctrl+Z）和合并熔断回滚都要用：它们把记录塞回列表之后，还得把拦路的墓碑一并撤掉，
+   否则恢复出来的记录活不过下一次合并。
+   onlyBy 传了就只撤这个人留下的墓碑——撤销只该撤自己那次操作，同事在这段窗口里
+   彻底删掉的东西不能顺手复活。不传（合并熔断回滚那条路）就一律撤：那是管理员看着告警
+   明确决定"把这批删除撤回来"，本来就是要覆盖掉造成这次删除的那些动作。 */
+const PURGE_RESTORE_LISTS = [['duty', 'code', 'duties'], ['work', 'id', 'works'],
+  ['milestone', 'id', 'milestones'], ['task', 'id', 'tasks'], ['user', 'name', 'users']];
+function revokePurgesFor(payload, onlyBy) {
+  if (!payload) return 0;
+  const back = new Set();
+  PURGE_RESTORE_LISTS.forEach(([entity, pk, listKey]) => {
+    (payload[listKey] || []).forEach(r => { if (r && r[pk] != null) back.add(entity + ' ' + r[pk]); });
+  });
+  if (!back.size) return 0;
+  const hit = (DB.purged || []).filter(p => p && !purgeIsUndone(p) && back.has(p.entity + ' ' + p.id)
+    && (onlyBy === undefined || (p.by || '') === onlyBy));
+  hit.forEach(p => revokePurge(p.entity, p.id));
+  return hit.length;
+}
 function mergePurged(local, remote) {
   const map = new Map();
   [...(local || []), ...(remote || [])].forEach(p => {
     if (!p || !p.entity || !p.id) return;
     const k = p.entity + ' ' + p.id;
     const cur = map.get(k);
-    if (!cur || (p.at || '') > (cur.at || '')) map.set(k, p);
+    if (!cur || purgeRank(p) > purgeRank(cur)) map.set(k, p);   // 全序比较，见 purgeRank
   });
   // 按时间排序后只留最近的若干条：墓碑是只增不减的，不封顶迟早把共享文件撑爆。
   // 被挤掉的都是很久以前删的，那时候的记录早就在所有设备上消失了，不会再复活
@@ -1726,15 +1801,23 @@ function mergePurged(local, remote) {
      留着只会让彻底删除被时钟差打败。一律剔除。 */
 function applyPurged(entity, pk, list, purged) {
   if (!purged || !purged.length) return list;
+  /* 同一把钥匙只认时间最晚的那一条：墓碑可以被"撤销"（见 revokePurge），撤销声明跟原来那块墓碑
+     共用同一把钥匙、只是时间更晚。合并之后 mergePurged 已经保证每把钥匙只剩一条，
+     这里仍然按最晚取一遍，是为了让本机还没合并过的 DB.purged 也能直接用这个函数，不依赖数组顺序。 */
   const dead = new Map();
-  purged.forEach(p => { if (p.entity === entity) dead.set(p.id, p.at || ''); });
+  purged.forEach(p => {
+    if (!p || p.entity !== entity) return;
+    const cur = dead.get(p.id);
+    if (cur === undefined || purgeRank(p) >= purgeRank(cur)) dead.set(p.id, p);
+  });
   if (!dead.size) return list;
   const rebuildable = pk !== 'id';   // 人填的主键才可能"删掉之后重建一个同编号的"
   return list.filter(r => {
-    const at = dead.get(r[pk]);
-    if (at === undefined) return true;
+    const e = dead.get(r[pk]);
+    if (e === undefined) return true;
+    if (purgeIsUndone(e)) return true;   // 这块墓碑已经被撤销了，当它不存在
     if (!rebuildable) return false;
-    return (r.created_at || r.updated_at || '') > at;
+    return (r.created_at || r.updated_at || '') > (e.at || '');
   });
 }
 /* ★ 任务被彻底删除时，别人手里那些"还没同步过来的"里程碑也要一起清掉 ★
@@ -1762,7 +1845,8 @@ function dropMilestonesOfPurgedTasks(milestones, purged, tasks) {
   if (!purged || !purged.length) return milestones;
   const alive = new Set((tasks || []).map(t => t && t.id));
   const deadTasks = new Set();
-  purged.forEach(p => { if (p && p.entity === 'task' && !alive.has(p.id)) deadTasks.add(p.id); });
+  // 被撤销的墓碑不算数（见 revokePurge）：任务正被恢复回来，它名下的里程碑当然不能端掉
+  purged.forEach(p => { if (p && p.entity === 'task' && !purgeIsUndone(p) && !alive.has(p.id)) deadTasks.add(p.id); });
   if (!deadTasks.size) return milestones;
   return milestones.filter(m => !(m && deadTasks.has(m.task)));
 }
@@ -1976,11 +2060,21 @@ function hasLocalContribution(local, remote, base) {
   const theirSeen = new Map((remote.users || []).map(u => [u.name, u.lastSeenAt || '']));
   if ((local.users || []).some(u => u && u.name && (u.lastSeenAt || '') > (theirSeen.get(u.name) || ''))) return true;
 
-  // 墓碑跟日志同理，见上面那段：只有对方那份顶到上限了，"太老"才等于"会被裁掉"
-  const theirPurged = new Set((remote.purged || []).map(p => p.entity + ' ' + p.id));
+  /* 墓碑跟日志同理，见上面那段：只有对方那份顶到上限了，"太老"才等于"会被裁掉"。
+     ★ 但判据不能是"这把钥匙对方有没有" ★ 墓碑现在多了"作废"这一种形态（见 revokePurge），
+     它跟原来那块墓碑是同一把钥匙、只是时间更晚。只看钥匙的话，撤销声明会被判成
+     "对方已经有了、我没有新东西"，永远推不出去——撤销彻底删除又变回不起作用。
+     改成逐条比时间戳：我这条比对方那条晚，就是我有新东西要推。 */
+  const theirPurged = new Map((remote.purged || []).filter(p => p).map(p => [p.entity + ' ' + p.id, p]));
   const theirPurgedFull = (remote.purged || []).length >= PURGED_LIMIT;
   const oldestPurgeAt = theirPurgedFull ? oldestOf(remote.purged, 'at') : null;
-  if ((local.purged || []).some(p => !theirPurged.has(p.entity + ' ' + p.id) && (oldestPurgeAt === null || (p.at || '') >= oldestPurgeAt))) return true;
+  if ((local.purged || []).some(p => {
+    // 比较口径必须跟 mergePurged 完全一致（purgeRank），否则会出现
+    // "我判定自己有更新的一条、推上去之后合并又选了对方那条"的死循环
+    const theirs = theirPurged.get(p.entity + ' ' + p.id);
+    if (theirs !== undefined && purgeRank(p) <= purgeRank(theirs)) return false;
+    return oldestPurgeAt === null || (p.at || '') >= oldestPurgeAt;
+  })) return true;
 
   // 权限矩阵/共享文件夹配置是整个对象比版本，跟 mergePermissionMatrix 的规则保持一致
   if (local.permissionMatrix && (!remote.permissionMatrix || newerRecord(local.permissionMatrix, remote.permissionMatrix))) return true;
@@ -2133,7 +2227,8 @@ function mergeDamageReport(localPayload, mergedPayload, since) {
   since = since || '';
   // 整条从数组里消失 = 被彻底删除，它的时间只能去墓碑里查（见 recordPurge）；
   // 查不到墓碑属于说不清来路的消失，宁可报出来让人看一眼，不静悄悄放过
-  const purgeAt = new Map((mergedPayload.purged || []).map(p => [p.entity + ' ' + p.id, p.at || '']));
+  const purgeAt = new Map((mergedPayload.purged || []).filter(p => p && !purgeIsUndone(p))
+    .map(p => [p.entity + ' ' + p.id, p.at || '']));
   const fresh = at => !since || (at || '') >= since;
   const gone = (entity, pk, before, after) => {
     const m = new Map((after || []).map(r => [r[pk], r]));
@@ -2625,6 +2720,25 @@ async function syncToFileInner(db) {
       db.settings.lastSyncAt = new Date().toISOString();   // 确实跟文件对过账了，新鲜度要更新
       return 'nochange';
     }
+    /* ★★★ 从这里往下，本机数据已经吸收了 cur.remote，基线必须跟着推进到它 ★★★
+       下面还有两处会放弃本次写入、回到 for 循环重来一轮：写前确认发现被抢先（continue），
+       以及写后校验发现被盖掉。重来那一轮会拿【已经吸收过 cur.remote 的本机数据】当"我这边"，
+       如果基线还停在更早那一版，就会把"我只是从文件里读进来的值"误判成"我改的"。
+
+       实测（第十一轮）复现出的形态：
+         文件是 v1（乙把牵头人改成了乙）。我改了优先级，读到 v1、合并完（我这边的牵头人变成乙），
+         正要写的时候发现文件已经被丙改成了 v2（丙在 v1 基础上把牵头人改成丙）→ 重来一轮。
+         第二轮里基线还是老的 v0（牵头人=甲），于是"乙"相对基线算我改的、"丙"相对基线算对方改的
+         → 判成【两个人同时改了同一个字段】，按版本号/时间戳定胜负，我手里那个"乙"赢了，
+         丙刚写进文件的改动被顶掉，日志里还留下一条我根本没改过牵头人的假冲突告警。
+       推进到 cur.remote 之后，第二轮里"乙"就等于基线值、不再算我的改动，丙的新值正常胜出，
+       我自己改的优先级仍然跟基线不同、照样推得出去——不会因此少推任何东西。
+
+       为什么放在这个位置而不是合并之后立刻放：上面那句 hasLocalContribution 要拿基线判
+       "本机有没有文件里还没有的东西"，提前推进会让每一次别人的改动都被算成"我有东西要推"，
+       把"没改动就别写"那个优化整个废掉（十个人开着页面就会互相写个不停）。
+       写入成功时下面会再把基线对齐到 merged，这里这一次赋值只在"没写成"的那几条路上起作用。 */
+    db.syncBase = buildSyncBase(cur.remote);
     /* 「最近连接」心跳只在真的要写的时候搭顺风车，绝不为它单独写一次文件。
        代价是这一列的含义变成"最近一次真正保存过改动"，而不是"最近一次打开着页面"——
        但这恰恰是排查"同事改了东西我这边没看到"时真正想知道的那个时间点，
@@ -2987,8 +3101,11 @@ function undelete(entity, id) {
 // （合并规则里"我有你没有的记录就收进来"是双向的），等于永远删不干净。见 mergePurged / applyPurged。
 function recordPurge(entity, id) {
   if (!Array.isArray(DB.purged)) DB.purged = [];
+  // 时间戳要压得住同一把钥匙上已有的条目（可能是一条 undone 的撤销声明，见 revokePurge），
+  // 否则"撤销之后再删一次"会因为时间戳更早而被合并规则判成过期，删了等于没删
+  const at = nextPurgeAt(latestPurgeAt(entity, id));
   DB.purged = DB.purged.filter(p => !(p.entity === entity && p.id === id));   // 同一条重复删就只留最后一次
-  DB.purged.push({ entity, id, at: new Date().toISOString(), by: DB.settings.me || '未署名' });
+  DB.purged.push({ entity, id, at, by: DB.settings.me || '未署名' });
   if (DB.purged.length > PURGED_LIMIT) DB.purged.splice(0, DB.purged.length - PURGED_LIMIT);
 }
 // 跟 softDelete/undelete 一样，是给 Repo.bulk(fn) 回调里用的同步版本——只改数组和索引，不落盘，
@@ -3596,8 +3713,17 @@ async function undoLast() {
   /* 墓碑同理：快照那一份 + 这段窗口里别人新增的墓碑。整个拨回快照的话，
      同事"彻底删除"掉的记录会在下一次合并时原样复活 */
   const snapPurgedKeys = new Set((d.purged || []).map(p => p.entity + ' ' + p.id));
+  // 被撤销的那次操作自己留下的墓碑：先拎出来，下面要给它们各留一条"作废"声明
+  const minePurged = (DB.purged || []).filter(p =>
+    p && !snapPurgedKeys.has(p.entity + ' ' + p.id) && (p.by || '') === ctx.by);
   DB.purged = (d.purged || []).concat((DB.purged || []).filter(p =>
     !snapPurgedKeys.has(p.entity + ' ' + p.id) && (p.by || '') !== ctx.by));
+  /* ★ 光把自己那批墓碑从本机数组里去掉是没用的 ★
+     它们早就随上一次保存进了共享文件，mergePurged 取的是并集，下一轮合并立刻把它们捡回来，
+     刚恢复的记录当场又被 applyPurged 清掉——实测就是"提示已撤销、任务一条都没回来"。
+     必须留一条能传出去的撤销声明，见 revokePurge。只撤自己留下的那些，
+     同事在这段窗口里彻底删掉的东西不能顺手复活（上面那个 by 过滤已经分好了）。 */
+  minePurged.forEach(p => revokePurge(p.entity, p.id));
   rebuildIndex();
   await Repo.persist(DB);
   if ($('#modal-overlay').classList.contains('show')) closeModal();
@@ -8548,6 +8674,12 @@ async function restoreMergeDamage() {
   DB.milestones = undoRestoreList('id', p.milestones, DB.milestones);
   DB.tasks = undoRestoreList('id', p.tasks, DB.tasks);
   if (p.users) DB.users = undoRestoreList('name', p.users, DB.users);
+  /* 告警里那批"整条消失"的记录是被【彻底删除】掉的，光把记录塞回列表不管用——
+     墓碑还在共享文件里躺着，下一次合并会把它们再清一遍，用户看到的就是"点了回滚，
+     过一会儿又没了"。跟撤销一样，必须留一条能传出去的撤销声明（见 revokePurge）。
+     这里不限 by：管理员是看着告警明确决定要把这批删除撤回来的，本来就是要覆盖掉
+     造成这次删除的那些动作（跟上面刻意不做"同事动过就跳过"保护是同一个道理）。 */
+  revokePurgesFor(p);
   pushAdminLog(`回滚了 ${fmtLocalDateTime(a.at)} 那次异常同步，恢复了被删掉的 ${a.damage.total} 条记录`);
   clearMergeAlert();
   rebuildIndex();
@@ -10352,7 +10484,16 @@ const ACTIONS = {
     if (!n) { showSnack('没有测试数据'); return; }
     confirmModal('清除测试数据', `将删除 ${n} 条标记为「测试」的任务（Ctrl+Z 可撤销）。`, '清除', async () => {
       snapshot();
-      await Repo.bulk(() => { DB.tasks = DB.tasks.filter(t => t.custom !== '测试'); });
+      /* ★ 曾经是 DB.tasks = DB.tasks.filter(...)，那是错的，实测复现过 ★
+         直接从数组里抠掉 = 一次彻底删除，但既没留墓碑、也没级联里程碑，后果有两条：
+         · 没墓碑 → 合并规则里"我有你没有的记录就收进来"是双向的，这批任务会从任何一台
+           还没同步的机器上原样飘回来。实测更难看：本机自己保存这一步就会同步一轮，
+           共享文件里还留着这些任务，于是它们在同一次点击里就回来了——界面上数字纹丝不动；
+         · 没级联 → 名下的里程碑变成永远打不开、恢复不了、却照样算进统计和甘特图的孤儿
+           （这正是 cascadeRemoveHardTask 存在的理由）。
+         改成跟"回收站里彻底删除"走同一个函数，这两件事就都由它负责了。 */
+      const ids = DB.tasks.filter(t => t.custom === '测试').map(t => t.id);
+      await Repo.bulk(() => { ids.forEach(id => cascadeRemoveHardTask(id)); });
       renderShell(); renderPage(); showSnack(`已清除 ${n} 条测试任务`);
     }, true);
   },
@@ -13069,6 +13210,11 @@ async function connectSharedFile() {
     // 已经存在的设置，继续用原来"谁的版本更新听谁的"规则，不能被一个全新空文件的 null 值冲掉
     const firstEverConnect = !(await hasEverConnectedShare());
     if (firstEverConnect) {
+      /* 这条路是"本机数据整批换成共享文件里那一份"，跟从备份恢复/以共享文件为准重置是同一类动作，
+         所以写入链标记也必须清掉：本机可能连过【别的】共享文件夹（断开之后重新连另一个走的就是这里），
+         那时留下的 lastWriteId 拿到这个新文件的链上一定找不到，会白报一次"你的保存被覆盖了"。
+         基线在下面统一对齐到 remote，这里清掉的是标记那一半。 */
+      clearSyncBaseline(DB);
       /* 用 slice() 各自拿一份数组，不要跟 remote 共用同一个数组对象：
          下面的 normalizeMergedRecords 会把规整好的记录换进列表里，共用数组的话
          remote 里的内容会跟着一起变，紧接着 buildSyncBase(remote) 拍下来的就不是
@@ -13098,6 +13244,12 @@ async function connectSharedFile() {
       const merged = normalizeMergedRecords(mergeSyncPayload(localPayload, remote, DB.syncBase));
       reconcileDerivedAfterMerge(merged);
       Object.assign(DB, merged);
+      /* 索引必须赶在下面两句之前重建：noteFieldConflicts 要用 byId 把冲突记录的标题查出来写进日志，
+         另外两条同步路径（syncToFileInner / pullFromFileInner）都是先 rebuildIndex 再播报的，
+         唯独这里把 rebuildIndex 拖到了函数末尾，于是这条路上报出来的冲突拿的是合并【之前】那份索引，
+         新记录查不到、改过名的查出来是旧标题。下面末尾那次 rebuildIndex 保留不动——
+         首次连接那条分支还要靠它。 */
+      rebuildIndex();
       /* ★ 这两句也是补的，而且比上面那两道工序更要紧 ★
          noteMergeAlerts 是「合并熔断」：一次合并里凭空少掉一大片记录时报警、并留一个回滚入口。
          而"重新连接共享文件夹"恰恰是【最容易出现大规模差异】的时刻——本机缓存着一份数据，
@@ -13356,6 +13508,13 @@ async function disconnectSharedFile() {
   try { await idbClearHandle(); } catch (e) {}
   DB.settings.sharedFileName = '';
   DB.settings.sharedFolderName = '';
+  /* ★ 基线和写入链标记也要清 ★ 它们记的是"上次跟【那个】共享文件对完账时是什么样""我上次写进
+     【那个】文件的是哪一次"。断开之后这两样就没有对应物了，留着只会在下次连接时撒谎：
+     实测——断开再连另一个共享文件夹，第一次同步就会拿着旧文件的 lastWriteId 去问
+     "我那次写还在链上吗"，新文件的链里当然没有，于是白报一条"刚才那次保存被某某用一份过期内容
+     覆盖了"，还会拿另一个文件的基线去做回滚，把基线污染成两个文件混起来的东西。
+     这正是 clearSyncBaseline 那段注释里说的"任何一个整批换掉的动作都必须两半一起清"。 */
+  clearSyncBaseline(DB);
   // 主动断开是用户自己的决定，不算"该同步却没同步"，别再红着提示了
   _everConnected = false;
   DB.settings.pendingSync = false;
