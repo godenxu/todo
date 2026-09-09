@@ -756,7 +756,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260908173135';
+const APP_VERSION = 'v20260909015241';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -9236,10 +9236,20 @@ const ACTIONS = {
       snapshot();
       let skipped = 0;
       await Repo.bulk(() => {
+        const gone = [];
         ids.forEach(id => {
           const t = byId('task', id);
-          if (t && canEditRecord('task', t)) cascadeSoftDeleteTask(id); else skipped++;
+          if (t && canEditRecord('task', t)) { gone.push(t.title || id); cascadeSoftDeleteTask(id); } else skipped++;
         });
+        /* ★ 批量删除必须留一条日志 ★ 单条删除早就在记了（见 'task-del' 里那段注释：
+           不记的话"看不出是谁删的、什么时候删的，在按时间倒序的日志里根本翻不到"），
+           而批量删除是同一件事的放大版——一次少掉几十条，恰恰是最需要事后查得到的那种。
+           它还是「合并熔断」告警之后唯一的线索：告警让人去日志页确认这批删除是不是正常的，
+           日志页要是一片空白，那句"请到日志页确认"就成了空话。
+           记一条汇总而不是逐条：逐条会把日志上限（CHANGELOG_LIMIT）一次挤掉一大片，
+           反而把别人的历史冲没了——回收站清理、体检彻底删除那两处也是这个口径。 */
+        pushChangeLog('task', '', `批量删除了 ${gone.length} 条任务（连同它们的里程碑）：`
+          + gone.slice(0, 8).map(x => `「${x}」`).join('、') + (gone.length > 8 ? ` 等 ${gone.length} 条` : ''));
       });
       UI.tasks.sel.clear();
       renderShell(); renderPage();
@@ -9253,7 +9263,13 @@ const ACTIONS = {
     const ids = [...UI.tasks.sel];
     confirmModal('彻底删除', `彻底删除选中的 ${ids.length} 条任务？（Ctrl+Z 仍可撤销）`, '彻底删除', async () => {
       snapshot();
-      await Repo.bulk(() => { ids.forEach(id => cascadeRemoveHardTask(id)); });
+      await Repo.bulk(() => {
+        // 跟批量删除同理，而且这个更狠（记录直接从共享文件里消失），更不能不留痕
+        const gone = ids.map(id => { const t = byId('task', id); return (t && t.title) || id; });
+        ids.forEach(id => cascadeRemoveHardTask(id));
+        pushChangeLog('task', '', `批量彻底删除了 ${ids.length} 条任务（连同它们的里程碑）：`
+          + gone.slice(0, 8).map(x => `「${x}」`).join('、') + (gone.length > 8 ? ` 等 ${gone.length} 条` : ''));
+      });
       UI.tasks.sel.clear();
       renderShell(); renderPage();
       showSnack(`已彻底删除 ${ids.length} 条`);
@@ -11255,7 +11271,14 @@ function openLinesEditor(entity, id, fieldKey) {
   openModal(`编辑${f.label}`, `<div class="hint" style="margin-bottom:6px">每行一条，保存后自动编号。</div>
     <textarea class="modal-textarea" id="lines-ta">${esc((r[fieldKey] || []).join('\n'))}</textarea>`, '保存', async () => {
     snapshot();
+    /* ★ 这是唯一一个改完不留痕的字段编辑入口 ★
+       所有单元格编辑（下拉、日期、多选、换所属工作）都会 logRecordChange 记一条带
+       「字段/改前/改后」明细的记录，只有多行文本这条路漏了。而它对应的字段正是
+       工作的「主要工作内容」——内容最长、被别人的旧页面顶回去损失最大的那一个。
+       实测确认过：连着改几十次，日志里一条都没有，「按日志核对数据」对它永远失效。 */
+    const before = clone(r);
     r[fieldKey] = parseLines($('#lines-ta').value);
+    logRecordChange(entity, id, before, r, [fieldKey]);
     await Repo.upsert(entity, r);
     closeModal(); renderPage(); showSnack('已保存');
   });
@@ -11817,6 +11840,7 @@ function openYearCopy() {
       closeModal();
       snapshot();
       let nw = 0;
+      const _ycCopied = [];
       await Repo.bulk(() => {
         ids.forEach(id => {
           const w = byId('work', id);
@@ -11830,7 +11854,14 @@ function openYearCopy() {
           DB.works.push(copy);
           nw++;
           if (arch === 'done') { w.status = 'done'; stampMeta(w); }
+          _ycCopied.push(`${copy.code} ${copy.name}`);
         });
+        /* 复制到新年度会一次性新建一批工作、还可能把源年度那批标成已完成——
+           跟别的批量动作同一个道理，必须留一条查得到的记录 */
+        pushChangeLog('work', '', `从 ${srcY} 年度复制了 ${nw} 项工作到 ${dst} 年度`
+          + (arch === 'done' ? `，并把源年度这 ${nw} 项标记为已完成` : '')
+          + `：` + _ycCopied.slice(0, 8).map(x => `「${x}」`).join('、')
+          + (_ycCopied.length > 8 ? ` 等 ${_ycCopied.length} 项` : ''));
       });
       DB.settings.year = dst;
       await Repo.persist(DB);
@@ -11884,6 +11915,9 @@ function openOrphanAssign() {
           if (!t.owner) { const w = byId('work', work); if (w) t.owner = w.owner; }
           stampMeta(t);
         });
+        // 一次改掉几十条任务的所属工作和编号，不留痕的话事后完全查不出这批编号是怎么变的
+        const w = byId('work', work);
+        pushChangeLog('task', '', `批量把 ${ids.length} 条未归属任务指派到工作「${w ? (w.code + ' ' + w.name) : work}」（编号已按新工作重新生成）`);
       });
       renderShell(); renderPage();
       showSnack(`已指派 ${ids.length} 条任务`);
@@ -13592,7 +13626,7 @@ async function applyCSVImport(entity, mode, text) {
   if (rows.length < 2) { showSnack('CSV 内容为空'); return 0; }
   const head = rows[0].map(s => s.trim());
   const get = (cols, k) => { const i = head.indexOf(k); return i >= 0 ? (cols[i] || '') : ''; };
-  let n = 0;
+  let n = 0, nAdd = 0, nOver = 0;
   snapshot();
   await Repo.bulk(() => {
     for (let i = 1; i < rows.length; i++) {
@@ -13649,9 +13683,17 @@ async function applyCSVImport(entity, mode, text) {
          时间戳和修改人记成现在、记成执行导入的这个人。这样它才压得住文件里的旧版本、推得出去。 */
       rec.rev = Math.max(Number(get(cols, 'rev')) || 0, (prev && prev.rev) || 0);
       stampMeta(rec);
-      if (j === -1) list.push(rec); else list[j] = rec;
+      if (j === -1) { list.push(rec); nAdd++; } else { list[j] = rec; nOver++; }
       n++;
     }
+    /* ★ 导入必须留痕 ★ 覆盖模式会按编号认领已有记录并【整条覆盖】——
+       这是本系统里少数几个能一次性改掉几百条记录的动作之一，而且代码注释里已经记过一次事故
+       （"同一份表导第二次，编号为空的那些任务会被整批再建一遍"）。
+       不留日志的话，事后既翻不到"什么时候导过一次"，「按日志核对数据」也永远查不出
+       被导入覆盖掉的那些字段——而那正是同事排查"我改的东西怎么没了"唯一的工具。
+       跟批量删除同一个口径：记一条汇总，不逐条刷屏。 */
+    pushChangeLog(entity, '', `${schema(entity).label} CSV 导入（${mode === 'append' ? '增量' : '覆盖'}模式）：`
+      + `新增 ${nAdd} 条、覆盖 ${nOver} 条`);
   });
   return n;
 }
@@ -13757,6 +13799,12 @@ async function applyWideImport(mode, text) {
       }
       recalcProgress(task);
     }
+    /* 宽表导入是破坏力最大的一个：覆盖模式下会把认领到的那条任务【现有的全部里程碑】
+       软删掉再按表格重建。这么大的动作一直一条日志都不留，事后只能靠人回忆是谁导的、导了什么。 */
+    pushChangeLog('task', '', `任务+里程碑宽表导入（${mode === 'append' ? '增量' : '覆盖'}模式）：`
+      + `写入任务 ${taskN} 条、里程碑 ${msN} 个`
+      + (skipped ? `，${skipped} 行因为找不到对应工作被跳过` : '')
+      + (badDate ? `，${badDate} 个日期没认出来` : ''));
   });
   return { taskN, msN, skipped, badDate };
 }
