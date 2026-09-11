@@ -77,9 +77,10 @@ async function main() {
   section('③：★按日志修复——改回去、留痕、可撤销、能同步出去');
   const revBefore = S.byId('task', 'p87_t').rev;
   const logCountBefore = S.DB.changelog.length;
+  // P102 起返回的不再是条数，而是一份交代：{ok 真正改好了几处, stuck 写进去又被改回的, skipped 改不动的}
   const n = await S.repairByChangelog(S.auditByChangelog());
   const after = S.byId('task', 'p87_t');
-  ok('★修了 1 处', n === 1, n);
+  ok('★修了 1 处', n.ok === 1 && n.stuck.length === 0, n);
   ok('★值按日志改回去了', after.status === 'doing', after.status);
   ok('★版本号抬高了——这样才推得到共享文件、同事那边才收得到', after.rev > revBefore, { before: revBefore, after: after.rev });
   ok('★修复动作本身也写进了日志（不能悄悄改数据）', S.DB.changelog.length > logCountBefore);
@@ -88,9 +89,10 @@ async function main() {
   ok('★修完再核对就干净了', S.auditByChangelog().length === 0);
 
   section('③：修复的幂等性与安全边界');
-  ok('★没有要修的时候返回 0，不乱动数据', (await S.repairByChangelog([])) === 0);
+  ok('★没有要修的时候返回 0，不乱动数据', (await S.repairByChangelog([])).ok === 0);
   const ghost = [{ entity: 'task', id: '不存在的任务', field: 'status', to: 'done', at: '', by: '' }];
-  ok('★记录已经不在了也不会抛异常', (await S.repairByChangelog(ghost)) === 0);
+  const gr = await S.repairByChangelog(ghost);
+  ok('★记录已经不在了也不会抛异常', gr.ok === 0 && gr.stuck.length === 0, gr);
 
   section('④：核对面板的渲染');
   S.setAuditIssues([]); S.setAuditShown(true);

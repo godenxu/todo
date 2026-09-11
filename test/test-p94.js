@@ -101,8 +101,11 @@ async function main() {
     /const derivedFixed = reconcileDerivedAfterMerge\(merged\);/.test(src));
   ok('★只读拉取那条路径（pullFromFile）也接上了',
     /reconcileDerivedAfterMerge\(merged\);\s*\/\/ 只读拉取/.test(src));
+  /* P103 起这个条件上又多了一项 !conflictAlerts（刚写进日志的告警同样必须推出去，
+     理由见 noteFieldConflicts 的注释），所以这里不再死扣"紧跟着 hasLocalContribution"，
+     只要求 derivedFixed 仍然是这个"必须写文件"判断的一部分 */
   ok('★★重算出了不一样的值就强制写文件——否则修正只留在本机，共享文件里那个错数字会一直错下去',
-    /if \(!derivedFixed && !hasLocalContribution\(/.test(src));
+    /if \(!derivedFixed &&[^)]*!hasLocalContribution\(/.test(src));
 
   S.DB.settings.me = bakMe;
   console.log('\n' + '='.repeat(46));

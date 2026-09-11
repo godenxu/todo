@@ -198,6 +198,10 @@ const exportTail = `
   reconcileDerivedAfterMerge, computeSPI,
   // 结构化变更日志 + 按日志核对/修复
   diffRecordChanges, logRecordChange, auditByChangelog, repairByChangelog, auditValueText, auditPanelHTML,
+  // P102：派生字段（有里程碑的任务的进度）不该进"可修复"清单；修复写完要回查有没有落地
+  derivedFieldInfo, repairableIssues,
+  // P103：第十三轮——导入只覆盖表里有的列 / 宽表保留交付状态 / 日志分等级裁剪 / 坏数字不留 NaN
+  capChangelog, noteDerivedProgressOverride, noteCascadedMilestoneDrop,
   get auditIssues(){return _auditIssues}, setAuditIssues(v){ _auditIssues = v; },
   get auditShown(){return _auditShown}, setAuditShown(v){ _auditShown = v; },
   checkClockSkew, CLOCK_SKEW_LIMIT_MS, noteOldWriter, oldWriterPanelHTML,

@@ -1,7 +1,18 @@
 <!DOCTYPE html>
 <html lang="zh-CN">
 <head>
-<!-- © 科技规划处 徐捷 版权所有 -->
+<!-- © 示例科技管理处 王建军 版权所有 -->
+<!-- ★★★ 专利演示版说明 ★★★
+     本文件是从正式产品（index.html）复制出来、专门用于专利评审演示的独立版本，
+     不是处里日常使用的那一份，也不会跟处里的共享数据文件产生任何关系。
+     文件里的机构名称、职责/工作内容、人员姓名、账号数据全部是虚构编造的，
+     跟任何真实单位、真实同事均无关联，仅用于展示系统功能。
+     打开后无需登录即可看到全部功能；如果想体验"多设备协同"这部分（可选），
+     必须用两个【不同的浏览器】各开一份这个文件（比如 Chrome 开一份、Edge 开一份）——
+     同一个浏览器开两个标签页/窗口不行，file:// 页面的本机存储是按文件路径共用的，
+     两个标签页面对的实际是同一份本机数据，看不出"两台设备"的效果。
+     两边都在"数据"页选择电脑上同一个本地文件夹作为"共享文件夹"，
+     就能看到多端编辑、合并、冲突提示的实际效果。 -->
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <!-- 别缓存这个页面。整个程序就这一个文件，一旦被缓存住，同事打开的就是旧代码——
@@ -12,7 +23,7 @@
 <meta http-equiv="Cache-Control" content="no-store, no-cache, must-revalidate, max-age=0">
 <meta http-equiv="Pragma" content="no-cache">
 <meta http-equiv="Expires" content="0">
-<title>科技规划处工作管理系统</title>
+<title>示例科技管理处工作管理系统（专利演示版·数据均为虚构）</title>
 <style>
 /* ===== RESET & VARS ===== */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -658,7 +669,7 @@ td.col-sel, th.col-sel { text-align: center; padding: 0; }
 <body>
 
 <div id="topbar">
-  <span class="logo">📋 科技规划处工作管理</span>
+  <span class="logo">📋 示例科技管理处工作管理　·　专利演示版（数据虚构）</span>
   <div id="nav"></div>
   <div id="topbar-right">
     <span id="share-connect-hint"></span>
@@ -756,7 +767,9 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260910221643';
+// 专利演示版单独标记版本号（后缀 -patent-demo），不会跟正式版本号撞在一起，
+// 也避免这份文件万一被拿去连正式的共享文件夹时，版本比较逻辑产生任何误判
+const APP_VERSION = 'v20260909015241-patent-demo';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -1594,15 +1607,8 @@ function normalizeMergedRecords(payload) {
      不盖戳也传得出去：基线比对（hasUnpushedFieldChange）看得见这个字段变了，
      而且每台机器算出来的结果一样，不会来回打架。
    返回改了几条：调用方据此决定"这次必须写文件"——否则修好的值只留在本机，共享文件里还是错的。 */
-// 本次重算里"进度被盖掉"的任务，供 noteDerivedProgressOverride 提示当事人；每次重算开头清空，
-// 所以即使某条同步路径没去播报（比如"整份以共享文件为准"那条），也不会串到下一次同步上去
-let _derivedProgressNotes = [];
-// 同上，记"因为所属任务被同事删了而被级联标记删除"的里程碑，供 noteCascadedMilestoneDrop 提示
-let _cascadedMsNotes = [];
 function reconcileDerivedAfterMerge(payload) {
   let fixed = 0;
-  _derivedProgressNotes = [];
-  _cascadedMsNotes = [];
   /* ★ 一、合并可能造出"任务在回收站里、名下却有活着的里程碑" ★
      删任务是级联的（cascadeSoftDeleteTask 会把名下里程碑一起标记删除），但"名下"指的是
      【删的那台机器当时看得到的那些】。甲刚给任务 T 加了个里程碑还没推上去，乙就把 T 删进了回收站——
@@ -1622,10 +1628,6 @@ function reconcileDerivedAfterMerge(payload) {
       if (!at) return;
       // 同样换副本再改，理由跟下面重算进度那段一样（不能就地改"文件里读出来的那个对象"）
       msList[i] = Object.assign({}, m, { deleted_at: at });
-      /* 记下来：这里级联删掉的可能正是我刚加进去、还没来得及被同事看到的里程碑——
-         对我来说这是一次实实在在的工作内容消失，而且一声不响（见 noteCascadedMilestoneDrop）。 */
-      _cascadedMsNotes.push({ id: m.id, task: m.task, deliverable: m.deliverable || '',
-        createdAt: m.created_at || '', updatedBy: m.updated_by || '' });
       fixed++;
     });
   }
@@ -1649,75 +1651,9 @@ function reconcileDerivedAfterMerge(payload) {
        （本机没改过这条时会直接沿用），就地改会把它一起改掉，后面拿它建基线就会把
        "修正后的值"当成"文件里本来就是这样"，反而永远不会把修好的值写回文件 */
     list[i] = Object.assign({}, t, { progress: p });
-    // 记下来：万一覆盖掉的正是某人刚刚手填的进度，得当场跟他说一声（见 noteDerivedProgressOverride）
-    _derivedProgressNotes.push({ id: t.id, title: t.title || '', from: Number(t.progress) || 0, to: p });
     fixed++;
   });
   return fixed;
-}
-/* ★★★ 进度被"按里程碑重算"盖掉时，至少要让当事人当场知道 ★★★
-   这是处里这次报上来的问题的另一半。管理员的原话是"同事改的两条记录的进度，一条顺利
-   同步了，另一条没有同步但有日志"——听起来像同步丢了数据，其实是这么一回事：
-
-     任务名下只要有里程碑，进度就是算出来的，界面上那一格是锁着的（openEditor 和
-     lockProgress 两处都拦）。但有一种情况躲不开：同事刚给这条任务加了个里程碑、
-     还没同步到我这台机器，我这边看到的就是一条"没有里程碑的任务"，进度格照样能改。
-     我改完、保存、同步一合并，里程碑到了，进度立刻被按完成比例重算掉。
-     我的那次改动只剩下一条变更日志，数据是另一个数——管理员拿「按日志核对」一查，
-     看到的就是"日志说 80、现在 0，而且日志之后没人动过"，只能理解成同步把数据弄丢了。
-
-   以前这件事从头到尾一声不响。现在当场说一句，把"为什么变了、想改该去改哪里"讲清楚。
-   两个刻意的分寸：
-   · 只在【被盖掉的那个值确实是我自己刚改的】时候才提示——判据是变更日志里有我本人
-     近期那条带 progress 明细的记录。光看记录的 updated_by 不够：我改个标题也会把
-     updated_by 变成我，那时候弹一句"你填的进度没有保留"纯属冤枉人。
-   · 只提示本机，不写日志。每台设备都会各自算出同样的结果，写日志只会让同一件事
-     在共享文件里重复好几条（这个坑在 reconcileDerivedAfterMerge 的注释里已经踩过一次）。 */
-const DERIVED_NOTE_WINDOW_MS = 10 * 60 * 1000;
-function noteDerivedProgressOverride() {
-  const notes = _derivedProgressNotes;
-  _derivedProgressNotes = [];
-  if (!notes.length) return;
-  const me = DB.settings.me || '';
-  const iJustChangedProgress = id => (DB.changelog || []).some(e =>
-    logKind(e) === 'edit' && logRefId(e) === id && (e.by || '') === me
-    && Array.isArray(e.changes) && e.changes.some(c => c && c.k === 'progress')
-    && e.at && (Date.now() - new Date(e.at).getTime()) < DERIVED_NOTE_WINDOW_MS);
-  const mine = notes.filter(n => iJustChangedProgress(n.id));
-  if (!mine.length) return;
-  const one = mine[0];
-  showSnack(mine.length === 1
-    ? `「${one.title}」的进度已按里程碑完成情况重算为 ${one.to}%，你填的 ${one.from}% 没有保留——`
-      + `这条任务名下有里程碑，进度是自动算出来的，要让它变上去得把对应里程碑勾成"已交付"`
-    : `有 ${mine.length} 条任务的进度已按里程碑完成情况重新算过，你刚填的值没有保留——`
-      + `名下有里程碑的任务进度是自动算的，要改请去勾里程碑`, { priority: true });
-}
-/* ★★★ 我刚加的里程碑，因为同事把所属任务删进了回收站而被连带删掉 ★★★
-   删任务是级联的，但"名下"指的是删的那台机器当时看得到的那些。我刚给任务 T 加了个里程碑
-   还没推上去，同事就把 T 删进了回收站；合并之后上面那段级联会把我这个里程碑一并标记删除
-   （这一步本身是对的，否则会留下界面上永远打不开、却照样进统计的无主里程碑）。
-   问题是对我来说：我刚填的交付物凭空不见了，一句话提示都没有，而且日志里也查不到
-   ——级联删除是每台设备各自算出来的，不写日志（写了会在文件里重复好几条）。
-
-   所以跟进度那个同一套做法：只在【被删掉的是我自己刚建/刚改的】时候提示本机一句，
-   并且说清楚"去哪儿找回来"——任务在回收站里，恢复任务会把名下里程碑一并带回来
-   （cascadeRestoreTask 保证了这一点），这是管理员真正需要知道的那半句。 */
-function noteCascadedMilestoneDrop() {
-  const notes = _cascadedMsNotes;
-  _cascadedMsNotes = [];
-  if (!notes.length) return;
-  const me = DB.settings.me || '';
-  const fresh = at => at && (Date.now() - new Date(at).getTime()) < DERIVED_NOTE_WINDOW_MS;
-  const mine = notes.filter(n => n.updatedBy === me && fresh(n.createdAt));
-  if (!mine.length) return;
-  const taskTitle = id => { const t = byId('task', id); return t ? (t.title || id) : id; };
-  const one = mine[0];
-  showSnack(mine.length === 1
-    ? `你刚加的里程碑「${one.deliverable || '未填写交付物'}」已跟着进回收站了：它所属的任务`
-      + `「${taskTitle(one.task)}」被同事删进了回收站。如果那条任务是误删，到数据页回收站把任务恢复，`
-      + `这个里程碑会一并回来`
-    : `你刚加的 ${mine.length} 个里程碑已跟着进回收站了：它们所属的任务被同事删进了回收站。`
-      + `如果是误删，到数据页回收站恢复任务，里程碑会一并回来`, { priority: true });
 }
 /* 拿一份数据快照当基线。只留参与三方合并的四类业务记录——
    账号/权限矩阵/日志各有各的合并规则（心跳取最晚、角色要过授权检查、日志按 id 并集），
@@ -1930,11 +1866,7 @@ function dropMilestonesOfPurgedTasks(milestones, purged, tasks) {
 function mergeChangelog(local, remote) {
   const map = new Map((local || []).map(e => [e.id, e]));
   (remote || []).forEach(e => { if (!map.has(e.id)) map.set(e.id, e); });
-  /* 这里也必须走分等级裁剪，不能再用 slice(-CHANGELOG_LIMIT) ★
-     合并是两边日志取并集，条数正是在这一步翻倍的——如果这里还按时间一刀切，
-     trimChangelog 那边辛苦保住的带明细记录，下一次同步就被对方灌进来的一批登录记录冲掉了，
-     等于白保护（两处必须用同一套口径，见 capChangelog 的注释）。 */
-  return capChangelog([...map.values()].sort((a, b) => (a.at || '').localeCompare(b.at || '')), CHANGELOG_LIMIT);
+  return [...map.values()].sort((a, b) => (a.at || '').localeCompare(b.at || '')).slice(-CHANGELOG_LIMIT);
 }
 function syncPayload(db) {
   return {
@@ -2043,24 +1975,7 @@ function mergePermissionMatrix(local, remote, label) {
   if (!remote) return local;
   if (!local) return remote;
   const takeRemote = newerRecord(remote, local);
-  /* ★ 什么时候算"有人的一整份配置被丢掉了" ★
-     原来只在【版本号打平】时才记一条。可 rev 是各台机器各自 +1 的计数，不是全局序号
-     （这个坑在 mergeRecordThreeWay 开头那一大段里已经写明过）——两台机器的编排
-     rev 一个 5 一个 9，完全可能是各自独立改出来的，并没有先后因果。
-     结果实测（第十三轮探针15）：我刚排好的一整份报告编排，被同事那份 rev 更大的整份盖掉，
-     日志里一个字都没有，我也收不到任何提示。这类配置是整份生效的，输的那一方改了什么
-     全部丢失，只能靠人重新配一遍——恰恰是最该留痕的一种覆盖。
-
-     所以判据换成"我这边这份是不是我在上次对账之后改的"：
-     updated_at 比 settings.lastSyncAt 还晚，说明这确实是我本轮新做的改动，
-     被丢掉就是真损失，必须报。纯粹因为我落后于文件（我这份根本没动过）而被更新的那份
-     替换掉，不算损失，也就不报——这样既不漏报真损失，也不会每轮同步都来一条噪音。
-     版本号打平那条判据保留：那是两边同时改的铁证，哪怕时间戳看不出来也要报。 */
-  const lastSync = (DB.settings && DB.settings.lastSyncAt) || '';
-  const iChangedItSinceLastSync = !!(local.updated_at && lastSync && local.updated_at > lastSync);
-  const tie = (local.rev || 0) === (remote.rev || 0);
-  const mineDiscarded = takeRemote && iChangedItSinceLastSync;
-  if (label && !sameWholeObject(local, remote) && (tie || mineDiscarded)) {
+  if (label && (local.rev || 0) === (remote.rev || 0) && !sameWholeObject(local, remote)) {
     _objConflicts.push({
       label, taken: takeRemote ? 'theirs' : 'mine',
       mine: local.updated_by || '', theirs: remote.updated_by || '',
@@ -2398,13 +2313,7 @@ function noteMergeAlerts(localPayload, merged) {
    这种情况系统只能定个胜负（按 newerRecord），但绝不能悄悄定——之前那次事故之所以查了很久，
    就是因为覆盖发生得无声无息。现在每一次都写进日志，事后翻得到、也能拿"按日志核对"查出来。
    同一次合并里的所有冲突合并成一条，不刷屏。 */
-/* 返回这次往日志里写了几条告警。调用方（同步路径）要用它决定"这次必须写文件"——
-   否则会出现一种很别扭的情况：我那一整份编排被同事那份盖掉了，告警写进了本机日志，
-   可这一轮除了这条告警之外没有别的要推的东西，于是走到"没东西可推、不写文件"那条分支，
-   告警就只留在我自己机器上，别人谁也不知道发生过这件事（实测 P103 第六节）。
-   告警的全部意义就在于"藏不住"，它必须跟这次合并结果一起推出去。 */
 function noteFieldConflicts() {
-  let alerts = 0;
   /* 整体配置对象被整份覆盖的，单独报一条：它跟"某条任务的某个字段被覆盖"完全不是一回事——
      丢掉的是一整份编排/一整套权限设置，而且没有任何逐字段保护能救回来，只能靠人重新配一遍。
      所以文案要直说"你刚才那份改动被覆盖了、请重新确认一下"。 */
@@ -2416,11 +2325,10 @@ function noteFieldConflicts() {
     pushAlertLog(`同步时发现 ${objs.length} 处"同一份配置被两个人同时改动"：${objs.map(one).join('；')}。`
       + `这类配置是整份生效的，输的那一方改了什么全部丢失，请到对应页面确认一下是不是你要的那一份。`);
     showSnack(`⚠ ${objs.map(o => o.label).join('、')}有并发修改，其中一份被覆盖了，详见「日志」页`, { priority: true });
-    alerts++;
   }
   const list = _mergeFieldConflicts;
   _mergeFieldConflicts = [];
-  if (!list.length) return alerts;
+  if (!list.length) return;
   const valTxt = (entity, field, v) => {
     const f = fieldDef(entity, field);
     if (!f) return String(v == null ? '空' : v);
@@ -2438,7 +2346,6 @@ function noteFieldConflicts() {
   const shown = list.slice(0, 5).map(one).join('；');
   pushAlertLog(`同步时发现 ${list.length} 处"同一个字段被两个人同时改动"：${shown}${list.length > 5 ? ' 等' : ''}。`
     + `其余字段已按各自的改动分别保留，没有互相覆盖。`);
-  return alerts + 1;
 }
 function loadMergeAlert() {
   try { const raw = localStorage.getItem(MERGE_ALERT_KEY); return raw ? JSON.parse(raw) : null; }
@@ -2811,9 +2718,7 @@ async function syncToFileInner(db) {
        localPayload 仍然是合并前那份——syncPayload 拿的是数组引用，
        Object.assign 换掉的是 db 上的指向，不影响它。 */
     noteMergeAlerts(localPayload, merged);
-    const conflictAlerts = noteFieldConflicts();   // 三方合并里"两人同时改了同一个字段"的，写日志让人看得见
-    noteDerivedProgressOverride();   // 我刚填的进度被按里程碑重算盖掉了的，当场说一声
-    noteCascadedMilestoneDrop();     // 我刚加的里程碑被"同事删了任务"连带删掉的，当场说一声
+    noteFieldConflicts();   // 三方合并里"两人同时改了同一个字段"的，写日志让人看得见
     /* ★ 本机没有任何文件里还没有的东西，就不写 ★（见 hasLocalContribution 的注释）
        读—合并这一步已经做完了，对方的新内容已经进到本机了，该看到的都看到了；
        缺的只是"把我的推上去"，而我根本没有要推的。这种情况下写入不但没意义，
@@ -2822,11 +2727,7 @@ async function syncToFileInner(db) {
        不能只靠下面那个判断——它比的是"合并前的本机"和"文件"，而重算是合并之后才发生的，
        两边都看不见它。漏掉这一步的话，修正只留在本机，共享文件里那个错数字会一直错下去，
        每台机器各自默默修一遍，谁也没把它推上去。 */
-    /* conflictAlerts：刚往日志里写过告警，必须把它推出去。
-       不能指望下面那个判断：它比的是"合并前的本机"和"文件"，而 localPayload.changelog
-       指的是合并前那个数组，里面根本没有刚写的这条告警（Object.assign 已经把 db.changelog
-       换成 merged.changelog 了）。跟 derivedFixed 是同一类问题：合并之后才发生的事，那个判断看不见。 */
-    if (!derivedFixed && !conflictAlerts && !hasLocalContribution(localPayload, cur.remote, db.syncBase)) {
+    if (!derivedFixed && !hasLocalContribution(localPayload, cur.remote, db.syncBase)) {
       // 没写文件，那文件里现在就是刚读到的这一份——基线对齐到它
       db.syncBase = buildSyncBase(cur.remote);
       db.settings.lastSyncAt = new Date().toISOString();   // 确实跟文件对过账了，新鲜度要更新
@@ -2932,8 +2833,6 @@ async function pullFromFileInner() {
   // 同样必须放在 Object.assign 之后，理由见 syncToFile 里那段注释
   noteMergeAlerts(localPayload, merged);
   noteFieldConflicts();
-  noteDerivedProgressOverride();
-  noteCascadedMilestoneDrop();
   /* ★ 基线对齐到"刚读到的文件内容"，不是对齐到合并结果 ★
      这里只读不写，文件里仍然是 cur.remote；本机 merged 里可能还带着没推上去的改动。
      如果错误地把基线设成 merged，下一轮就会认为"我什么都没改"，
@@ -3070,43 +2969,8 @@ function stampMeta(rec) {
    管理员翻"上周谁改了什么"会直接翻空。每条约 150 字节，800 条也就 120KB 上下，
    相对共享文件本身的体量可以接受。 */
 const CHANGELOG_LIMIT = 800;
-/* ★★★ 超上限时丢哪些，必须分等级 ★★★
-   原来是一刀切 splice(0, over)：按时间从最旧的开始丢，不管那条是什么。
-   实测（第十三轮探针4）的后果：十几个人每天登录，登录记录和变更记录共用这 800 条额度，
-   灌满之后日志里 800 条全是 login —— 带逐字段明细的变更记录一条不剩。
-   而"按日志核对数据"只认带明细的记录，那是同事排查"我改的东西怎么变回去了"唯一的证据；
-   证据被一堆"某某登录了"挤掉，这个工具就等于废了（上一轮刚把它修好）。
-
-   分等级丢，从最不值钱的开始：
-     ① login —— 谁什么时候登录过，排查价值最低，而且产生量最大；
-     ② 没有结构化明细的 edit —— 只有一句人话描述，程序读不懂，核对用不上；
-     ③ 其余的（带明细的 edit、管理员操作、越权/覆盖告警）—— 这些是真证据，最后才动。
-   同一等级内部仍然按时间从旧到新丢。活下来的保持原来的时间顺序。 */
-function capChangelog(list, limit) {
-  const arr = list || [];
-  let over = arr.length - (limit || CHANGELOG_LIMIT);
-  if (over <= 0) return arr;
-  const tier = e => {
-    const k = logKind(e);
-    if (k === 'login') return 0;
-    if (k === 'edit' && !(Array.isArray(e.changes) && e.changes.length)) return 1;
-    return 2;
-  };
-  const drop = new Set();
-  for (let t = 0; t <= 2 && over > 0; t++) {
-    for (let i = 0; i < arr.length && over > 0; i++) {
-      if (drop.has(i) || tier(arr[i]) !== t) continue;
-      drop.add(i); over--;
-    }
-  }
-  return arr.filter((e, i) => !drop.has(i));
-}
 function trimChangelog() {
-  if (DB.changelog.length <= CHANGELOG_LIMIT) return;
-  const kept = capChangelog(DB.changelog, CHANGELOG_LIMIT);
-  // 就地换内容，不换数组对象：同步路径上 db.changelog 和 merged.changelog 可能是同一个数组引用
-  DB.changelog.length = 0;
-  kept.forEach(e => DB.changelog.push(e));
+  if (DB.changelog.length > CHANGELOG_LIMIT) DB.changelog.splice(0, DB.changelog.length - CHANGELOG_LIMIT);
 }
 // 日志条目的类型。老数据没有 kind 字段（登录记录是后加的），一律按"变更"算，不能当成未知类型丢掉
 function logKind(e) { return (e && e.kind) || 'edit'; }
@@ -3322,19 +3186,9 @@ function normalize(entity, r) {
         if (typeof v === 'string') r[f.key] = v ? v.split('\n').map(s => s.trim()).filter(Boolean) : [];
         else if (!Array.isArray(v)) r[f.key] = [];
         break;
-      /* ★ 认不出来的数字要落回空值，不能留 NaN ★
-         原来直接 Number(v)：共享文件被人用记事本改过、或者 Excel 里把进度填成"八十"、
-         年度填成"二〇二六"时，这里会存进一个 NaN。JSON.stringify(NaN) 写出来是 null，
-         于是这个字段在所有机器上变成 null，之后参与任何算术（进度条、SPI、按人统计）
-         结果全是 NaN，界面上显示成空白或 NaN，而且谁也看不出是哪一格的值坏了。
-         落回 0 / 空串之后，至少是个合法值，数据体检也能照常查出"进度和状态对不上"。 */
-      case 'num': {
-        const blankNum = f.key === 'progress' ? 0 : '';
-        if (v === '' || v == null) { r[f.key] = blankNum; break; }
-        const num = Number(v);
-        r[f.key] = Number.isFinite(num) ? num : blankNum;
+      case 'num':
+        r[f.key] = (v === '' || v == null) ? (f.key === 'progress' ? 0 : '') : Number(v);
         break;
-      }
       case 'enum':
         r[f.key] = (v == null || v === '') ? f.options[0].v : String(v);
         break;
@@ -4166,7 +4020,7 @@ function renderSidebar() {
   /* 左下角只留两样：著作权信息 + 版本号。
      中间原来还有一行"存储：IndexedDB"，那是实现细节，对使用者没有任何意义，去掉；
      版本号必须留着——排查"谁还在用旧版本"就是靠这个（见 appVersionCellHTML）。 */
-  const foot = `<div class="sb-copyright">&#174; 科技规划处&nbsp;徐捷<br><span style="opacity:.55">${esc(APP_VERSION)}</span></div>`;
+  const foot = `<div class="sb-copyright">&#174; 示例科技管理处&nbsp;王建军<br><span style="opacity:.55">${esc(APP_VERSION)}</span></div>`;
   let html = '';
 
   if (currentPage === 'tasks') {
@@ -4747,7 +4601,7 @@ function buildAssessmentGoalsText(person, period, offset) {
   if (!dutyGroups.size) return `${person} 目前没有牵头或参与任何工作，无法生成考核目标。`;
 
   const dutyCodes = [...dutyGroups.keys()].sort((a, b) => a.localeCompare(b));
-  const lines = [`科技规划处 · ${person} · ${periodLabel}（${curStart} ～ ${curEnd}）考核目标`, '='.repeat(32), ''];
+  const lines = [`示例科技管理处 · ${person} · ${periodLabel}（${curStart} ～ ${curEnd}）考核目标`, '='.repeat(32), ''];
 
   dutyCodes.forEach((code, di) => {
     const duty = byId('duty', code);
@@ -7758,13 +7612,13 @@ function reportConfigPanelHTML() {
 }
 
 /* PDF 打印/图片导出用的标题+文件名：处室名+"工作简报"+汇报周期，不能再是笼统的应用名
-   "科技规划处工作管理系统"（那是给整个系统起的名字，不是这份报告的名字，浏览器打印默认会拿
+   "示例科技管理处工作管理系统"（那是给整个系统起的名字，不是这份报告的名字，浏览器打印默认会拿
    document.title 当页眉和另存 PDF 时建议的文件名，不改的话导出来的东西全叫这个名）。
    正文里已经把完整的统计周期写清楚了（"处室工作简报　·　统计周期：本周（2026-08-04～2026-08-10）"），
    标题/文件名不需要把那串完整的起止日期再重复一遍——periodLabel（本周/本月…）+ 区间起始日
    已经够区分"这是哪一次导出"，没必要把两个日期都堆进文件名里。 */
 function reportExportTitle(d) {
-  return `科技规划处工作简报_${d.periodLabel}_${d.rangeStart}`;
+  return `示例科技管理处工作简报_${d.periodLabel}_${d.rangeStart}`;
 }
 function renderReport() {
   const d = buildReportData(reportPeriod, reportOffset);
@@ -7828,7 +7682,7 @@ function renderReport() {
 
     <div id="report-print-area">
     <div class="panel"><div class="panel-h">
-        <span>📋 科技规划处　处室工作简报　·　统计周期：${esc(d.periodLabel)}（${esc(d.rangeStart)} ～ ${esc(d.rangeEnd)}）</span>
+        <span>📋 示例科技管理处　处室工作简报　·　统计周期：${esc(d.periodLabel)}（${esc(d.rangeStart)} ～ ${esc(d.rangeEnd)}）</span>
         <span class="no-print" style="display:flex;align-items:center"><span class="seg-ctrl">${periodBtns}</span>${navBtns}</span>
       </div>
       <div class="panel-b no-print">
@@ -7893,9 +7747,9 @@ function renderReport() {
    打印自己的内容，不该被这里的逻辑顺带影响。 */
 /* 打印/导出 PDF 时把浏览器标签页标题临时换成这份报告自己的标题——Chrome 打印页眉、
    另存 PDF 时弹出的"文件名"输入框，用的都是这一刻的 document.title，不换的话导出来的
-   PDF 页眉和默认文件名会一直是"科技规划处工作管理系统"这个笼统的系统名。打印结束（不管
+   PDF 页眉和默认文件名会一直是"示例科技管理处工作管理系统"这个笼统的系统名。打印结束（不管
    是真的打印了还是取消了，afterprint 都会触发）要马上换回来，不然浏览器标签页会一直
-   显示成"科技规划处工作简报_本周_2026-08-04"，容易让人以为自己点错了页面。 */
+   显示成"示例科技管理处工作简报_本周_2026-08-04"，容易让人以为自己点错了页面。 */
 let _reportPrintTitleBak = null;
 window.addEventListener('beforeprint', () => {
   if (currentPage !== 'report') return;
@@ -7911,7 +7765,7 @@ window.addEventListener('afterprint', () => {
 // 纯文本简报：跟页面走同一份编排、同一批模块，不再另外维护一份写死的顺序
 function buildReportText() {
   const d = buildReportData(reportPeriod, reportOffset);
-  const lines = [`科技规划处　处室工作简报（统计周期：${d.periodLabel}　${d.rangeStart} ～ ${d.rangeEnd}）`, ''];
+  const lines = [`示例科技管理处　处室工作简报（统计周期：${d.periodLabel}　${d.rangeStart} ～ ${d.rangeEnd}）`, ''];
   const push = s => lines.push(s);
   reportSections().forEach(s => {
     lines.push(`${s.title}`);
@@ -8557,7 +8411,7 @@ async function exportReportImage() {
 
       // 页头面板：跟屏幕/PDF 上"处室工作简报"那块面板视觉一致，只有一行标题——周期切换/翻期
       // 按钮和下面的导出按钮都是 no-print，图片/PDF 里本来就不出现，这里也不画
-      const headerText = `📋 科技规划处　处室工作简报　·　统计周期：${d.periodLabel}（${d.rangeStart} ～ ${d.rangeEnd}）`;
+      const headerText = `📋 示例科技管理处　处室工作简报　·　统计周期：${d.periodLabel}（${d.rangeStart} ～ ${d.rangeEnd}）`;
       cur.y = panel(cur.x0, cur.y, cur.w, (hx, hy, hw) => {
         ctx.font = 'bold 13px sans-serif';
         ctx.fillStyle = COL.text2;
@@ -8860,35 +8714,6 @@ async function restoreMergeDamage() {
    那些路径不写逐字段明细，核对结果里会表现为"对不上"——但它们不是事故。
    所以这里只负责【摆事实】：日志说什么、现在是什么、记录最后是谁在什么时候动的，
    由管理员看着决定要不要按日志改回去。 */
-/* ★★★ 这个字段是不是"系统按别的记录算出来的" ★★★
-   目前只有一个：任务名下有里程碑时，进度 = 已交付里程碑数 ÷ 里程碑总数（见 recalcProgress）。
-   不把这一类单独认出来，"按日志核对 / 修复"就会把管理员带进一个死循环。完整过程（已复现）：
-
-     同事给一条任务改了进度、或者后来有人给这条任务加了一个里程碑，日志里留着
-     "进度：0→50"；而当前值是按里程碑重算出来的 33%。核对结果把它列成"对不上"，
-     管理员点"按日志把这处改回去"——程序确实把 50 写进了记录，也照规矩写了一条修复日志，
-     可这次保存顺带触发的同步里，reconcileDerivedAfterMerge 又按里程碑把它重算回 33。
-     界面上看到的就是【日志多了一条、数据一点没变】；再核对一次，对不上反而多了一处——
-     多出来的正是管理员自己刚写的那条修复日志。点几次就攒几条假的"已修复"记录，
-     数据永远改不过来。
-
-   还有一层让人更容易误判的：派生重算刻意不盖 stampMeta（理由见 reconcileDerivedAfterMerge
-   的注释），所以这种覆盖不会动 updated_at，核对结果最后一列显示出来是"日志之后没人动过"。
-   管理员看到"没人动过、值却不一样"，只会更确信是同步把同事的改动弄丢了——而事实上
-   这个字段根本不是谁"改"的，界面上也一直不给手改（见 openEditor 和 lockProgress 两处拦截）。
-
-   所以这里要做两件事：不许修（修了也是白修），并且在面板上把"这是算出来的"说明白。
-   返回当前应该算出来的值和一句人话解释；不是派生字段就返回 null。 */
-function derivedFieldInfo(entity, field, rec) {
-  if (entity !== 'task' || field !== 'progress' || !rec) return null;
-  const cps = DB.milestones.filter(m => m.task === rec.id && !m.deleted_at);
-  if (!cps.length) return null;   // 名下没有里程碑，进度是手填的，属于正常可修字段
-  const done = cps.filter(m => m.done === '1').length;
-  return {
-    value: Math.round(done / cps.length * 100),
-    why: `这条任务名下有 ${cps.length} 个里程碑，进度是按完成比例自动算出来的（已交付 ${done} 个 = ${Math.round(done / cps.length * 100)}%），不是谁手改的，也改不动`,
-  };
-}
 function auditByChangelog() {
   const latest = new Map();
   (DB.changelog || []).forEach(e => {
@@ -8910,12 +8735,9 @@ function auditByChangelog() {
     const f = fieldDef(v.entity, v.field);
     if (!f || f.virtual) return;
     if (sameFieldValue(rec[v.field], v.to)) return;  // 对得上，正常
-    const derived = derivedFieldInfo(v.entity, v.field, rec);
     issues.push(Object.assign({}, v, {
       now: rec[v.field],
       title: rec[schema(v.entity).titleField] || v.id,
-      // 派生字段：列出来只为解释，不参与修复（见 derivedFieldInfo 的注释）
-      derived: !!derived, derivedWhy: derived ? derived.why : '',
       recUpdatedAt: rec.updated_at || '', recUpdatedBy: rec.updated_by || '',
       /* 记录最后一次改动发生在这条日志之后——最值得看的就是这一类：
          有人在日志之后动过它，却没留下逐字段记录，正是"被旧页面顶回去"的典型特征 */
@@ -8933,64 +8755,27 @@ function auditValueText(entity, field, v) {
 }
 let _auditIssues = [];   // 上一次核对的结果，"按日志修复"按钮要用
 let _auditShown = false;  // 核对面板展开着没有（纯本机界面状态，不进 DB）
-// 核对结果里真正能修的那些（派生字段只用来解释，修不动，见 derivedFieldInfo）
-function repairableIssues(issues) { return (issues || []).filter(it => !it.derived); }
 /* 按日志把选中的这些字段改回去。走正常的编辑路径：留快照（可 Ctrl+Z）、
    stampMeta 抬版本号（这样才推得到共享文件、别人也能收到）、并且照样写一条变更记录——
-   修复动作本身也必须留痕，不能出现"数据悄悄变了、日志里查不到是谁改的"。
-
-   ★ 返回值从"修了几处"改成一份交代 ★ {ok, stuck, skipped}
-   以前这里写完就直接返回条数，调用方照着报"已按日志修复 N 处"。问题是写进去不等于存下来：
-   Repo.bulk 末尾的 persist 会顺带跑一次同步，而同步要合并同事的改动、要做类型规整、
-   要重算派生字段，任何一环都可能把刚写进去的值又改掉。于是出现过最让人没法理解的一种状态——
-   提示说"已修复 1 处"，日志里也真有一条修复记录，可数据根本没变，再核对一次对不上还多了一处。
-   派生字段那一类是这种状态最主要的来路，上面已经在核对阶段就拦住了；
-   剩下的原因（同步期间被同事抢改、手工改坏的值被类型规整纠正）这里兜住：
-   写完之后逐条回查一遍，没落地的
-     · 把刚写的那条"按日志修复"记录改写成实话，并去掉它的结构化明细——
-       否则这条假记录自己又会变成下一次核对的一处"对不上"，越点越多；
-     · 留一条告警（随共享文件同步给所有人，"修复没生效"属于真异常，不该只有点按钮的人知道）；
-     · 原样报给调用方，由它照实告诉管理员，不许再报成"已修复"。 */
+   修复动作本身也必须留痕，不能出现"数据悄悄变了、日志里查不到是谁改的"。 */
 async function repairByChangelog(issues) {
-  const fixable = repairableIssues(issues);
-  const skipped = (issues || []).length - fixable.length;
-  if (!fixable.length) return { ok: 0, stuck: [], skipped };
+  if (!issues.length) return 0;
   snapshot();
-  const tried = [];
+  let n = 0;
   await Repo.bulk(() => {
-    fixable.forEach(it => {
+    issues.forEach(it => {
       const rec = byId(it.entity, it.id);
       if (!rec || rec.deleted_at) return;
       if (sameFieldValue(rec[it.field], it.to)) return;   // 期间已经被改回去了，不重复动
       const before = clone(rec);
       rec[it.field] = it.to;
       stampMeta(rec);
-      const at = DB.changelog.length;   // 记下位置，万一没落地要回来改写这一条
       logRecordChange(it.entity, it.id, before, rec, [it.field],
         `按日志修复（依据：${it.by || '未署名'} 于 ${fmtLocalDateTime(it.at)} 的那条记录）`);
-      tried.push(Object.assign({}, it, { logEntry: DB.changelog[at] }));
+      n++;
     });
   });
-  const stuck = tried.filter(it => {
-    const rec = byId(it.entity, it.id);
-    return !rec || !sameFieldValue(rec[it.field], it.to);
-  });
-  if (stuck.length) {
-    stuck.forEach(it => {
-      const e = it.logEntry;
-      if (!e) return;
-      const rec = byId(it.entity, it.id);
-      const fl = (fieldDef(it.entity, it.field) || {}).label || it.field;
-      e.summary = `按日志修复未生效：${fl}试着改成「${auditValueText(it.entity, it.field, it.to)}」，`
-        + `保存之后又变成了「${auditValueText(it.entity, it.field, rec ? rec[it.field] : '')}」`;
-      delete e.changes;   // 去掉明细，别让这条没生效的记录变成下一次核对的新"对不上"
-    });
-    pushAlertLog(`按日志修复数据：${tried.length} 处里有 ${stuck.length} 处没有生效`
-      + `（${uniq(stuck.map(it => (fieldDef(it.entity, it.field) || {}).label || it.field)).slice(0, 4).join('、')}），`
-      + `值写进去之后又被改回了，这几处的数据仍是修复前的样子，需要人工确认原因。`);
-    await Repo.persist(DB);
-  }
-  return { ok: tried.length - stuck.length, stuck, skipped };
+  return n;
 }
 function auditPanelHTML() {
   const issues = _auditIssues;
@@ -8998,13 +8783,8 @@ function auditPanelHTML() {
     return `<div class="hint">✅ 核对完成：带明细的变更记录跟当前数据全部对得上，没有发现"日志说改成了 A、现在却是 B"的情况。</div>`;
   }
   const canFix = hasPermission('bulk_ops');
-  /* ★ 两类对不上必须分开摆 ★ 混在一张表里只会害人：
-     派生字段（有里程碑的任务的进度）根本不是谁覆盖的，也修不动——混进去之后，
-     管理员一按"全部改回去"，真正需要修的和修不动的一起点，结果就是日志里多出几条
-     假的"已修复"记录而数据没变（见 derivedFieldInfo 的注释）。 */
-  const real = issues.filter(it => !it.derived);
-  const derived = issues.filter(it => it.derived);
-  const rowsOf = (list, isDerived) => list.slice(0, 200).map(it => {
+  const rows = issues.slice(0, 200).map(it => {
+    const sc = schema(it.entity);
     const f = fieldDef(it.entity, it.field);
     return `<tr>
       <td>${esc(({ task: '任务', work: '工作', duty: '职责', milestone: '里程碑' })[it.entity] || it.entity)}</td>
@@ -9013,39 +8793,24 @@ function auditPanelHTML() {
       <td style="color:var(--done)">${esc(auditValueText(it.entity, it.field, it.to))}</td>
       <td style="color:var(--overdue);font-weight:700">${esc(auditValueText(it.entity, it.field, it.now))}</td>
       <td class="hint" style="text-align:left">${esc(it.by || '—')} · ${esc(fmtLocalDateTime(it.at))}</td>
-      <td class="hint" style="text-align:left">${isDerived
-        ? esc(it.derivedWhy)
-        : `${esc(it.recUpdatedBy || '—')} · ${esc(fmtLocalDateTime(it.recUpdatedAt))}${
-            it.changedAfterLog ? '<br><span style="color:var(--overdue)">日志之后被动过</span>' : ''}`}</td>
+      <td class="hint" style="text-align:left">${esc(it.recUpdatedBy || '—')} · ${esc(fmtLocalDateTime(it.recUpdatedAt))}${
+        it.changedAfterLog ? '<br><span style="color:var(--overdue)">日志之后被动过</span>' : ''}</td>
     </tr>`;
   }).join('');
-  const head = lastCol => `<thead><tr>
-      <th style="width:56px">类型</th><th style="text-align:left">记录</th><th style="width:80px">字段</th>
-      <th style="width:110px">日志说应该是</th><th style="width:110px">现在实际是</th>
-      <th style="text-align:left;width:150px">日志记录人/时间</th><th style="text-align:left;width:190px">${lastCol}</th>
-    </tr></thead>`;
-  const realBlock = real.length ? `<div class="hint" style="margin-bottom:8px">
-      共 ${real.length} 处对不上${real.length > 200 ? '（只列出最近 200 处）' : ''}。
+  return `<div class="hint" style="margin-bottom:8px">
+      共 ${issues.length} 处对不上${issues.length > 200 ? '（只列出最近 200 处）' : ''}。
       <b>对不上不等于一定出错</b>：CSV 导入、批量操作、数据体检这些正当路径不会写逐字段明细，
       它们改过的字段也会出现在这里。请对照最后两列判断——尤其留意标着"日志之后被动过"的那些。
     </div>
-    <div style="max-height:42vh;overflow:auto"><table class="dtable">${head('记录最后修改')}<tbody>${rowsOf(real, false)}</tbody></table></div>
+    <div style="max-height:52vh;overflow:auto"><table class="dtable"><thead><tr>
+      <th style="width:56px">类型</th><th style="text-align:left">记录</th><th style="width:80px">字段</th>
+      <th style="width:110px">日志说应该是</th><th style="width:110px">现在实际是</th>
+      <th style="text-align:left;width:150px">日志记录人/时间</th><th style="text-align:left;width:150px">记录最后修改</th>
+    </tr></thead><tbody>${rows}</tbody></table></div>
     ${canFix
-      ? `<div style="margin-top:10px"><button class="btn primary" data-act="logs-audit-fix">按日志把这 ${real.length} 处改回去</button>
-         <span class="hint" style="margin-left:8px">会写入变更记录、可 Ctrl+Z 撤销，并同步给全处；改完会回查一遍，没生效的会照实告诉你</span></div>`
-      : `<div class="hint" style="margin-top:10px">你没有批量操作权限，只能查看核对结果，修复请找管理员。</div>`}`
-    : `<div class="hint">✅ 没有发现"日志说改成了 A、现在却是 B"的情况（下面那些是算出来的字段，不算数据被覆盖）。</div>`;
-  const derivedBlock = !derived.length ? '' : `<div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px">
-      <div class="hint" style="margin-bottom:8px">
-        另有 <b>${derived.length} 处</b>是<b>系统自己算出来的字段</b>，看着"跟日志对不上"，但并不是谁把数据覆盖掉了，
-        <b>也没法按日志改回去</b>——改回去的值在下一次同步时会被重新算一遍又盖掉。
-        <br>目前只有一种：<b>任务名下只要有里程碑，进度就固定按"已交付里程碑 ÷ 里程碑总数"自动计算</b>
-        （界面上这一格也是不给手改的）。所以日志里那条更早的进度记录，跟现在按里程碑算出来的数字不一样，是正常的；
-        想让进度变上去，要去把对应的里程碑勾成已交付，而不是改进度这个数字。
-      </div>
-      <div style="max-height:32vh;overflow:auto"><table class="dtable">${head('为什么对不上')}<tbody>${rowsOf(derived, true)}</tbody></table></div>
-    </div>`;
-  return realBlock + derivedBlock;
+      ? `<div style="margin-top:10px"><button class="btn primary" data-act="logs-audit-fix">按日志把这 ${issues.length} 处改回去</button>
+         <span class="hint" style="margin-left:8px">会写入变更记录、可 Ctrl+Z 撤销，并同步给全处</span></div>`
+      : `<div class="hint" style="margin-top:10px">你没有批量操作权限，只能查看核对结果，修复请找管理员。</div>`}`;
 }
 
 function renderLogs() {
@@ -10197,34 +9962,23 @@ const ACTIONS = {
     _auditIssues = auditByChangelog();
     _auditShown = true;
     renderLogs();
-    // 派生字段那些不算"对不上"，提示里也要分开说，否则管理员一看数字就以为丢了一堆数据
-    const nReal = repairableIssues(_auditIssues).length;
-    const nDerived = _auditIssues.length - nReal;
-    showSnack(nReal
-      ? `核对完成：${nReal} 处跟日志对不上` + (nDerived ? `，另有 ${nDerived} 处是算出来的字段（不算覆盖）` : '')
-      : (nDerived ? `核对完成：没有数据被覆盖，${nDerived} 处是算出来的字段，面板里有说明` : '核对完成：跟日志全部对得上'));
+    showSnack(_auditIssues.length ? `核对完成：${_auditIssues.length} 处跟日志对不上` : '核对完成：跟日志全部对得上');
   },
   'logs-audit-close': () => { _auditShown = false; _auditIssues = []; renderLogs(); },
   // 按日志改回去。这是会动真实数据的操作，必须二次确认，并且只给有批量操作权限的人
   'logs-audit-fix': () => {
     if (!requirePermission('bulk_ops')) return;
-    // 只拿真正能修的那些。派生字段（有里程碑的任务的进度）修了也会被下一次同步重算掉，
-    // 连带还会在日志里留一条假的"已修复"——见 derivedFieldInfo 那一大段
-    const issues = repairableIssues(_auditIssues);
+    const issues = _auditIssues.slice();
     if (!issues.length) { showSnack('没有需要修复的项'); return; }
     confirmModal('按日志修复数据',
       `将把 ${issues.length} 处字段按变更日志里记录的值改回去，并写入变更记录、同步给全处。`
       + `\n\n请先确认这些确实是被误覆盖的——CSV 导入、批量操作、数据体检改过的字段也会出现在核对结果里，`
       + `把它们"改回去"反而会把正当的改动抹掉。可以 Ctrl+Z 撤销。`,
       '确认修复', async () => {
-        const r = await repairByChangelog(issues);
+        const n = await repairByChangelog(issues);
         _auditIssues = auditByChangelog();
         renderShell(); renderPage();
-        /* 照实说。以前不管有没有真的改成，都报"已按日志修复 N 处"——
-           那是管理员最容易被误导的一句话（日志里有记录、数据没变，还以为是自己看错了） */
-        showSnack(r.stuck.length
-          ? `按日志修复：${r.ok} 处改好了，${r.stuck.length} 处写进去之后又被改回了（已记一条告警，数据仍是原样）`
-          : (r.ok ? `已按日志修复 ${r.ok} 处（可 Ctrl+Z 撤销）` : '没有需要修复的项'), { priority: true });
+        showSnack(n ? `已按日志修复 ${n} 处（可 Ctrl+Z 撤销）` : '没有需要修复的项', { priority: true });
       }, true);
   },
   // 日志里点一条工作/职责的记录，跳到对应页面并把它搜出来（任务走 focus-task，那边还要处理视图切换）
@@ -12821,148 +12575,44 @@ function backupState() {
   return { last, stale, days };
 }
 
-/* ---- 从 JSON 备份恢复 ----
-
-   ★★★ 这个功能以前在"连着共享文件夹"的情况下几乎必然失效 ★★★
-   第十三轮实测（探针29）：数据被改坏之后点「从备份恢复」→「确认恢复」，
-   提示条说"已从备份恢复"，而本机数据和共享文件里的数据一个字都没变。
-
-   原因是还原的最后一步 clearSyncBaseline 清掉了同步基线，于是紧接着那次保存的合并
-   退回"整条比较、谁版本号高听谁的"规则——而现状这段时间一直在被编辑，每条记录的 rev
-   都比备份里那一版高，所以【还原结果当场被共享文件里的现状原样顶回去】。
-   原来那段注释把"还原会覆盖同事这段时间的改动"当成要避免的事，可这恰恰就是
-   "从备份恢复"的本意；真正的后果是管理员以为自己回滚了，其实什么都没发生——
-   而这是整套系统最后一条退路，它不能是假的。
-
-   现在的做法：还原是一次明确的"以这份备份为准"的宣告，所以
-   ① 先只读地看一眼共享文件，把每条还原进来的记录的 rev 顶到"本机现有那条"和
-      "文件里那条"之上 +1 —— 这样它才压得住现状、推得出去；
-      刻意不盖 stampMeta：updated_by / updated_at 保持备份里那一份，
-      否则全处几百条记录的"最后是谁改的"会被一次还原统统改成还原的那个人，
-      按日志核对和撤销保护都靠这条线索。
-   ② 墓碑取并集，不换成备份里那份老的：别的机器上还留着备份之后的墓碑，
-      合并时会被捡回来，把刚还原的记录再杀一遍。并集之后，凡是备份里还活着的记录，
-      把拦路的墓碑作废掉（P100 的可撤销墓碑正是为这种场景设计的）——
-      于是"有人误点了彻底删除"这种最需要回滚的事故，这条退路真的能救回来。
-   ③ 变更日志改成并集，不再整份替换：备份之后发生了什么，正是排查事故要看的东西，
-      不能因为回滚把证据一起删掉。
-   ④ settings 只取 year 一项。原来是 Object.assign(DB.settings, d.settings) 整份盖，
-      后果有两个（探针26、27）：
-        · me 被改成导出这份备份的人 —— 组长拿管理员导出的备份一恢复就变成了管理员，
-          而备份文件就放在共享/备份文件夹里，这是一条实打实的提权路径；
-        · lastWriteId 被备份里那个旧标记盖回来 —— 上面刚清掉又被塞回去，
-          下一轮同步白报一次"你的保存被覆盖了"。
-   ⑤ 还原这么大的动作必须留痕，而且要同步给全处（原来一条日志都没有）。
-
-   还有一件做不到、必须在对话框里说清楚的事：备份之后【新建】的记录不会消失。
-   合并规则是"我有你没有的记录就收进来"，那些记录还在别人的缓存里，下一轮就飘回来了。
-   这通常是好事（同事这几天的新工作不会因为一次回滚白干），但它意味着还原是
-   "把备份里有的那些记录的字段改回去"，不是"把整个系统倒回那一刻"。 */
+/* ---- 从 JSON 备份恢复 ---- */
 function importBackup(text) {
   let d;
   try { d = JSON.parse(text); } catch (e) { showSnack('文件不是合法的 JSON'); return; }
   if (!d || !Array.isArray(d.duties) || !Array.isArray(d.tasks)) { showSnack('这不是本系统导出的备份文件'); return; }
   const cur = { 职责: DB.duties.length, 工作: DB.works.length, 里程碑: DB.milestones.length, 任务: DB.tasks.length };
   const inc = { 职责: d.duties.length, 工作: (d.works || []).length, 里程碑: (d.milestones || []).length, 任务: d.tasks.length };
-  const bkAt = (d.settings && d.settings.lastBackupAt) || '';
-  const hasLayout = !!(d.reportConfig || d.dashboardConfig);
   openModal('从备份恢复', `
-    <p style="color:var(--p1);font-weight:600;margin-bottom:8px">这会用备份里的内容覆盖当前数据，并<b>同步给全处</b>。</p>
+    <p style="color:var(--p1);font-weight:600;margin-bottom:8px">这会用备份内容<b>整体替换</b>当前数据。</p>
     <table class="dtable"><thead><tr><th>实体</th><th>当前</th><th>备份</th></tr></thead><tbody>
       ${Object.keys(cur).map(k => `<tr><td>${k}</td><td>${cur[k]}</td><td>${inc[k]}</td></tr>`).join('')}
     </tbody></table>
-    ${hasLayout ? `<div class="form-row" style="margin-top:10px"><label>一并还原编排</label>
-      <input type="checkbox" id="bk-layout">
-      <span class="hint" style="margin-left:6px">报告页 / 工作台的模块编排</span></div>` : ''}
-    <div class="hint" style="margin-top:10px;line-height:1.7">
-      <b>会发生什么：</b>备份里这些记录的字段会被改回备份里的值，并推到共享文件、同步给所有人；
-      备份之后被<b>彻底删除</b>的记录，只要备份里还有，会一并恢复回来。
-      <br><b>不会发生什么：</b>备份之后<b>新建</b>的记录不会消失——它们还在同事的机器里，下一轮同步会回来。
-      所以这是"把备份里有的那些记录改回去"，不是"把整个系统倒回${bkAt ? fmtLocalDateTime(bkAt) : '备份那一刻'}"。
-      <br><b>账号与权限不在还原范围内</b>（角色受越权校验保护，硬改会让全处收到越权告警）——
-      要回滚账号请用「账号与角色」那里的专门导入。
-      <br>恢复后可用 Ctrl+Z 撤销一次，并且会在日志里留一条记录。<b>强烈建议先「立即导出全部」把当前数据也留一份</b>。
-    </div>`,
+    <div class="hint" style="margin-top:8px">恢复后可用 Ctrl+Z 撤销一次。建议先「导出全部」留一份当前数据。</div>`,
     '确认恢复', async () => {
-      const wantLayout = !!(($('#bk-layout') || {}).checked);
       closeModal();
       snapshot();
-      /* 只读地看一眼共享文件：要把还原进来的记录的版本号顶到"文件里那条"之上，
-         否则这次还原一保存就被现状顶回去（就是上面那段注释说的那个失效） */
-      let remote = null;
-      if (_fileHandle) {
-        try { const r = await readSharedFile(); remote = r && r.remote; } catch (e) { remote = null; }
-      }
-      const prevPurged = Array.isArray(DB.purged) ? DB.purged.slice() : [];
-      const prevLog = Array.isArray(DB.changelog) ? DB.changelog.slice() : [];
-      const restored = {
-        duties: d.duties.map(r => normalize('duty', r)),
-        works: (d.works || []).map(r => normalize('work', r)),
-        milestones: (d.milestones || []).map(r => normalize('milestone', r)),
-        tasks: d.tasks.map(r => normalize('task', r)),
-      };
-      // ① 逐条把版本号顶到"本机现有那条"和"文件里那条"之上（不盖 stampMeta，理由见上）
-      SYNC_BASE_ENTITIES.forEach(([entity, listKey]) => {
-        const pk = schema(entity).pk;
-        const localMap = new Map(coll(entity).filter(r => r && r[pk] != null).map(r => [r[pk], r]));
-        const remoteMap = new Map((((remote && remote[listKey]) || [])).filter(r => r && r[pk] != null).map(r => [r[pk], r]));
-        (restored[listKey] || []).forEach(r => {
-          if (!r || r[pk] == null) return;
-          const a = Number((localMap.get(r[pk]) || {}).rev) || 0;
-          const b = Number((remoteMap.get(r[pk]) || {}).rev) || 0;
-          r.rev = Math.max(Number(r.rev) || 0, a, b) + 1;
-        });
-      });
-      DB.duties = restored.duties;
-      DB.works = restored.works;
-      DB.milestones = restored.milestones;
-      DB.tasks = restored.tasks;
-      /* 基线和写入链标记一起清：本机数据整批换掉了，旧基线跟这份数据毫无关系。
-         有了上面那一步顶版本号，清基线不再导致还原失效（这正是以前那个 bug 的来处）。 */
+      DB.duties = d.duties.map(r => normalize('duty', r));
+      DB.works = (d.works || []).map(r => normalize('work', r));
+      DB.milestones = (d.milestones || []).map(r => normalize('milestone', r));
+      DB.tasks = d.tasks.map(r => normalize('task', r));
+      /* 备份还原是"整体换成另一份数据"，跟"我在这条记录上改了哪几个字段"不是一回事。
+         留着旧基线的话，还原进来的每个字段都会被当成"我刚改的"推上共享文件，
+         等于拿一份历史备份去覆盖同事们这段时间的正常改动。清掉基线 → 这次合并退回原来的
+         整条比较规则（谁版本号高听谁的），跟这个功能一直以来的行为保持一致。
+         写入链标记同样要清：备份里可能带着另一台机器、另一次会话留下的标记，
+         拿它去问"我那次写还在链上吗"必然答不在，会白报一次"你的保存被覆盖了"。 */
       clearSyncBaseline(DB);
-      // ② 墓碑取三方并集（备份 + 本机现有 + 文件里），再把备份里还活着的那些记录的墓碑作废
-      const tomb = new Map();
-      [...(Array.isArray(d.purged) ? d.purged : []), ...prevPurged, ...(((remote && remote.purged) || []))]
-        .forEach(p => {
-          if (!p || !p.entity || !p.id) return;
-          const k = p.entity + ' ' + p.id;
-          const c = tomb.get(k);
-          if (!c || purgeRank(p) > purgeRank(c)) tomb.set(k, p);
-        });
-      DB.purged = [...tomb.values()];
-      const revoked = revokePurgesFor(restored);
-      // ③ 变更日志取并集：备份之后发生了什么正是要查的东西，不能被回滚一起删掉
-      DB.changelog = mergeChangelog(prevLog, Array.isArray(d.changelog) ? d.changelog : []);
-      // ④ settings 只取 year。me / 写入链标记 / 同步时间这些绝不能跟着备份走（见上面 ④）
-      if (d.settings && d.settings.year) DB.settings.year = d.settings.year;
-      if (wantLayout) {
-        // 编排是"整份生效、按版本号比大小"的对象，同样要顶过文件里那份才压得住
-        const bumpCfg = (key) => {
-          if (!d[key]) return;
-          const mine = DB[key] || {}, theirs = (remote && remote[key]) || {};
-          DB[key] = Object.assign({}, d[key], {
-            rev: Math.max(Number(d[key].rev) || 0, Number(mine.rev) || 0, Number(theirs.rev) || 0) + 1,
-            updated_at: new Date().toISOString(), updated_by: DB.settings.me || '未署名',
-          });
-        };
-        bumpCfg('reportConfig');
-        bumpCfg('dashboardConfig');
-      }
+      DB.changelog = Array.isArray(d.changelog) ? d.changelog : [];
+      // 墓碑跟着备份一起还原。老备份文件没有这个字段，按空处理即可：
+      // 备份是"整体替换"，替换进来的那批记录本来就没有对应的墓碑
+      DB.purged = Array.isArray(d.purged) ? d.purged : [];
+      if (d.settings) DB.settings = Object.assign(DB.settings, d.settings);
       migrateWorkIds();
       rebuildIndex();
       restoreUI();
-      /* ⑤ 留痕，而且要让全处都看见：这是整套系统里破坏力最大的一个动作，
-         原来一条日志都没有，事后谁也说不清那天数据为什么整批变了 */
-      pushAlertLog(`${DB.settings.me || '未署名'}用一份备份覆盖了全处数据`
-        + (bkAt ? `（备份时间 ${fmtLocalDateTime(bkAt)}）` : '')
-        + `：职责 ${inc.职责}、工作 ${inc.工作}、里程碑 ${inc.里程碑}、任务 ${inc.任务} 条`
-        + (revoked ? `，并撤回了 ${revoked} 条彻底删除` : '')
-        + (wantLayout ? '，同时还原了报告/工作台编排' : '')
-        + `。备份之后新建的记录不受影响。如果这次覆盖不是你要的，请立刻告诉管理员。`);
       await Repo.persist(DB);
       renderShell(); renderPage();
-      showSnack(`已从备份恢复并推送给全处${revoked ? `，撤回了 ${revoked} 条彻底删除` : ''}（可 Ctrl+Z 撤销）`,
-        { priority: true });
+      showSnack('已从备份恢复');
     }, true);
 }
 
@@ -13466,9 +13116,9 @@ window.addEventListener('focus', () => { touchPresence(); pullOnWake(); });
 // ★ 分发前请按需修改这一行 ★
 // BOOTSTRAP_ADMINS：系统里一个账号都没有时（真·bootstrap）第一次创建管理员账号，姓名必须在这个名单里才允许创建，
 // 防止任何人在还没联系上真正的管理员之前，随手把自己设成管理员。名单外的人到了这一步只会看到"请联系管理员"。
-const BOOTSTRAP_ADMINS = ['徐捷'];
+const BOOTSTRAP_ADMINS = ['王建军'];
 // ★ 分发前按处里实际情况核对 ★ 管理员仍可在数据页覆盖，但不配置也能直接用
-const DEFAULT_SHARE_FILE_NAME = '科技规划处工作管理.json';
+const DEFAULT_SHARE_FILE_NAME = '示例科技管理处工作管理.json';
 function effectiveShareCfg() {
   const c = DB.shareConfig || {};
   return {
@@ -13662,8 +13312,6 @@ async function connectSharedFile() {
          放前面会被紧接着的 assign 整个换掉（同步路径那边早就踩过这个坑，注释在 syncToFileInner 里）。 */
       noteMergeAlerts(localPayload, merged);
       noteFieldConflicts();
-      noteDerivedProgressOverride();
-      noteCascadedMilestoneDrop();
     }
     /* 刚跟文件对完账，文件里就是 remote 这一份——基线对齐到它，后面每一次合并才有参照。
        规整已经改成"返回副本、不就地改"（见 normalizeRecordCopy），所以这里拍下来的
@@ -13991,42 +13639,17 @@ async function applyCSVImport(entity, mode, text) {
   if (rows.length < 2) { showSnack('CSV 内容为空'); return 0; }
   const head = rows[0].map(s => s.trim());
   const get = (cols, k) => { const i = head.indexOf(k); return i >= 0 ? (cols[i] || '') : ''; };
-  /* ★★★ 覆盖模式只覆盖"表里真的有这一列"的字段 ★★★
-     原来是把整条记录按 schema 的全部字段重建一遍：表头里没有的列，get() 返回空串，
-     于是那个字段就被写成空 —— 再整条替换掉原记录。实测（第十三轮探针1）：
-     拿一张只有「编号,状态」两列的表走覆盖模式导入，这些任务的标题、牵头人、参与人、
-     计划完成时间、备注全部被清成空白，而且 stampMeta 抬了版本号，一同步就推给全处，
-     日志里只留一句"覆盖 N 条"，看不出到底清掉了什么。
-
-     这种表在实际工作里太常见了——从别处要来一份只有编号和状态的名单、
-     或者自己在 Excel 里只留需要改的那两列，都会踩上。用户对"覆盖"的理解是
-     "把我给的这些值覆盖上去"，不是"把记录清成一张白纸只留我给的两列"。
-
-     所以现在：表头里出现的列才参与写入，没出现的列一律保留原值。
-     想把某个字段清空，照样做得到——把那一列放进表头、单元格留空即可，
-     这比原来的行为更精确，不是功能缺失。 */
-  const hasCol = k => head.indexOf(k) >= 0;
-  const writeCols = sc.fields.filter(f => !f.virtual && hasCol(f.key)).map(f => f.key);
-  const readCell = (cols, f) => {
-    const raw = get(cols, f.key);
-    if (f.type === 'lines') return parseLines(raw);
-    if (f.type === 'multi' || f.type === 'persons') return splitMulti(raw);
-    if (['code', 'work', 'duty'].includes(f.key)) return padCode(raw);
-    return raw;
-  };
   let n = 0, nAdd = 0, nOver = 0;
   snapshot();
   await Repo.bulk(() => {
     for (let i = 1; i < rows.length; i++) {
-      const cols = rows[i];
-      let rec = {};
-      /* 先按"这条记录本该有哪些字段"铺一遍底：
-         · 表头里有的列 → 用表里的值；
-         · 表头里没有的列 → 先留空，下面认领到已有记录时会用原值盖回来（见 prev 那一段）。
-         新建的记录本来就没有原值，留空就是对的。 */
+      const cols = rows[i], rec = {};
       sc.fields.filter(f => !f.virtual).forEach(f => {
-        rec[f.key] = hasCol(f.key) ? readCell(cols, f)
-          : (f.type === 'lines' || f.type === 'multi' || f.type === 'persons') ? [] : '';
+        const raw = get(cols, f.key);
+        if (f.type === 'lines') rec[f.key] = parseLines(raw);
+        else if (f.type === 'multi' || f.type === 'persons') rec[f.key] = splitMulti(raw);
+        else if (['code', 'work', 'duty'].includes(f.key)) rec[f.key] = padCode(raw);
+        else rec[f.key] = raw;
       });
       if (sc.pk === 'id') {
         let id;
@@ -14072,19 +13695,6 @@ async function applyCSVImport(entity, mode, text) {
          正确做法：导入就是一次编辑——版本号在"CSV 里的值"和"本机现有那条"里取大的，再 +1，
          时间戳和修改人记成现在、记成执行导入的这个人。这样它才压得住文件里的旧版本、推得出去。 */
       rec.rev = Math.max(Number(get(cols, 'rev')) || 0, (prev && prev.rev) || 0);
-      /* ★ 认领到已有记录时，只把"表头里有的那几列"盖上去 ★
-         底座用原记录，这样表里没有的列自然保留原值；顺带把原记录上那些本版本还不认识的
-         额外字段（同事用更新版本的 html 写进去的）也一并留住——整条替换会把它们抹掉。
-         created_at 同理：表里没给就沿用原来的，不能因为导入把"这条什么时候建的"改成今天。 */
-      if (prev) {
-        const merged = Object.assign({}, prev);
-        writeCols.forEach(k => { merged[k] = rec[k]; });
-        if (hasCol('deleted_at')) { const v = get(cols, 'deleted_at'); if (v) merged.deleted_at = v; else delete merged.deleted_at; }
-        if (hasCol('created_at') && get(cols, 'created_at')) merged.created_at = get(cols, 'created_at');
-        merged[sc.pk] = rec[sc.pk];
-        merged.rev = rec.rev;
-        rec = merged;
-      }
       stampMeta(rec);
       if (j === -1) { list.push(rec); nAdd++; } else { list[j] = rec; nOver++; }
       n++;
@@ -14095,12 +13705,8 @@ async function applyCSVImport(entity, mode, text) {
        不留日志的话，事后既翻不到"什么时候导过一次"，「按日志核对数据」也永远查不出
        被导入覆盖掉的那些字段——而那正是同事排查"我改的东西怎么没了"唯一的工具。
        跟批量删除同一个口径：记一条汇总，不逐条刷屏。 */
-    /* 把"改了哪几列"也写进日志。事后排查"我那条任务的牵头人怎么变了"时，
-       光知道"导过一次、覆盖了 37 条"没用，得知道这次导入碰的是哪些字段 */
-    const colLabels = writeCols.map(k => (fieldDef(entity, k) || {}).label || k).join('、');
     pushChangeLog(entity, '', `${schema(entity).label} CSV 导入（${mode === 'append' ? '增量' : '覆盖'}模式）：`
-      + `新增 ${nAdd} 条、覆盖 ${nOver} 条`
-      + (colLabels ? `；本次表头里有的列（只有这些列会被覆盖）：${colLabels}` : ''));
+      + `新增 ${nAdd} 条、覆盖 ${nOver} 条`);
   });
   return n;
 }
@@ -14149,7 +13755,6 @@ async function applyWideImport(mode, text) {
   const head = rows[0].map(s => s.trim());
   const get = (cols, k) => { const i = head.indexOf(k); return i >= 0 ? (cols[i] || '').trim() : ''; };
   let taskN = 0, msN = 0, skipped = 0, badDate = 0;
-  const msDropped = [];   // 覆盖模式下"表里没出现、被移进回收站"的现有里程碑，要在结果和日志里点名
   snapshot();
   await Repo.bulk(() => {
     for (let i = 1; i < rows.length; i++) {
@@ -14181,6 +13786,8 @@ async function applyWideImport(mode, text) {
         if (owner) task.owner = owner;
         if (assignees.length) task.assignees = assignees;
         stampMeta(task);
+        // 覆盖模式：这条任务原有的里程碑整体清空重建，跟宽表这一行的内容对齐
+        DB.milestones.filter(m => m.task === task.id && !m.deleted_at).forEach(m => softDelete('milestone', m.id));
       } else {
         task = blank('task', { work: work.id, title: title || '未命名任务', owner, assignees, status: 'todo', priority: '2', progress: 0 });
         task.code = (code && mode === 'merge') ? code : nextTaskCode(work.id);
@@ -14189,79 +13796,30 @@ async function applyWideImport(mode, text) {
       }
       taskN++;
 
-      /* ★★★ 覆盖模式：认领原有里程碑，而不是整体清空重建 ★★★
-         原来的做法是把这条任务现有的全部里程碑一律软删，再按表格新建一批 done='0' 的。
-         实测（第十三轮探针11）的后果：一条任务原有 3 个里程碑、其中 2 个已交付并填了
-         实际完成日期；拿一张【计划内容完全一样】的宽表走覆盖模式导一次，
-         交付状态和实际完成日期全部清零、进度从 67% 归零，而日志里只有一句
-         "写入任务 1 条、里程碑 3 个"。对处里来说这就是已完成的工作成果在报表里凭空消失，
-         而宽表恰恰是批量维护计划最常用的入口——改一次计划日期就可能把一年的交付记录抹掉。
-
-         现在按"交付物名称"认领（名称相同就认为是同一个里程碑，这也是大家心里的判断口径），
-         名称对不上再按"计划日期"兜一道。认领到的就地更新计划日期和呈报层级，
-         done / actual_date 原样保留；表里没出现的那些才软删（进回收站，可恢复），
-         并且把"删了哪几个"写进日志。 */
-      const existing = DB.milestones.filter(m => m.task === task.id && !m.deleted_at);
-      const claimed = new Set();
-      let rowHasMs = 0;   // 这一行到底填了几组里程碑，决定要不要动这条任务现有的里程碑
-      const claim = (deliv, planDate) => {
-        let hit = existing.find(m => !claimed.has(m.id) && deliv && m.deliverable === deliv);
-        if (!hit) hit = existing.find(m => !claimed.has(m.id) && planDate && m.plan_date === planDate);
-        if (hit) claimed.add(hit.id);
-        return hit;
-      };
       for (let g = 1; g <= WIDE_MS_GROUPS; g++) {
         const [hDate, hDeliv, hReport] = wideMsHeaders(g);
         const rawDate = get(cols, hDate), deliv = get(cols, hDeliv), rawReport = get(cols, hReport);
         if (!rawDate && !deliv) continue;
-        rowHasMs++;
         const planDate = parseCSVDate(rawDate);
         if (rawDate && !planDate) badDate++;   // 有填日期但识别不出来，留空好过存一个格式错误的字符串
-        const hit = mode === 'merge' ? claim(deliv, planDate) : null;
-        if (hit) {
-          // 就地更新计划内容；交付状态（done / actual_date）是现场干出来的事实，导入计划表不该动它
-          if (planDate) hit.plan_date = planDate;
-          if (deliv) hit.deliverable = deliv;
-          const lvl = reportLevelFromLabel(rawReport);
-          if (rawReport) hit.report_level = lvl;
-          stampMeta(hit);
-        } else {
-          const m = blank('milestone', {
-            task: task.id, plan_date: planDate, deliverable: deliv,
-            report_level: reportLevelFromLabel(rawReport), done: '0', actual_date: '',
-          });
-          stampMeta(m);
-          DB.milestones.push(m);
-        }
-        msN++;
-      }
-      /* 表里没出现的现有里程碑：覆盖模式才清，而且只软删（进回收站可恢复），并记下名字。
-         ★ 这一行一个里程碑都没填时，一律不动这条任务现有的里程碑 ★
-         "整行的里程碑列都空着"最可能的意思是"这次只想改任务本身的牵头人/名称"，
-         而不是"请把这条任务的里程碑全删掉"——后者谁也不会用一张宽表来表达。
-         不加这道判断的话，一份只整理了任务列、里程碑列留空的表导进来，
-         就会把所有相关任务的里程碑整批扫进回收站，而人完全想不到会这样。
-         真要清空某条任务的里程碑，去任务详情里一行一行去掉，那里看得见自己在删什么。 */
-      if (mode === 'merge' && rowHasMs) {
-        existing.forEach(m => {
-          if (claimed.has(m.id)) return;
-          softDelete('milestone', m.id);
-          msDropped.push(m.deliverable || m.plan_date || m.id);
+        const m = blank('milestone', {
+          task: task.id, plan_date: planDate, deliverable: deliv,
+          report_level: reportLevelFromLabel(rawReport), done: '0', actual_date: '',
         });
+        stampMeta(m);
+        DB.milestones.push(m);
+        msN++;
       }
       recalcProgress(task);
     }
-    /* 宽表导入是破坏力最大的一个：覆盖模式下会把"表里没出现的"现有里程碑移进回收站。
-       这么大的动作一直一条日志都不留，事后只能靠人回忆是谁导的、导了什么。
-       被移走的那些必须点名——这是事后能不能从回收站找回来的唯一线索。 */
+    /* 宽表导入是破坏力最大的一个：覆盖模式下会把认领到的那条任务【现有的全部里程碑】
+       软删掉再按表格重建。这么大的动作一直一条日志都不留，事后只能靠人回忆是谁导的、导了什么。 */
     pushChangeLog('task', '', `任务+里程碑宽表导入（${mode === 'append' ? '增量' : '覆盖'}模式）：`
       + `写入任务 ${taskN} 条、里程碑 ${msN} 个`
       + (skipped ? `，${skipped} 行因为找不到对应工作被跳过` : '')
-      + (badDate ? `，${badDate} 个日期没认出来` : '')
-      + (msDropped.length ? `；另有 ${msDropped.length} 个原有里程碑没在表里出现，已移入回收站（${
-          msDropped.slice(0, 8).map(x => '「' + x + '」').join('')}${msDropped.length > 8 ? ' 等' : ''}），可在数据页回收站恢复` : ''));
+      + (badDate ? `，${badDate} 个日期没认出来` : ''));
   });
-  return { taskN, msN, skipped, badDate, msDropped: msDropped.length, msDroppedNames: msDropped };
+  return { taskN, msN, skipped, badDate };
 }
 $('#file-input').addEventListener('change', evt => {
   const file = evt.target.files[0]; if (!file) return;
@@ -14286,14 +13844,9 @@ $('#file-input').addEventListener('change', evt => {
       const res = await applyWideImport(_wideImportMode, e.target.result);
       if (!res) return;
       renderShell(); renderPage();
-      // 被移进回收站的里程碑必须当场说出来，而且用 priority 压住别的提示——
-      // 这是整个导入里唯一"删掉了东西"的部分，被一句"已导入 N 条"盖过去最要命
       showSnack(`已导入 ${res.taskN} 条任务、${res.msN} 条里程碑` +
         `${res.skipped ? `，${res.skipped} 行因找不到所属工作项被跳过` : ''}` +
-        `${res.badDate ? `，${res.badDate} 个日期没能识别、留空了` : ''}` +
-        `${res.msDropped ? `；⚠ 另有 ${res.msDropped} 个原有里程碑没在表里出现，已移入回收站（日志里有名单，可在数据页恢复）` : ''}` +
-        `（${_wideImportMode === 'append' ? '增量' : '覆盖'}模式 · Ctrl+Z 可撤销）`,
-        res.msDropped ? { priority: true } : undefined);
+        `${res.badDate ? `，${res.badDate} 个日期没能识别、留空了` : ''}（${_wideImportMode === 'append' ? '增量' : '覆盖'}模式 · Ctrl+Z 可撤销）`);
     };
     r.readAsText(file, 'UTF-8');
     evt.target.value = '';
@@ -14354,51 +13907,55 @@ $('#year-select').addEventListener('change', async e => {
 /* =============================================================
    26. 种子数据（图1 职责 / 图2 工作 / 测试任务）
    ============================================================= */
+/* ★ 专利演示版说明 ★ 下面这批种子数据（连同本文件其它出现的机构名称、职责/工作内容、
+   人员姓名）全部是虚构的，专为专利评审演示编造，跟任何真实单位、真实同事都没有关系。
+   这个函数本身在正式运行流程里从未被调用（属于历史遗留的开发脚手架），演示版里仍然
+   保留它、只是把内容换成虚构的，为的是让专利材料里看到的源码跟界面上一致。 */
 const SEED_DUTIES = [
-  ['01', '二、集团治理', '企业级科技发展规划'],
-  ['02', '一、前瞻研判', '前沿新技术专题研究'],
-  ['03', '一、前瞻研判', 'Gartner资讯服务'],
-  ['04', '三、价值共创', '全行数智化转型与数字金融，配合绿色金融大文章工作'],
-  ['05', '二、集团治理', '集团科技治理'],
-  ['06', '三、价值共创', '专利和计算机软件著作权的申报与管理'],
-  ['07', '三、价值共创', '重要科技成果的申报'],
-  ['08', '二、集团治理', '科技资源数智化精细管理'],
-  ['09', '二、集团治理', '信创建设'],
-  ['10', '四、其它工作', '总控PMO工作'],
-  ['11', '四、其它工作', '信息科技管理委员会办公室、全行数字化转型领导小组办公室、安全可靠能力建设推进领导小组办公室等日常工作'],
-  ['12', '二、集团治理', '技术标准管理体系'],
-  ['13', '二、集团治理', '软件正版化管理'],
-  ['14', '一、前瞻研判', '外部生态协同'],
-  ['15', '四、其它工作', '其它领导交办的工作'],
+  ['01', '二、专项治理', '企业科技发展规划编制与执行'],
+  ['02', '一、战略规划', '前沿技术专题研究'],
+  ['03', '一、战略规划', '外部技术资讯服务采购与管理'],
+  ['04', '三、协同支撑', '数字化转型与专项工作统筹推进'],
+  ['05', '二、专项治理', '集团科技治理体系建设'],
+  ['06', '三、协同支撑', '知识产权与软件著作权管理'],
+  ['07', '三、协同支撑', '重要科技成果评审与申报'],
+  ['08', '二、专项治理', '科技资源精细化管理'],
+  ['09', '二、专项治理', '信息系统自主可控建设'],
+  ['10', '四、其它事项', '综合项目管理办公室工作'],
+  ['11', '四、其它事项', '专项委员会与领导小组办公室日常事务'],
+  ['12', '二、专项治理', '技术标准体系建设'],
+  ['13', '二、专项治理', '软件资产合规管理'],
+  ['14', '一、战略规划', '外部生态协同与联合创新'],
+  ['15', '四、其它事项', '其它领导交办事项'],
 ];
 
-const PLAN_CYCLE = '建成"规划-执行-督办-评估-优化"全周期闭环管理机制，实现科技规划执行全程可追溯、成效可量化、问题可预警、改进可持续。';
+const PLAN_CYCLE = '建成"规划-执行-督办-评估-优化"全周期闭环管理机制，实现科技规划执行全程可追溯、成效可量化。';
 
 const SEED_WORKS = [
-  ['0101', '01', 'IDC基础设施专项规划', ['完成IDC基础设施专项规划的编制和发布。', PLAN_CYCLE], '卞一茗', ['李兰', '诸慧玲']],
-  ['0102', '01', '境外分行专项规划', ['完成境外分行专项规划的编制和发布。', PLAN_CYCLE], '孙宇颉', ['郭妙吉']],
-  ['0201', '02', '前沿新技术专题研究', [], '徐捷', ['朱轶杰', '蒋双樑']],
-  ['0202', '02', '行业信息技术动态汇编月报', [
-    '行业信息技术动态汇编。每月汇总Gartner、信通院等外部渠道技术动态进行的常态化技术报告汇编，报送行领导并于数字浦发发布。',
-    '热点技术趋势专题报告撰写。为紧跟前沿科技发展态势，根据时下热点技术与发布（如Gartner十大技术趋势等）进行专题报告撰写。',
-    '根据需要，组织开展专题技术讲座。'], '朱轶杰', []],
-  ['0203', '02', '研究课题管理', ['根据浦银研究院通知要求，组织牵头总行科技发展部内部研究工作征集、初稿审批、进度跟踪等。'], '朱轶杰', []],
-  ['0301', '03', 'Gartner服务账号的采购与管理', ['Gartner服务账号的采购与管理。'], '蒋双樑', []],
-  ['0302', '03', 'Gartner每年全球峰会和重要大型会议的组织参与', ['Gartner每年全球峰会和重要大型会议的组织参与。'], '蒋双樑', []],
-  ['0303', '03', 'Gartner银行业资讯周报', ['根据各单位需求，邀约Gartner分析师进行沟通交流。'], '蒋双樑', []],
-  ['0401', '04', '数字化转型指标体系', ['根据行领导和部门领导要求，结合人行关于数字化智能化转型通知、数字化评估指引和我行各项战略规划，重新梳理全行数字化转型指标体系，并开展常态化跟踪和报送。'], '邱洋', ['梁怡飞', '凌象政']],
-  ['0402', '04', '数字化转型领导小组办公室及数字化转型相关的其它任务', [
-    '有效推进全行数字化转型领导小组办公室日常运作。', '编制数字化规划和数字化总结。',
-    '细化分解任务并定期跟踪监测。', '落实各类"数字化转型"相关工作。'], '邱洋', ['梁怡飞', '凌象政']],
-  ['0403', '04', '数字金融', [
-    '监管报表报送：S74数字领域相关情况统计表（金融统计监管报送系统）、数字经济贷款汇总指标数据（人行金融基础数据报送系统）。',
-    '人行数字金融服务质效通报工作。',
-    '"数字金融"相关的其它任务（对外披露信息反馈、数字金融专家委员会征集、支持分行数字金融情况材料报送等）。'], '蒋双樑', []],
-  ['0404', '04', '绿金委和ESG相关工作', ['配合公司业务部牵头的绿金委工作。', '配合浦银研究院牵头的ESG工作。'], '凌象政', []],
-  ['0501', '05', '全面实现系统压降工作目标（分行系统集成压降）', [
-    '严控新建系统，参与分行及子公司新建系统的立项与审批流程，杜绝系统重复建设。',
-    '制定分行及子公司每年的系统压降计划，构建可量化的系统压降里程碑视图。',
-    '负责建立系统压降工作的常态化跟踪督办机制，定期检查执行进度，协调解决推进过程中的问题，确保年度压降任务按期完成。'], '孙宇颉', ['诸慧玲', '卞一茗']],
+  ['0101', '01', '基础设施专项规划', ['完成基础设施专项规划的编制和发布。', PLAN_CYCLE], '陈晓明', ['冯雪梅', '潘玉兰']],
+  ['0102', '01', '异地机构专项规划', ['完成异地机构专项规划的编制和发布。', PLAN_CYCLE], '刘建国', ['谢明辉']],
+  ['0201', '02', '前沿技术专题研究', [], '王建军', ['黄文博', '林志远']],
+  ['0202', '02', '行业技术动态汇编月报', [
+    '每月汇总外部渠道技术动态形成常态化报告，报送处室领导。',
+    '为紧跟前沿科技发展态势，围绕时下热点技术进行专题报告撰写。',
+    '根据需要，组织开展专题技术讲座。'], '黄文博', []],
+  ['0203', '02', '研究课题管理', ['组织牵头内部研究工作征集、初稿审批、进度跟踪等。'], '黄文博', []],
+  ['0301', '03', '外部资讯服务采购与管理', ['外部技术资讯服务账号的采购与管理。'], '林志远', []],
+  ['0302', '03', '重要会议组织参与', ['组织参与年度重要行业会议与峰会。'], '林志远', []],
+  ['0303', '03', '行业资讯周报', ['汇总整理行业资讯并形成周报。'], '林志远', []],
+  ['0401', '04', '数字化转型指标体系', ['结合上级要求与本单位战略规划，梳理数字化转型指标体系并常态化跟踪。'], '张丽华', ['董海燕', '罗晓芳']],
+  ['0402', '04', '数字化转型办公室日常工作', [
+    '推进数字化转型办公室日常运作。', '编制数字化规划和总结。',
+    '细化分解任务并定期跟踪监测。', '落实各类专项任务。'], '张丽华', ['董海燕', '罗晓芳']],
+  ['0403', '04', '数据合规专项', [
+    '监管报表报送与合规台账维护。',
+    '相关信息反馈与专家委员会对接。',
+    '数据合规相关的其它任务（对外披露信息反馈、专项材料报送等）。'], '林志远', []],
+  ['0404', '04', '绿色发展与ESG协同', ['配合相关部门开展绿色发展专项工作。', '配合研究机构开展ESG相关工作。'], '罗晓芳', []],
+  ['0501', '05', '系统集成压降专项', [
+    '严控新建系统，参与新建系统的立项与审批流程，杜绝系统重复建设。',
+    '制定年度系统压降计划，构建可量化的系统压降里程碑视图。',
+    '负责建立系统压降工作的常态化跟踪督办机制，定期检查执行进度，确保年度压降任务按期完成。'], '刘建国', ['潘玉兰', '陈晓明']],
 ];
 
 /* 可重现的伪随机：每次生成的测试数据一致，便于比对与复现问题 */
@@ -14502,6 +14059,15 @@ function seedAll() {
 /* =============================================================
    27. 启动
    ============================================================= */
+/* ============================================================================
+   专利演示版内置数据：全部虚构，见文件最上方的说明。
+   直接是 syncPayload() 的形状（duties/works/milestones/tasks/changelog/users/
+   permissionMatrix/shareConfig/reportConfig/dashboardConfig/purged），
+   开机时若本机没有任何存档，会由 boot() 直接灌进 DB，见那边的注释。
+   ============================================================================ */
+const PATENT_DEMO_ADMIN = '王建军';
+const PATENT_DEMO_PAYLOAD = {"duties":[{"code":"01","category":"二、专项治理","name":"企业科技发展规划编制与执行","rev":1,"created_at":"2026-01-22T18:12:12.000Z","updated_at":"2026-05-29T21:56:23.000Z","updated_by":"王建军"},{"code":"02","category":"一、战略规划","name":"前沿技术专题研究","rev":1,"created_at":"2026-01-22T19:02:04.000Z","updated_at":"2026-06-06T16:40:43.000Z","updated_by":"王建军"},{"code":"03","category":"一、战略规划","name":"外部技术资讯服务采购与管理","rev":2,"created_at":"2026-01-22T18:40:59.000Z","updated_at":"2026-05-16T17:57:14.000Z","updated_by":"王建军"},{"code":"04","category":"三、协同支撑","name":"数字化转型与专项工作统筹推进","rev":3,"created_at":"2026-01-23T00:20:33.000Z","updated_at":"2026-07-20T16:58:06.000Z","updated_by":"王建军"},{"code":"05","category":"二、专项治理","name":"集团科技治理体系建设","rev":2,"created_at":"2026-01-22T18:06:48.000Z","updated_at":"2026-06-04T16:42:47.000Z","updated_by":"王建军"},{"code":"06","category":"三、协同支撑","name":"知识产权与软件著作权管理","rev":2,"created_at":"2026-01-22T19:21:22.000Z","updated_at":"2026-08-11T20:33:16.000Z","updated_by":"王建军"},{"code":"07","category":"三、协同支撑","name":"重要科技成果评审与申报","rev":3,"created_at":"2026-01-23T01:06:54.000Z","updated_at":"2026-08-14T18:08:50.000Z","updated_by":"王建军"},{"code":"08","category":"二、专项治理","name":"科技资源精细化管理","rev":4,"created_at":"2026-01-22T20:52:31.000Z","updated_at":"2026-05-07T16:13:56.000Z","updated_by":"王建军"},{"code":"09","category":"二、专项治理","name":"信息系统自主可控建设","rev":4,"created_at":"2026-01-22T19:19:02.000Z","updated_at":"2026-08-03T21:11:32.000Z","updated_by":"王建军"},{"code":"10","category":"四、其它事项","name":"综合项目管理办公室工作","rev":4,"created_at":"2026-01-22T17:28:11.000Z","updated_at":"2026-06-08T00:10:47.000Z","updated_by":"王建军"},{"code":"11","category":"四、其它事项","name":"专项委员会与领导小组办公室日常事务","rev":2,"created_at":"2026-01-22T20:01:32.000Z","updated_at":"2026-07-12T18:03:41.000Z","updated_by":"王建军"},{"code":"12","category":"二、专项治理","name":"技术标准体系建设","rev":4,"created_at":"2026-01-22T21:29:04.000Z","updated_at":"2026-08-02T21:21:55.000Z","updated_by":"王建军"},{"code":"13","category":"二、专项治理","name":"软件资产合规管理","rev":3,"created_at":"2026-01-23T00:24:50.000Z","updated_at":"2026-08-12T17:04:43.000Z","updated_by":"王建军"},{"code":"14","category":"一、战略规划","name":"外部生态协同与联合创新","rev":3,"created_at":"2026-01-23T01:10:23.000Z","updated_at":"2026-04-24T00:02:53.000Z","updated_by":"王建军"},{"code":"15","category":"四、其它事项","name":"其它领导交办事项","rev":3,"created_at":"2026-01-23T01:26:04.000Z","updated_at":"2026-08-19T17:12:41.000Z","updated_by":"王建军"},{"code":"16","category":"四、其它事项","name":"（已撤销）临时性专项支援工作","rev":1,"created_at":"2026-03-13T18:37:02.000Z","updated_at":"2026-08-15T20:04:13.000Z","updated_by":"王建军","deleted_at":"2026-08-15T23:49:15.000Z"}],"works":[{"code":"0101","duty":"01","name":"基础设施专项规划","content":["完成基础设施专项规划的编制和发布。","建成\"规划-执行-督办-评估-优化\"全周期闭环管理机制，实现科技规划执行全程可追溯、成效可量化。"],"owner":"陈晓明","collaborators":["冯雪梅","潘玉兰"],"year":2026,"status":"doing","id":"w_mtuyqigef18ia","rev":2,"created_at":"2026-02-21T19:50:04.000Z","updated_at":"2026-08-18T20:45:13.000Z","updated_by":"陈晓明"},{"code":"0102","duty":"01","name":"异地机构专项规划","content":["完成异地机构专项规划的编制和发布。","建成\"规划-执行-督办-评估-优化\"全周期闭环管理机制，实现科技规划执行全程可追溯、成效可量化。"],"owner":"刘建国","collaborators":["谢明辉"],"year":2026,"status":"doing","id":"w_mtuyqige3rk3b","rev":2,"created_at":"2026-02-25T19:33:32.000Z","updated_at":"2026-08-18T19:13:38.000Z","updated_by":"刘建国"},{"code":"0201","duty":"02","name":"前沿技术专题研究","content":[],"owner":"王建军","collaborators":["黄文博","林志远"],"year":2026,"status":"doing","id":"w_mtuyqigew9avt","rev":2,"created_at":"2026-04-08T21:29:09.000Z","updated_at":"2026-08-26T20:53:47.000Z","updated_by":"王建军"},{"code":"0202","duty":"02","name":"行业技术动态汇编月报","content":["每月汇总外部渠道技术动态形成常态化报告，报送处室领导。","组织开展专题技术讲座。"],"owner":"黄文博","collaborators":["曾雨桐"],"year":2026,"status":"doing","id":"w_mtuyqiget2mfx","rev":3,"created_at":"2026-02-13T17:20:26.000Z","updated_at":"2026-08-08T16:21:09.000Z","updated_by":"黄文博"},{"code":"0203","duty":"02","name":"研究课题管理","content":["组织牵头内部研究工作征集、初稿审批、进度跟踪等。"],"owner":"黄文博","collaborators":[],"year":2026,"status":"hold","id":"w_mtuyqige4yx6x","rev":1,"created_at":"2026-03-04T17:58:40.000Z","updated_at":"2026-08-19T00:14:29.000Z","updated_by":"黄文博"},{"code":"0301","duty":"03","name":"外部资讯服务采购与管理","content":["外部技术资讯服务账号的采购与管理。"],"owner":"林志远","collaborators":[],"year":2026,"status":"doing","id":"w_mtuyqigewblhg","rev":3,"created_at":"2026-03-18T17:08:45.000Z","updated_at":"2026-09-06T23:09:56.000Z","updated_by":"林志远"},{"code":"0302","duty":"03","name":"重要会议组织参与","content":["组织参与年度重要行业会议与峰会。"],"owner":"林志远","collaborators":["彭子涵"],"year":2026,"status":"done","id":"w_mtuyqigevvauv","rev":4,"created_at":"2026-04-07T22:45:24.000Z","updated_at":"2026-09-04T22:47:14.000Z","updated_by":"林志远"},{"code":"0303","duty":"03","name":"行业资讯周报","content":["汇总整理行业资讯并形成周报。"],"owner":"林志远","collaborators":[],"year":2026,"status":"doing","id":"w_mtuyqigejkl1t","rev":4,"created_at":"2026-02-21T17:08:08.000Z","updated_at":"2026-08-29T23:27:57.000Z","updated_by":"林志远"},{"code":"0401","duty":"04","name":"数字化转型指标体系","content":["结合上级要求与本单位战略规划，梳理数字化转型指标体系并常态化跟踪。"],"owner":"张丽华","collaborators":["董海燕","罗晓芳"],"year":2026,"status":"doing","id":"w_mtuyqige4m43g","rev":1,"created_at":"2026-02-20T22:14:16.000Z","updated_at":"2026-09-08T18:06:57.000Z","updated_by":"张丽华"},{"code":"0402","duty":"04","name":"数字化转型办公室日常工作","content":["推进数字化转型办公室日常运作。","编制数字化规划和总结。","落实各类专项任务。"],"owner":"张丽华","collaborators":["董海燕","罗晓芳"],"year":2026,"status":"doing","id":"w_mtuyqigelmin7","rev":2,"created_at":"2026-03-15T16:01:36.000Z","updated_at":"2026-08-18T17:10:15.000Z","updated_by":"张丽华"},{"code":"0403","duty":"04","name":"数据合规专项","content":["监管报表报送与合规台账维护。","相关信息反馈与专家委员会对接。"],"owner":"林志远","collaborators":[],"year":2026,"status":"doing","id":"w_mtuyqigevh7x5","rev":2,"created_at":"2026-02-14T23:10:50.000Z","updated_at":"2026-08-02T00:07:18.000Z","updated_by":"林志远"},{"code":"0404","duty":"04","name":"绿色发展与ESG协同","content":["配合相关部门开展绿色发展专项工作。","配合研究机构开展ESG相关工作。"],"owner":"罗晓芳","collaborators":[],"year":2026,"status":"done","id":"w_mtuyqigex7hcs","rev":1,"created_at":"2026-03-22T22:04:10.000Z","updated_at":"2026-08-31T19:35:37.000Z","updated_by":"罗晓芳"},{"code":"0501","duty":"05","name":"系统集成压降专项","content":["严控新建系统，参与新建系统立项审批，杜绝重复建设。","制定年度系统压降计划并常态化督办。"],"owner":"刘建国","collaborators":["潘玉兰","陈晓明"],"year":2026,"status":"doing","id":"w_mtuyqigew4d8v","rev":3,"created_at":"2026-03-22T00:34:17.000Z","updated_at":"2026-08-19T23:10:19.000Z","updated_by":"刘建国"},{"code":"0502","duty":"05","name":"下属单位科技治理评估","content":["按季度组织下属单位科技治理成熟度自评。","汇总形成评估报告报部门领导。"],"owner":"潘玉兰","collaborators":["杨志强"],"year":2026,"status":"doing","id":"w_mtuyqigetm5iz","rev":2,"created_at":"2026-04-06T22:44:34.000Z","updated_at":"2026-08-01T16:30:45.000Z","updated_by":"潘玉兰"},{"code":"0601","duty":"06","name":"专利与软件著作权申报管理","content":["组织全处专利挖掘与申报，跟踪授权进度。","软件著作权登记材料准备与报送。"],"owner":"曾雨桐","collaborators":["杨志强"],"year":2026,"status":"doing","id":"w_mtuyqigefwo8c","rev":1,"created_at":"2026-02-21T20:09:22.000Z","updated_at":"2026-08-16T18:52:26.000Z","updated_by":"曾雨桐"},{"code":"0602","duty":"06","name":"知识产权年度盘点与激励","content":["开展知识产权年度盘点，形成台账。","拟定科技创新激励方案建议。"],"owner":"杨志强","collaborators":["彭子涵"],"year":2026,"status":"doing","id":"w_mtuyqige4w2wv","rev":4,"created_at":"2026-03-06T00:10:30.000Z","updated_at":"2026-08-15T17:36:37.000Z","updated_by":"杨志强"},{"code":"0701","duty":"07","name":"重要科技成果申报","content":["梳理年度可申报的科技成果清单。","组织重点奖项材料撰写与报送。"],"owner":"傅思远","collaborators":["冯雪梅"],"year":2026,"status":"doing","id":"w_mtuyqige3md47","rev":3,"created_at":"2026-04-05T22:48:06.000Z","updated_at":"2026-08-06T18:53:11.000Z","updated_by":"傅思远"},{"code":"0801","duty":"08","name":"科技资源台账建设","content":["建立科技人力、资金、系统三类资源统一台账。","按月更新并报送资源使用情况。"],"owner":"董海燕","collaborators":["宋佳琪"],"year":2026,"status":"doing","id":"w_mtuyqige66j0a","rev":1,"created_at":"2026-03-05T17:33:42.000Z","updated_at":"2026-08-05T19:32:37.000Z","updated_by":"董海燕"},{"code":"0802","duty":"08","name":"科技投入产出分析","content":["开展科技投入产出年度分析。","形成分析报告并提出优化建议。"],"owner":"宋佳琪","collaborators":[],"year":2026,"status":"doing","id":"w_mtuyqigeacibe","rev":4,"created_at":"2026-02-19T23:58:51.000Z","updated_at":"2026-08-28T22:06:58.000Z","updated_by":"宋佳琪"},{"code":"0901","duty":"09","name":"自主可控终端与办公系统替代推进","content":["制定年度终端替代计划并按月跟踪。","协调解决替代过程中的适配问题。"],"owner":"谢明辉","collaborators":["彭子涵","曾雨桐"],"year":2026,"status":"doing","id":"w_mtuyqigehyw10","rev":2,"created_at":"2026-03-19T18:18:39.000Z","updated_at":"2026-09-03T17:00:19.000Z","updated_by":"谢明辉"},{"code":"0902","duty":"09","name":"自主可控基础软件适配验证","content":["组织数据库、中间件的适配验证。","形成适配验证报告与推广建议。"],"owner":"彭子涵","collaborators":[],"year":2026,"status":"doing","id":"w_mtuyqigeewo4q","rev":2,"created_at":"2026-03-09T21:39:31.000Z","updated_at":"2026-08-09T22:59:12.000Z","updated_by":"彭子涵"},{"code":"1001","duty":"10","name":"综合项目管理办公室例会与督办","content":["组织综合项目管理办公室周例会，形成会议纪要。","对重点项目里程碑进行常态化督办。"],"owner":"潘玉兰","collaborators":["傅思远"],"year":2026,"status":"doing","id":"w_mtuyqige5o1um","rev":3,"created_at":"2026-02-16T01:26:43.000Z","updated_at":"2026-09-08T00:47:55.000Z","updated_by":"潘玉兰"},{"code":"1101","duty":"11","name":"专项委员会日常工作","content":["承办相关委员会会议的议题征集、材料汇总与会议组织。","跟踪委员会决议事项落实情况。"],"owner":"冯雪梅","collaborators":["罗晓芳"],"year":2026,"status":"doing","id":"w_mtuyqigeeygb3","rev":3,"created_at":"2026-04-01T20:30:18.000Z","updated_at":"2026-08-21T19:46:37.000Z","updated_by":"冯雪梅"},{"code":"1201","duty":"12","name":"技术标准体系建设","content":["梳理现行技术标准清单，识别缺口。","组织新增技术标准的编制与评审发布。"],"owner":"杨志强","collaborators":["刘建国"],"year":2026,"status":"doing","id":"w_mtuyqigeu6n6a","rev":1,"created_at":"2026-03-10T21:30:47.000Z","updated_at":"2026-08-03T23:49:35.000Z","updated_by":"杨志强"},{"code":"1301","duty":"13","name":"软件资产年度核查","content":["开展软件资产年度合规核查。","形成核查报告并推动问题整改。"],"owner":"宋佳琪","collaborators":[],"year":2026,"status":"doing","id":"w_mtuyqigeiyjty","rev":3,"created_at":"2026-03-29T16:56:48.000Z","updated_at":"2026-08-12T18:04:30.000Z","updated_by":"宋佳琪"},{"code":"1401","duty":"14","name":"外部生态协同与联合创新","content":["对接高校与科技企业，推进联合创新课题。","组织外部技术交流与合作洽谈。"],"owner":"曾雨桐","collaborators":["黄文博"],"year":2026,"status":"doing","id":"w_mtuyqigexn3am","rev":2,"created_at":"2026-03-31T00:46:25.000Z","updated_at":"2026-08-09T16:15:20.000Z","updated_by":"曾雨桐"},{"code":"1501","duty":"15","name":"领导交办的临时事项","content":["承接处室领导、部门领导临时交办的各类事项。"],"owner":"王建军","collaborators":["傅思远"],"year":2026,"status":"doing","id":"w_mtuyqige8slb1","rev":3,"created_at":"2026-04-05T00:13:58.000Z","updated_at":"2026-08-04T18:18:34.000Z","updated_by":"王建军"},{"code":"0101","duty":"01","name":"基础设施专项规划","content":["完成基础设施专项规划的编制和发布。","建成\"规划-执行-督办-评估-优化\"全周期闭环管理机制，实现科技规划执行全程可追溯、成效可量化。"],"owner":"陈晓明","collaborators":["冯雪梅","潘玉兰"],"year":2025,"status":"done","id":"w_mtuyqigf3svd0","rev":2,"created_at":"2025-07-16T18:57:29.000Z","updated_at":"2025-11-13T20:30:01.000Z","updated_by":"陈晓明"},{"code":"0201","duty":"02","name":"前沿技术专题研究","content":[],"owner":"王建军","collaborators":["黄文博","林志远"],"year":2025,"status":"done","id":"w_mtuyqigf2oq71","rev":2,"created_at":"2025-07-16T18:53:42.000Z","updated_at":"2025-11-13T18:08:20.000Z","updated_by":"王建军"},{"code":"0202","duty":"02","name":"行业技术动态汇编月报","content":["每月汇总外部渠道技术动态形成常态化报告，报送处室领导。","组织开展专题技术讲座。"],"owner":"黄文博","collaborators":["曾雨桐"],"year":2025,"status":"done","id":"w_mtuyqigfrop62","rev":4,"created_at":"2025-07-16T20:42:30.000Z","updated_at":"2025-11-14T01:43:19.000Z","updated_by":"黄文博"},{"code":"0301","duty":"03","name":"外部资讯服务采购与管理","content":["外部技术资讯服务账号的采购与管理。"],"owner":"林志远","collaborators":[],"year":2025,"status":"done","id":"w_mtuyqigfjueox","rev":4,"created_at":"2025-07-16T16:22:05.000Z","updated_at":"2025-11-13T19:09:28.000Z","updated_by":"林志远"},{"code":"0401","duty":"04","name":"数字化转型指标体系","content":["结合上级要求与本单位战略规划，梳理数字化转型指标体系并常态化跟踪。"],"owner":"张丽华","collaborators":["董海燕","罗晓芳"],"year":2025,"status":"done","id":"w_mtuyqigf63a97","rev":4,"created_at":"2025-07-17T00:02:18.000Z","updated_at":"2025-11-13T19:40:58.000Z","updated_by":"张丽华"},{"code":"0501","duty":"05","name":"系统集成压降专项","content":["严控新建系统，参与新建系统立项审批，杜绝重复建设。","制定年度系统压降计划并常态化督办。"],"owner":"刘建国","collaborators":["潘玉兰","陈晓明"],"year":2025,"status":"done","id":"w_mtuyqigf3dygf","rev":1,"created_at":"2025-07-16T20:06:44.000Z","updated_at":"2025-11-13T22:32:48.000Z","updated_by":"刘建国"},{"code":"0503","duty":"05","name":"（已停用）科技治理试点专项","content":["试点范围调整，本项工作已停用。"],"owner":"刘建国","collaborators":[],"year":2026,"status":"doing","id":"w_mtuyqigfvpojz","rev":1,"created_at":"2026-05-12T16:34:16.000Z","updated_at":"2026-08-10T21:34:40.000Z","updated_by":"刘建国","deleted_at":"2026-08-10T22:16:35.000Z"}],"milestones":[{"task":"t_mtuyqigfa1feh","plan_date":"2026-08-22","deliverable":"评审纪要","report_level":"section","done":"1","actual_date":"2026-08-22","id":"m_mtuyqigldjuz7","rev":1,"created_at":"2026-08-02T16:04:20.000Z","updated_at":"2026-08-22T16:18:25.000Z","updated_by":"陈晓明"},{"task":"t_mtuyqigf5hb7f","plan_date":"2026-06-05","deliverable":"数据台账","report_level":"department","done":"1","actual_date":"2026-06-05","id":"m_mtuyqigloagc0","rev":3,"created_at":"2026-05-16T17:36:15.000Z","updated_at":"2026-06-05T16:32:52.000Z","updated_by":"王建军"},{"task":"t_mtuyqigfk8oqv","plan_date":"2026-08-25","deliverable":"汇报材料","report_level":"bank","done":"1","actual_date":"2026-08-25","id":"m_mtuyqiglt2qbu","rev":2,"created_at":"2026-08-05T23:06:12.000Z","updated_at":"2026-08-25T17:17:55.000Z","updated_by":"刘建国"},{"task":"t_mtuyqigfk8oqv","plan_date":"2026-09-05","deliverable":"总结报告","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqiglgirj0","rev":4,"created_at":"2026-08-16T16:12:44.000Z","updated_at":"2026-08-28T20:06:01.000Z","updated_by":"刘建国"},{"task":"t_mtuyqigfk8oqv","plan_date":"2026-09-18","deliverable":"汇报材料","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqiglkvkef","rev":4,"created_at":"2026-08-29T18:15:54.000Z","updated_at":"2026-09-08T16:43:55.000Z","updated_by":"刘建国"},{"task":"t_mtuyqigg7b3r4","plan_date":"2026-07-30","deliverable":"总结报告","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigln50op","rev":1,"created_at":"2026-07-11T00:05:04.000Z","updated_at":"2026-09-08T21:31:45.000Z","updated_by":"刘建国"},{"task":"t_mtuyqiggo9fn0","plan_date":"2026-09-29","deliverable":"调研报告","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigmsjli9","rev":4,"created_at":"2026-09-05T00:28:41.000Z","updated_at":"2026-09-06T23:59:30.000Z","updated_by":"王建军"},{"task":"t_mtuyqiggk2nwl","plan_date":"2026-08-28","deliverable":"数据台账","report_level":"department","done":"1","actual_date":"2026-08-28","id":"m_mtuyqigm4dpt8","rev":2,"created_at":"2026-08-08T22:01:21.000Z","updated_at":"2026-08-28T22:01:03.000Z","updated_by":"黄文博"},{"task":"t_mtuyqigg7f5i8","plan_date":"2026-09-26","deliverable":"报送回执","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigmm8pkv","rev":1,"created_at":"2026-09-04T16:28:57.000Z","updated_at":"2026-09-05T00:22:26.000Z","updated_by":"黄文博"},{"task":"t_mtuyqigg7f5i8","plan_date":"2026-10-05","deliverable":"整改清单","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigmkk7v7","rev":2,"created_at":"2026-09-04T19:45:18.000Z","updated_at":"2026-09-04T19:45:18.000Z","updated_by":"黄文博"},{"task":"t_mtuyqiggnwzcc","plan_date":"2026-09-23","deliverable":"正式文本","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigm8kpqp","rev":1,"created_at":"2026-09-03T19:17:14.000Z","updated_at":"2026-09-03T19:17:14.000Z","updated_by":"王建军"},{"task":"t_mtuyqiggi77jd","plan_date":"2026-09-04","deliverable":"跟踪表","report_level":"bank","done":"1","actual_date":"2026-09-04","id":"m_mtuyqigmsomgh","rev":4,"created_at":"2026-08-15T16:54:06.000Z","updated_at":"2026-09-04T16:29:58.000Z","updated_by":"黄文博"},{"task":"t_mtuyqiggi77jd","plan_date":"2026-09-16","deliverable":"评审纪要","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigm41983","rev":1,"created_at":"2026-08-27T17:28:46.000Z","updated_at":"2026-08-31T16:55:38.000Z","updated_by":"黄文博"},{"task":"t_mtuyqiggbwk3i","plan_date":"2026-08-08","deliverable":"会议纪要","report_level":"department","done":"1","actual_date":"2026-08-08","id":"m_mtuyqigm25rh8","rev":3,"created_at":"2026-07-20T00:09:44.000Z","updated_at":"2026-08-08T22:04:21.000Z","updated_by":"谢明辉"},{"task":"t_mtuyqiggbwk3i","plan_date":"2026-08-09","deliverable":"评审纪要","report_level":"bank","done":"1","actual_date":"2026-08-09","id":"m_mtuyqigm9fuj8","rev":3,"created_at":"2026-07-21T00:00:18.000Z","updated_at":"2026-08-09T23:05:17.000Z","updated_by":"谢明辉"},{"task":"t_mtuyqiggbwk3i","plan_date":"2026-08-22","deliverable":"整改清单","report_level":"section","done":"1","actual_date":"2026-08-22","id":"m_mtuyqigmq3cxh","rev":1,"created_at":"2026-08-02T17:12:33.000Z","updated_at":"2026-08-22T17:42:00.000Z","updated_by":"谢明辉"},{"task":"t_mtuyqigg3r5cw","plan_date":"2026-05-24","deliverable":"整改清单","report_level":"department","done":"1","actual_date":"2026-05-24","id":"m_mtuyqigmwxzbs","rev":2,"created_at":"2026-05-04T22:29:37.000Z","updated_at":"2026-05-24T20:01:46.000Z","updated_by":"黄文博"},{"task":"t_mtuyqigg3r5cw","plan_date":"2026-06-05","deliverable":"会议纪要","report_level":"bank","done":"1","actual_date":"2026-06-05","id":"m_mtuyqigmtfdum","rev":4,"created_at":"2026-05-16T19:28:14.000Z","updated_at":"2026-06-05T18:09:37.000Z","updated_by":"黄文博"},{"task":"t_mtuyqiggjjzc6","plan_date":"2026-08-18","deliverable":"总结报告","report_level":"section","done":"1","actual_date":"2026-08-18","id":"m_mtuyqigmbv19w","rev":1,"created_at":"2026-07-29T18:16:18.000Z","updated_at":"2026-08-18T20:12:35.000Z","updated_by":"黄文博"},{"task":"t_mtuyqiggjjzc6","plan_date":"2026-08-19","deliverable":"汇报材料","report_level":"department","done":"1","actual_date":"2026-08-19","id":"m_mtuyqigmd714x","rev":1,"created_at":"2026-07-30T19:28:47.000Z","updated_at":"2026-08-19T18:50:34.000Z","updated_by":"黄文博"},{"task":"t_mtuyqiggjjzc6","plan_date":"2026-09-01","deliverable":"总结报告","report_level":"bank","done":"1","actual_date":"2026-09-01","id":"m_mtuyqigmwvlb2","rev":2,"created_at":"2026-08-13T00:08:35.000Z","updated_at":"2026-09-01T23:55:13.000Z","updated_by":"黄文博"},{"task":"t_mtuyqiggiyqlz","plan_date":"2026-09-02","deliverable":"调研报告","report_level":"section","done":"1","actual_date":"2026-09-02","id":"m_mtuyqigmapsii","rev":4,"created_at":"2026-08-14T00:06:37.000Z","updated_at":"2026-09-02T16:28:36.000Z","updated_by":"黄文博"},{"task":"t_mtuyqiggiyqlz","plan_date":"2026-09-09","deliverable":"会议纪要","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigmq2zwz","rev":3,"created_at":"2026-08-20T21:42:14.000Z","updated_at":"2026-09-03T19:04:08.000Z","updated_by":"黄文博"},{"task":"t_mtuyqiggibeqe","plan_date":"2026-08-31","deliverable":"培训材料","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigmml2ty","rev":2,"created_at":"2026-08-11T17:20:20.000Z","updated_at":"2026-08-27T22:30:23.000Z","updated_by":"黄文博"},{"task":"t_mtuyqiggibeqe","plan_date":"2026-09-12","deliverable":"会议纪要","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigm1cmch","rev":1,"created_at":"2026-08-23T23:01:09.000Z","updated_at":"2026-08-25T17:11:15.000Z","updated_by":"黄文博"},{"task":"t_mtuyqigg0owo0","plan_date":"2026-09-09","deliverable":"实施方案","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigm8pvfw","rev":4,"created_at":"2026-08-20T17:44:50.000Z","updated_at":"2026-09-02T17:18:45.000Z","updated_by":"黄文博"},{"task":"t_mtuyqigg0owo0","plan_date":"2026-09-18","deliverable":"正式文本","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigm4sh9q","rev":1,"created_at":"2026-08-30T00:46:51.000Z","updated_at":"2026-08-30T00:46:51.000Z","updated_by":"黄文博"},{"task":"t_mtuyqigggtzg9","plan_date":"2026-08-27","deliverable":"数据台账","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqign5d8ls","rev":3,"created_at":"2026-08-07T20:02:33.000Z","updated_at":"2026-08-25T22:30:41.000Z","updated_by":"潘玉兰"},{"task":"t_mtuyqigggtzg9","plan_date":"2026-09-03","deliverable":"初稿文档","report_level":"department","done":"1","actual_date":"2026-09-03","id":"m_mtuyqignspbqk","rev":1,"created_at":"2026-08-14T20:46:13.000Z","updated_at":"2026-09-03T18:39:36.000Z","updated_by":"潘玉兰"},{"task":"t_mtuyqigg00ryf","plan_date":"2026-08-19","deliverable":"整改清单","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqignru3h8","rev":2,"created_at":"2026-07-30T19:21:23.000Z","updated_at":"2026-09-06T00:20:54.000Z","updated_by":"陈晓明"},{"task":"t_mtuyqigg00ryf","plan_date":"2026-08-28","deliverable":"正式文本","report_level":"section","done":"1","actual_date":"2026-08-28","id":"m_mtuyqigngzcmi","rev":2,"created_at":"2026-08-08T21:14:56.000Z","updated_at":"2026-08-28T22:10:04.000Z","updated_by":"陈晓明"},{"task":"t_mtuyqiggydrwp","plan_date":"2026-09-26","deliverable":"总结报告","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqign9shmu","rev":1,"created_at":"2026-09-04T18:21:29.000Z","updated_at":"2026-09-04T18:21:29.000Z","updated_by":"刘建国"},{"task":"t_mtuyqiggydrwp","plan_date":"2026-10-05","deliverable":"整改清单","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqign9fhvy","rev":4,"created_at":"2026-09-04T22:08:25.000Z","updated_at":"2026-09-05T00:28:20.000Z","updated_by":"刘建国"},{"task":"t_mtuyqiggqpvcy","plan_date":"2026-08-11","deliverable":"实施方案","report_level":"section","done":"1","actual_date":"2026-08-11","id":"m_mtuyqignh1vv8","rev":2,"created_at":"2026-07-22T16:31:01.000Z","updated_at":"2026-08-11T18:24:34.000Z","updated_by":"罗晓芳"},{"task":"t_mtuyqiggqpvcy","plan_date":"2026-08-25","deliverable":"会议纪要","report_level":"department","done":"1","actual_date":"2026-08-25","id":"m_mtuyqign1i1vn","rev":1,"created_at":"2026-08-05T19:01:23.000Z","updated_at":"2026-08-25T22:06:13.000Z","updated_by":"罗晓芳"},{"task":"t_mtuyqiggqpvcy","plan_date":"2026-09-06","deliverable":"评审纪要","report_level":"bank","done":"1","actual_date":"2026-09-06","id":"m_mtuyqignpyqav","rev":1,"created_at":"2026-08-17T22:52:10.000Z","updated_at":"2026-09-06T19:58:50.000Z","updated_by":"罗晓芳"},{"task":"t_mtuyqigg7trpn","plan_date":"2026-08-07","deliverable":"评审纪要","report_level":"section","done":"1","actual_date":"2026-08-07","id":"m_mtuyqign43huc","rev":1,"created_at":"2026-07-18T21:11:11.000Z","updated_at":"2026-08-07T20:51:53.000Z","updated_by":"陈晓明"},{"task":"t_mtuyqigg7trpn","plan_date":"2026-08-22","deliverable":"正式文本","report_level":"department","done":"1","actual_date":"2026-08-22","id":"m_mtuyqign91wsd","rev":4,"created_at":"2026-08-02T20:33:41.000Z","updated_at":"2026-08-22T21:05:57.000Z","updated_by":"陈晓明"},{"task":"t_mtuyqiggfgqrl","plan_date":"2026-06-05","deliverable":"数据台账","report_level":"bank","done":"1","actual_date":"2026-06-05","id":"m_mtuyqign0au44","rev":1,"created_at":"2026-05-16T19:08:14.000Z","updated_at":"2026-06-05T22:01:43.000Z","updated_by":"张丽华"},{"task":"t_mtuyqigguc7tf","plan_date":"2026-09-01","deliverable":"报送回执","report_level":"section","done":"1","actual_date":"2026-09-01","id":"m_mtuyqignwvaez","rev":3,"created_at":"2026-08-13T00:17:33.000Z","updated_at":"2026-09-01T16:08:51.000Z","updated_by":"张丽华"},{"task":"t_mtuyqighl1zx3","plan_date":"2026-10-05","deliverable":"会议纪要","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqignwud63","rev":3,"created_at":"2026-09-04T23:56:36.000Z","updated_at":"2026-09-04T23:56:36.000Z","updated_by":"潘玉兰"},{"task":"t_mtuyqighl1zx3","plan_date":"2026-10-13","deliverable":"会议纪要","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqign81n4f","rev":3,"created_at":"2026-09-04T18:47:16.000Z","updated_at":"2026-09-08T20:05:28.000Z","updated_by":"潘玉兰"},{"task":"t_mtuyqigh57m47","plan_date":"2026-07-20","deliverable":"总结报告","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigncafam","rev":3,"created_at":"2026-07-01T00:22:26.000Z","updated_at":"2026-09-05T18:51:11.000Z","updated_by":"黄文博"},{"task":"t_mtuyqigh57m47","plan_date":"2026-07-30","deliverable":"初稿文档","report_level":"department","done":"1","actual_date":"2026-07-30","id":"m_mtuyqignjht2m","rev":4,"created_at":"2026-07-10T18:10:52.000Z","updated_at":"2026-07-30T18:00:34.000Z","updated_by":"黄文博"},{"task":"t_mtuyqighxyqsb","plan_date":"2026-08-08","deliverable":"数据台账","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqignmwyys","rev":4,"created_at":"2026-07-19T19:19:52.000Z","updated_at":"2026-09-05T16:09:43.000Z","updated_by":"潘玉兰"},{"task":"t_mtuyqighxyqsb","plan_date":"2026-08-21","deliverable":"跟踪表","report_level":"section","done":"1","actual_date":"2026-08-21","id":"m_mtuyqignqjibt","rev":2,"created_at":"2026-08-01T17:57:20.000Z","updated_at":"2026-08-21T18:39:38.000Z","updated_by":"潘玉兰"},{"task":"t_mtuyqighxyqsb","plan_date":"2026-08-28","deliverable":"报送回执","report_level":"department","done":"1","actual_date":"2026-08-28","id":"m_mtuyqigntsish","rev":1,"created_at":"2026-08-08T21:37:34.000Z","updated_at":"2026-08-28T16:50:14.000Z","updated_by":"潘玉兰"},{"task":"t_mtuyqighcy0bf","plan_date":"2026-08-26","deliverable":"正式文本","report_level":"bank","done":"1","actual_date":"2026-08-26","id":"m_mtuyqign6xv7b","rev":1,"created_at":"2026-08-06T17:25:51.000Z","updated_at":"2026-08-26T19:09:44.000Z","updated_by":"王建军"},{"task":"t_mtuyqighcy0bf","plan_date":"2026-09-10","deliverable":"正式文本","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqign41li0","rev":2,"created_at":"2026-08-21T20:44:20.000Z","updated_at":"2026-09-03T22:17:07.000Z","updated_by":"王建军"},{"task":"t_mtuyqighcy0bf","plan_date":"2026-09-23","deliverable":"整改清单","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqign8c1w7","rev":4,"created_at":"2026-09-04T00:46:54.000Z","updated_at":"2026-09-04T00:46:54.000Z","updated_by":"王建军"},{"task":"t_mtuyqighyke72","plan_date":"2026-09-01","deliverable":"跟踪表","report_level":"bank","done":"1","actual_date":"2026-09-01","id":"m_mtuyqign7stbv","rev":4,"created_at":"2026-08-12T19:56:08.000Z","updated_at":"2026-09-01T17:55:02.000Z","updated_by":"林志远","deleted_at":"2026-09-03T16:44:42.000Z"},{"task":"t_mtuyqighyke72","plan_date":"2026-09-16","deliverable":"数据台账","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqignarvt8","rev":3,"created_at":"2026-08-28T00:58:36.000Z","updated_at":"2026-08-28T00:58:36.000Z","updated_by":"林志远"},{"task":"t_mtuyqighy3lkh","plan_date":"2026-08-30","deliverable":"汇报材料","report_level":"department","done":"1","actual_date":"2026-08-30","id":"m_mtuyqignynnxn","rev":2,"created_at":"2026-08-10T23:35:55.000Z","updated_at":"2026-08-31T00:33:22.000Z","updated_by":"黄文博"},{"task":"t_mtuyqighy3lkh","plan_date":"2026-09-06","deliverable":"评审纪要","report_level":"bank","done":"1","actual_date":"2026-09-06","id":"m_mtuyqign4nhyy","rev":3,"created_at":"2026-08-17T20:31:18.000Z","updated_at":"2026-09-06T21:14:18.000Z","updated_by":"黄文博"},{"task":"t_mtuyqightypgq","plan_date":"2026-08-22","deliverable":"会议纪要","report_level":"section","done":"1","actual_date":"2026-08-22","id":"m_mtuyqigncnk20","rev":2,"created_at":"2026-08-02T16:33:07.000Z","updated_at":"2026-08-22T18:12:18.000Z","updated_by":"罗晓芳"},{"task":"t_mtuyqigh1ix7x","plan_date":"2026-05-27","deliverable":"整改清单","report_level":"department","done":"1","actual_date":"2026-05-27","id":"m_mtuyqigns3t75","rev":3,"created_at":"2026-05-07T18:14:08.000Z","updated_at":"2026-05-27T16:35:18.000Z","updated_by":"罗晓芳"},{"task":"t_mtuyqigh1ix7x","plan_date":"2026-06-05","deliverable":"评审纪要","report_level":"bank","done":"1","actual_date":"2026-06-05","id":"m_mtuyqign8izq9","rev":3,"created_at":"2026-05-16T19:48:15.000Z","updated_at":"2026-06-06T00:07:12.000Z","updated_by":"罗晓芳"},{"task":"t_mtuyqigh6zu33","plan_date":"2026-08-06","deliverable":"总结报告","report_level":"section","done":"1","actual_date":"2026-08-06","id":"m_mtuyqignotqq9","rev":3,"created_at":"2026-07-17T23:31:38.000Z","updated_at":"2026-08-06T21:28:29.000Z","updated_by":"罗晓芳"},{"task":"t_mtuyqigh6zu33","plan_date":"2026-08-25","deliverable":"报送回执","report_level":"department","done":"1","actual_date":"2026-08-25","id":"m_mtuyqignc10f4","rev":4,"created_at":"2026-08-05T23:02:42.000Z","updated_at":"2026-08-25T16:07:14.000Z","updated_by":"罗晓芳"},{"task":"t_mtuyqigh6zu33","plan_date":"2026-09-01","deliverable":"初稿文档","report_level":"bank","done":"1","actual_date":"2026-09-01","id":"m_mtuyqigncb2ql","rev":4,"created_at":"2026-08-12T20:41:59.000Z","updated_at":"2026-09-01T17:38:43.000Z","updated_by":"罗晓芳"},{"task":"t_mtuyqighgm41b","plan_date":"2026-09-02","deliverable":"培训材料","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqignttqwa","rev":4,"created_at":"2026-08-13T21:51:11.000Z","updated_at":"2026-08-30T19:09:19.000Z","updated_by":"罗晓芳"},{"task":"t_mtuyqighgm41b","plan_date":"2026-09-12","deliverable":"汇报材料","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqign89j69","rev":4,"created_at":"2026-08-23T17:40:35.000Z","updated_at":"2026-08-26T19:23:25.000Z","updated_by":"罗晓芳"},{"task":"t_mtuyqigh6hnc5","plan_date":"2026-09-07","deliverable":"实施方案","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqignhdac4","rev":3,"created_at":"2026-08-18T19:40:43.000Z","updated_at":"2026-09-02T20:27:21.000Z","updated_by":"刘建国"},{"task":"t_mtuyqigh6hnc5","plan_date":"2026-09-18","deliverable":"评审纪要","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqignq6zy7","rev":2,"created_at":"2026-08-29T20:48:55.000Z","updated_at":"2026-08-30T18:29:53.000Z","updated_by":"刘建国"},{"task":"t_mtuyqighhuz43","plan_date":"2026-09-23","deliverable":"评审纪要","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigngp5oo","rev":3,"created_at":"2026-09-03T20:56:31.000Z","updated_at":"2026-09-03T22:07:07.000Z","updated_by":"刘建国"},{"task":"t_mtuyqighhuz43","plan_date":"2026-09-29","deliverable":"汇报材料","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqign8twta","rev":2,"created_at":"2026-09-05T00:13:40.000Z","updated_at":"2026-09-05T00:13:40.000Z","updated_by":"刘建国"},{"task":"t_mtuyqighhuz43","plan_date":"2026-10-13","deliverable":"跟踪表","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqignf25si","rev":1,"created_at":"2026-09-04T17:31:50.000Z","updated_at":"2026-09-04T17:31:50.000Z","updated_by":"刘建国"},{"task":"t_mtuyqigh13iqu","plan_date":"2026-09-03","deliverable":"数据台账","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqignpwf1q","rev":3,"created_at":"2026-08-14T17:14:52.000Z","updated_at":"2026-08-26T19:37:06.000Z","updated_by":"刘建国","deleted_at":"2026-09-03T23:39:39.000Z"},{"task":"t_mtuyqighu0l8a","plan_date":"2026-09-07","deliverable":"会议纪要","report_level":"bank","done":"1","actual_date":"2026-09-07","id":"m_mtuyqignq2rpb","rev":1,"created_at":"2026-08-19T00:53:12.000Z","updated_at":"2026-09-07T21:13:30.000Z","updated_by":"陈晓明"},{"task":"t_mtuyqighu0l8a","plan_date":"2026-09-21","deliverable":"会议纪要","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqignf16vr","rev":3,"created_at":"2026-09-01T23:42:12.000Z","updated_at":"2026-09-01T23:42:12.000Z","updated_by":"陈晓明"},{"task":"t_mtuyqighqdk7a","plan_date":"2026-09-25","deliverable":"总结报告","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqign8jrp9","rev":2,"created_at":"2026-09-05T00:20:12.000Z","updated_at":"2026-09-05T23:44:29.000Z","updated_by":"曾雨桐"},{"task":"t_mtuyqighqdk7a","plan_date":"2026-10-05","deliverable":"会议纪要","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqignxllkg","rev":2,"created_at":"2026-09-04T21:12:17.000Z","updated_at":"2026-09-07T23:15:46.000Z","updated_by":"曾雨桐"},{"task":"t_mtuyqigh2stxn","plan_date":"2026-09-07","deliverable":"培训材料","report_level":"section","done":"1","actual_date":"2026-09-07","id":"m_mtuyqignd29vx","rev":1,"created_at":"2026-08-18T22:24:32.000Z","updated_at":"2026-09-07T19:46:24.000Z","updated_by":"曾雨桐"},{"task":"t_mtuyqigh2stxn","plan_date":"2026-09-16","deliverable":"整改清单","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqignvnw1h","rev":1,"created_at":"2026-08-27T17:15:12.000Z","updated_at":"2026-09-01T16:39:55.000Z","updated_by":"曾雨桐"},{"task":"t_mtuyqighqgleo","plan_date":"2026-08-09","deliverable":"实施方案","report_level":"bank","done":"1","actual_date":"2026-08-09","id":"m_mtuyqigni88va","rev":3,"created_at":"2026-07-20T19:33:56.000Z","updated_at":"2026-08-09T23:46:29.000Z","updated_by":"黄文博"},{"task":"t_mtuyqighqgleo","plan_date":"2026-08-28","deliverable":"评审纪要","report_level":"section","done":"1","actual_date":"2026-08-28","id":"m_mtuyqign192td","rev":2,"created_at":"2026-08-08T20:46:37.000Z","updated_at":"2026-08-29T00:22:38.000Z","updated_by":"黄文博"},{"task":"t_mtuyqighqgleo","plan_date":"2026-09-06","deliverable":"总结报告","report_level":"department","done":"1","actual_date":"2026-09-06","id":"m_mtuyqign6ua8j","rev":1,"created_at":"2026-08-17T23:02:21.000Z","updated_at":"2026-09-06T19:03:13.000Z","updated_by":"黄文博"},{"task":"t_mtuyqigh2dk0l","plan_date":"2026-08-04","deliverable":"评审纪要","report_level":"bank","done":"1","actual_date":"2026-08-04","id":"m_mtuyqigovag3q","rev":2,"created_at":"2026-07-15T20:58:33.000Z","updated_at":"2026-08-04T17:30:30.000Z","updated_by":"曾雨桐"},{"task":"t_mtuyqigh2dk0l","plan_date":"2026-08-14","deliverable":"正式文本","report_level":"section","done":"1","actual_date":"2026-08-14","id":"m_mtuyqigoyz7x9","rev":2,"created_at":"2026-07-25T23:38:43.000Z","updated_at":"2026-08-15T00:38:56.000Z","updated_by":"曾雨桐"},{"task":"t_mtuyqigh2dk0l","plan_date":"2026-08-22","deliverable":"初稿文档","report_level":"department","done":"1","actual_date":"2026-08-22","id":"m_mtuyqigof9t8q","rev":4,"created_at":"2026-08-02T21:48:28.000Z","updated_at":"2026-08-22T22:47:44.000Z","updated_by":"曾雨桐"},{"task":"t_mtuyqighw1ewf","plan_date":"2026-08-19","deliverable":"汇报材料","report_level":"bank","done":"1","actual_date":"2026-08-19","id":"m_mtuyqigolaofa","rev":3,"created_at":"2026-07-31T00:51:12.000Z","updated_at":"2026-08-20T00:39:35.000Z","updated_by":"杨志强"},{"task":"t_mtuyqighw1ewf","plan_date":"2026-09-07","deliverable":"总结报告","report_level":"section","done":"1","actual_date":"2026-09-07","id":"m_mtuyqigog7pt5","rev":1,"created_at":"2026-08-19T00:30:31.000Z","updated_at":"2026-09-07T23:31:43.000Z","updated_by":"杨志强"},{"task":"t_mtuyqighw1ewf","plan_date":"2026-09-18","deliverable":"报送回执","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigostl63","rev":4,"created_at":"2026-08-29T22:31:40.000Z","updated_at":"2026-08-29T22:31:40.000Z","updated_by":"杨志强"},{"task":"t_mtuyqighimnig","plan_date":"2026-09-03","deliverable":"整改清单","report_level":"bank","done":"1","actual_date":"2026-09-03","id":"m_mtuyqigovmi8g","rev":4,"created_at":"2026-08-14T20:12:42.000Z","updated_at":"2026-09-04T00:34:24.000Z","updated_by":"傅思远"},{"task":"t_mtuyqigh6iqim","plan_date":"2026-07-21","deliverable":"总结报告","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigoc238m","rev":1,"created_at":"2026-07-01T18:51:22.000Z","updated_at":"2026-09-02T19:50:51.000Z","updated_by":"傅思远"},{"task":"t_mtuyqigh6iqim","plan_date":"2026-07-30","deliverable":"正式文本","report_level":"department","done":"1","actual_date":"2026-07-30","id":"m_mtuyqigo9mtcx","rev":2,"created_at":"2026-07-10T16:54:27.000Z","updated_at":"2026-07-30T19:29:59.000Z","updated_by":"傅思远"},{"task":"t_mtuyqighc4oqu","plan_date":"2026-08-24","deliverable":"评审纪要","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigo6mqdl","rev":4,"created_at":"2026-08-04T16:23:38.000Z","updated_at":"2026-09-08T20:07:17.000Z","updated_by":"董海燕"},{"task":"t_mtuyqighc4oqu","plan_date":"2026-09-10","deliverable":"汇报材料","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigoa3zlo","rev":3,"created_at":"2026-08-21T20:49:34.000Z","updated_at":"2026-08-26T20:41:28.000Z","updated_by":"董海燕"},{"task":"t_mtuyqighc4oqu","plan_date":"2026-09-21","deliverable":"报送回执","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigog5quk","rev":3,"created_at":"2026-09-01T17:47:15.000Z","updated_at":"2026-09-01T17:47:15.000Z","updated_by":"董海燕"},{"task":"t_mtuyqighlqxe5","plan_date":"2026-10-05","deliverable":"报送回执","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigo5e57s","rev":1,"created_at":"2026-09-04T23:41:33.000Z","updated_at":"2026-09-05T00:44:59.000Z","updated_by":"董海燕"},{"task":"t_mtuyqighywrqa","plan_date":"2026-09-01","deliverable":"正式文本","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigo9bgpk","rev":2,"created_at":"2026-08-12T22:00:19.000Z","updated_at":"2026-09-07T17:21:25.000Z","updated_by":"王建军"},{"task":"t_mtuyqighywrqa","plan_date":"2026-09-12","deliverable":"正式文本","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigoggo5v","rev":3,"created_at":"2026-08-23T16:30:54.000Z","updated_at":"2026-09-02T00:17:52.000Z","updated_by":"王建军"},{"task":"t_mtuyqighywrqa","plan_date":"2026-09-23","deliverable":"会议纪要","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigosha5t","rev":1,"created_at":"2026-09-03T20:26:37.000Z","updated_at":"2026-09-03T20:26:37.000Z","updated_by":"王建军"},{"task":"t_mtuyqigiojo5e","plan_date":"2026-08-22","deliverable":"会议纪要","report_level":"section","done":"1","actual_date":"2026-08-22","id":"m_mtuyqigoe65tw","rev":2,"created_at":"2026-08-02T18:08:28.000Z","updated_at":"2026-08-22T16:22:06.000Z","updated_by":"宋佳琪"},{"task":"t_mtuyqigi6889v","plan_date":"2026-05-29","deliverable":"整改清单","report_level":"department","done":"1","actual_date":"2026-05-29","id":"m_mtuyqigo6qed0","rev":4,"created_at":"2026-05-09T19:30:39.000Z","updated_at":"2026-05-29T21:21:14.000Z","updated_by":"宋佳琪"},{"task":"t_mtuyqigi6889v","plan_date":"2026-06-05","deliverable":"数据台账","report_level":"bank","done":"1","actual_date":"2026-06-05","id":"m_mtuyqigoppyf3","rev":1,"created_at":"2026-05-16T19:57:51.000Z","updated_at":"2026-06-05T18:38:47.000Z","updated_by":"宋佳琪"},{"task":"t_mtuyqigioglhq","plan_date":"2026-09-14","deliverable":"正式文本","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigo2fpy4","rev":4,"created_at":"2026-08-25T21:49:17.000Z","updated_at":"2026-08-30T19:48:24.000Z","updated_by":"谢明辉"},{"task":"t_mtuyqigioglhq","plan_date":"2026-09-29","deliverable":"初稿文档","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigowtg80","rev":1,"created_at":"2026-09-04T18:21:14.000Z","updated_at":"2026-09-04T18:21:14.000Z","updated_by":"谢明辉"},{"task":"t_mtuyqigir02s6","plan_date":"2026-09-10","deliverable":"汇报材料","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigou79nq","rev":4,"created_at":"2026-08-21T20:01:47.000Z","updated_at":"2026-08-31T17:58:06.000Z","updated_by":"彭子涵"},{"task":"t_mtuyqigir02s6","plan_date":"2026-09-18","deliverable":"评审纪要","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigoidxji","rev":4,"created_at":"2026-08-29T16:40:16.000Z","updated_at":"2026-08-30T17:15:44.000Z","updated_by":"彭子涵"},{"task":"t_mtuyqigir02s6","plan_date":"2026-09-26","deliverable":"跟踪表","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigob7qls","rev":2,"created_at":"2026-09-04T16:42:20.000Z","updated_at":"2026-09-04T16:42:20.000Z","updated_by":"彭子涵"},{"task":"t_mtuyqigile2t3","plan_date":"2026-09-21","deliverable":"会议纪要","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigoiez0y","rev":4,"created_at":"2026-09-01T17:10:21.000Z","updated_at":"2026-09-08T21:47:05.000Z","updated_by":"彭子涵"},{"task":"t_mtuyqigisq105","plan_date":"2026-09-06","deliverable":"实施方案","report_level":"section","done":"1","actual_date":"2026-09-06","id":"m_mtuyqigouexhw","rev":1,"created_at":"2026-08-17T17:11:01.000Z","updated_at":"2026-09-06T22:50:29.000Z","updated_by":"陈晓明"},{"task":"t_mtuyqigiryo78","plan_date":"2026-09-01","deliverable":"报送回执","report_level":"department","done":"1","actual_date":"2026-09-01","id":"m_mtuyqigovfm8m","rev":3,"created_at":"2026-08-12T16:53:52.000Z","updated_at":"2026-09-01T17:04:35.000Z","updated_by":"宋佳琪","deleted_at":"2026-02-21T17:35:57.000Z"},{"task":"t_mtuyqigienqcw","plan_date":"2026-08-25","deliverable":"正式文本","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigoj75cl","rev":2,"created_at":"2026-08-05T20:57:11.000Z","updated_at":"2026-09-05T19:41:17.000Z","updated_by":"张丽华"},{"task":"t_mtuyqigienqcw","plan_date":"2026-09-09","deliverable":"报送回执","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigo43twc","rev":3,"created_at":"2026-08-20T18:57:08.000Z","updated_at":"2026-08-30T20:07:57.000Z","updated_by":"张丽华"},{"task":"t_mtuyqigidwh19","plan_date":"2026-09-18","deliverable":"汇报材料","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigo66pho","rev":2,"created_at":"2026-08-30T00:48:13.000Z","updated_at":"2026-09-08T00:29:50.000Z","updated_by":"杨志强"},{"task":"t_mtuyqigiev43s","plan_date":"2026-09-30","deliverable":"会议纪要","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigoazlpy","rev":1,"created_at":"2026-09-04T18:09:23.000Z","updated_at":"2026-09-04T18:09:23.000Z","updated_by":"杨志强"},{"task":"t_mtuyqigiev43s","plan_date":"2026-10-13","deliverable":"正式文本","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigoyiy1y","rev":4,"created_at":"2026-09-04T21:45:03.000Z","updated_at":"2026-09-04T21:45:03.000Z","updated_by":"杨志强"},{"task":"t_mtuyqigiww0bn","plan_date":"2026-09-03","deliverable":"整改清单","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigomez7m","rev":1,"created_at":"2026-08-14T17:21:21.000Z","updated_at":"2026-08-31T22:40:44.000Z","updated_by":"杨志强"},{"task":"t_mtuyqigidq9yh","plan_date":"2026-07-16","deliverable":"总结报告","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigom3hm6","rev":3,"created_at":"2026-06-26T18:03:12.000Z","updated_at":"2026-08-27T18:23:07.000Z","updated_by":"杨志强"},{"task":"t_mtuyqigidq9yh","plan_date":"2026-07-20","deliverable":"报送回执","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigoem8b3","rev":1,"created_at":"2026-06-30T22:17:42.000Z","updated_at":"2026-09-05T20:04:10.000Z","updated_by":"杨志强"},{"task":"t_mtuyqigidq9yh","plan_date":"2026-07-30","deliverable":"评审纪要","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigoi39h2","rev":1,"created_at":"2026-07-10T20:51:54.000Z","updated_at":"2026-09-09T00:56:36.000Z","updated_by":"杨志强"},{"task":"t_mtuyqigiqlpay","plan_date":"2026-09-08","deliverable":"实施方案","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigoy1xwt","rev":4,"created_at":"2026-08-19T17:53:57.000Z","updated_at":"2026-08-29T22:02:21.000Z","updated_by":"宋佳琪"},{"task":"t_mtuyqigiqlpay","plan_date":"2026-09-15","deliverable":"整改清单","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigonqg8y","rev":2,"created_at":"2026-08-26T19:49:39.000Z","updated_at":"2026-09-06T23:16:38.000Z","updated_by":"宋佳琪"},{"task":"t_mtuyqigiqlpay","plan_date":"2026-09-26","deliverable":"总结报告","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigoeiobn","rev":1,"created_at":"2026-09-04T18:26:19.000Z","updated_at":"2026-09-04T19:56:32.000Z","updated_by":"宋佳琪"},{"task":"t_mtuyqigi8x280","plan_date":"2026-08-28","deliverable":"数据台账","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigo0rded","rev":1,"created_at":"2026-08-08T23:39:15.000Z","updated_at":"2026-08-25T19:54:54.000Z","updated_by":"冯雪梅"},{"task":"t_mtuyqigicpreg","plan_date":"2026-08-22","deliverable":"会议纪要","report_level":"section","done":"1","actual_date":"2026-08-22","id":"m_mtuyqigoes2l5","rev":1,"created_at":"2026-08-02T21:46:38.000Z","updated_at":"2026-08-22T22:19:11.000Z","updated_by":"曾雨桐"},{"task":"t_mtuyqigiyn4dd","plan_date":"2026-05-25","deliverable":"整改清单","report_level":"department","done":"1","actual_date":"2026-05-25","id":"m_mtuyqigo1b789","rev":1,"created_at":"2026-05-05T16:25:25.000Z","updated_at":"2026-05-25T23:53:13.000Z","updated_by":"曾雨桐"},{"task":"t_mtuyqigiyn4dd","plan_date":"2026-06-05","deliverable":"汇报材料","report_level":"bank","done":"1","actual_date":"2026-06-05","id":"m_mtuyqigo6lbpr","rev":1,"created_at":"2026-05-16T19:30:31.000Z","updated_at":"2026-06-05T21:02:14.000Z","updated_by":"曾雨桐"},{"task":"t_mtuyqigifblq1","plan_date":"2026-09-01","deliverable":"总结报告","report_level":"section","done":"1","actual_date":"2026-09-01","id":"m_mtuyqigo0hi5t","rev":3,"created_at":"2026-08-12T20:26:53.000Z","updated_at":"2026-09-02T00:55:10.000Z","updated_by":"杨志强"},{"task":"t_mtuyqigitweth","plan_date":"2026-08-18","deliverable":"调研报告","report_level":"department","done":"1","actual_date":"2026-08-18","id":"m_mtuyqigokdcvb","rev":2,"created_at":"2026-07-29T23:04:06.000Z","updated_at":"2026-08-18T22:38:20.000Z","updated_by":"王建军"},{"task":"t_mtuyqigitweth","plan_date":"2026-08-31","deliverable":"汇报材料","report_level":"bank","done":"1","actual_date":"2026-08-31","id":"m_mtuyqigo9zrc1","rev":4,"created_at":"2026-08-11T23:56:21.000Z","updated_at":"2026-08-31T17:03:01.000Z","updated_by":"王建军"},{"task":"t_mtuyqigitweth","plan_date":"2026-09-09","deliverable":"会议纪要","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigolwkqc","rev":3,"created_at":"2026-08-21T00:29:18.000Z","updated_at":"2026-08-26T19:59:00.000Z","updated_by":"王建军"},{"task":"t_mtuyqigfbngrk","plan_date":"2026-09-07","deliverable":"本周交付：初稿文档","report_level":"section","done":"1","actual_date":"2026-09-07","id":"m_mtuyqigpq6azv","rev":4,"created_at":"2026-08-19T00:53:17.000Z","updated_at":"2026-09-07T18:10:59.000Z","updated_by":"陈晓明"},{"task":"t_mtuyqigfaeupz","plan_date":"2026-09-08","deliverable":"本周交付：评审纪要","report_level":"department","done":"1","actual_date":"2026-09-08","id":"m_mtuyqigpx7vy0","rev":4,"created_at":"2026-08-19T19:18:30.000Z","updated_at":"2026-09-08T19:40:42.000Z","updated_by":"陈晓明"},{"task":"t_mtuyqigfk8oqv","plan_date":"2026-09-09","deliverable":"本周交付：数据台账","report_level":"bank","done":"1","actual_date":"2026-09-09","id":"m_mtuyqigp3li0k","rev":4,"created_at":"2026-08-20T16:05:20.000Z","updated_at":"2026-09-09T16:44:02.000Z","updated_by":"刘建国"},{"task":"t_mtuyqigfhu6gu","plan_date":"2026-09-07","deliverable":"本周交付：报送回执","report_level":"section","done":"1","actual_date":"2026-09-07","id":"m_mtuyqigpfiq2t","rev":1,"created_at":"2026-08-18T17:13:31.000Z","updated_at":"2026-09-07T20:34:18.000Z","updated_by":"刘建国"},{"task":"t_mtuyqiggwmsff","plan_date":"2026-09-08","deliverable":"本周交付：正式文本","report_level":"department","done":"1","actual_date":"2026-09-08","id":"m_mtuyqigpzthxl","rev":3,"created_at":"2026-08-19T21:30:55.000Z","updated_at":"2026-09-08T19:14:23.000Z","updated_by":"刘建国"},{"task":"t_mtuyqigg7b3r4","plan_date":"2026-09-09","deliverable":"本周交付：跟踪表","report_level":"bank","done":"1","actual_date":"2026-09-09","id":"m_mtuyqigpzjpiv","rev":3,"created_at":"2026-08-20T19:26:55.000Z","updated_at":"2026-09-09T16:08:37.000Z","updated_by":"刘建国"},{"task":"t_mtuyqiggo9fn0","plan_date":"2026-09-07","deliverable":"本周交付：汇报材料","report_level":"section","done":"1","actual_date":"2026-09-07","id":"m_mtuyqigpy3pus","rev":1,"created_at":"2026-08-18T20:39:30.000Z","updated_at":"2026-09-07T22:35:50.000Z","updated_by":"王建军"},{"task":"t_mtuyqiggi77jd","plan_date":"2026-09-08","deliverable":"本周交付：会议纪要","report_level":"department","done":"1","actual_date":"2026-09-08","id":"m_mtuyqigpv1mf0","rev":3,"created_at":"2026-08-19T23:30:39.000Z","updated_at":"2026-09-09T00:45:18.000Z","updated_by":"黄文博"},{"task":"t_mtuyqiggiyqlz","plan_date":"2026-09-09","deliverable":"本周交付：整改清单","report_level":"bank","done":"1","actual_date":"2026-09-09","id":"m_mtuyqigpzzm8e","rev":2,"created_at":"2026-08-20T22:01:27.000Z","updated_at":"2026-09-10T00:27:35.000Z","updated_by":"黄文博"},{"task":"t_mtuyqigfhu6gu","plan_date":"2026-09-01","deliverable":"本月交付：数据台账","report_level":"bank","done":"1","actual_date":"2026-09-01","id":"m_mtuyqigp2uhk9","rev":4,"created_at":"2026-08-12T19:41:42.000Z","updated_at":"2026-09-01T17:43:27.000Z","updated_by":"刘建国"},{"task":"t_mtuyqiggwmsff","plan_date":"2026-09-04","deliverable":"本月交付：报送回执","report_level":"section","done":"1","actual_date":"2026-09-04","id":"m_mtuyqigpt4rdt","rev":1,"created_at":"2026-08-15T18:08:37.000Z","updated_at":"2026-09-04T23:32:59.000Z","updated_by":"刘建国"},{"task":"t_mtuyqigg7b3r4","plan_date":"2026-09-01","deliverable":"本月交付：正式文本","report_level":"department","done":"1","actual_date":"2026-09-01","id":"m_mtuyqigp73oxq","rev":3,"created_at":"2026-08-13T00:03:21.000Z","updated_at":"2026-09-01T16:26:14.000Z","updated_by":"刘建国"},{"task":"t_mtuyqiggo9fn0","plan_date":"2026-09-04","deliverable":"本月交付：跟踪表","report_level":"bank","done":"1","actual_date":"2026-09-04","id":"m_mtuyqigphi681","rev":1,"created_at":"2026-08-15T23:38:00.000Z","updated_at":"2026-09-04T18:05:56.000Z","updated_by":"王建军"},{"task":"t_mtuyqiggi77jd","plan_date":"2026-09-01","deliverable":"本月交付：汇报材料","report_level":"section","done":"1","actual_date":"2026-09-01","id":"m_mtuyqigpip7j7","rev":3,"created_at":"2026-08-12T23:50:21.000Z","updated_at":"2026-09-01T18:15:09.000Z","updated_by":"黄文博"},{"task":"t_mtuyqiggiyqlz","plan_date":"2026-09-04","deliverable":"本月交付：会议纪要","report_level":"department","done":"1","actual_date":"2026-09-04","id":"m_mtuyqigp3le5p","rev":2,"created_at":"2026-08-15T22:35:40.000Z","updated_at":"2026-09-05T00:06:49.000Z","updated_by":"黄文博"},{"task":"t_mtuyqigilk0ws","plan_date":"2026-09-14","deliverable":"下周节点：报送回执","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigpenw9m","rev":3,"created_at":"2026-08-25T19:06:27.000Z","updated_at":"2026-09-09T00:49:40.000Z","updated_by":"王建军"},{"task":"t_mtuyqigi2apz4","plan_date":"2026-09-15","deliverable":"下周节点：正式文本","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigpf30u6","rev":1,"created_at":"2026-08-27T00:52:52.000Z","updated_at":"2026-09-01T18:48:57.000Z","updated_by":"曾雨桐"},{"task":"t_mtuyqigis1awm","plan_date":"2026-09-16","deliverable":"下周节点：跟踪表","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigpys0k3","rev":3,"created_at":"2026-08-27T23:10:12.000Z","updated_at":"2026-09-04T19:04:58.000Z","updated_by":"王建军"},{"task":"t_mtuyqigitweth","plan_date":"2026-09-17","deliverable":"下周节点：汇报材料","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigpqn8jk","rev":2,"created_at":"2026-08-28T18:04:11.000Z","updated_at":"2026-08-28T20:30:18.000Z","updated_by":"王建军"},{"task":"t_mtuyqigifb3du","plan_date":"2026-09-18","deliverable":"下周节点：会议纪要","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigp3bgja","rev":2,"created_at":"2026-08-30T00:57:42.000Z","updated_at":"2026-09-08T19:30:07.000Z","updated_by":"曾雨桐"},{"task":"t_mtuyqigi292o0","plan_date":"2026-09-19","deliverable":"下周节点：整改清单","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigpxerkd","rev":2,"created_at":"2026-08-30T22:26:17.000Z","updated_at":"2026-09-01T20:11:16.000Z","updated_by":"杨志强"},{"task":"t_mtuyqigidq9yh","plan_date":"2026-09-20","deliverable":"下周节点：总结报告","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigpi5djy","rev":4,"created_at":"2026-08-31T18:27:53.000Z","updated_at":"2026-09-08T19:26:06.000Z","updated_by":"杨志强"},{"task":"t_mtuyqigiww0bn","plan_date":"2026-09-14","deliverable":"下周节点：初稿文档","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigpo185h","rev":1,"created_at":"2026-08-25T22:05:31.000Z","updated_at":"2026-09-02T21:17:36.000Z","updated_by":"杨志强"},{"task":"t_mtuyqigiev43s","plan_date":"2026-09-15","deliverable":"下周节点：评审纪要","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigpt75nh","rev":2,"created_at":"2026-08-26T22:34:23.000Z","updated_at":"2026-09-08T21:47:56.000Z","updated_by":"杨志强"},{"task":"t_mtuyqigi2apz4","plan_date":"2026-10-01","deliverable":"下月节点：汇报材料","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigpzhi73","rev":4,"created_at":"2026-09-04T19:57:50.000Z","updated_at":"2026-09-05T17:23:12.000Z","updated_by":"曾雨桐"},{"task":"t_mtuyqigitweth","plan_date":"2026-10-05","deliverable":"下月节点：会议纪要","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigpoo493","rev":3,"created_at":"2026-09-04T17:48:28.000Z","updated_at":"2026-09-06T19:32:55.000Z","updated_by":"王建军"},{"task":"t_mtuyqigi292o0","plan_date":"2026-10-09","deliverable":"下月节点：整改清单","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigpd6eog","rev":4,"created_at":"2026-09-04T20:22:45.000Z","updated_at":"2026-09-08T20:33:57.000Z","updated_by":"杨志强"},{"task":"t_mtuyqigiww0bn","plan_date":"2026-10-13","deliverable":"下月节点：总结报告","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigp7ynuz","rev":3,"created_at":"2026-09-04T20:27:37.000Z","updated_at":"2026-09-04T20:27:37.000Z","updated_by":"杨志强"},{"task":"t_mtuyqigidwh19","plan_date":"2026-10-17","deliverable":"下月节点：初稿文档","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigpgstxp","rev":1,"created_at":"2026-09-04T23:18:36.000Z","updated_at":"2026-09-04T23:18:36.000Z","updated_by":"杨志强"},{"task":"t_mtuyqigienqcw","plan_date":"2026-10-21","deliverable":"下月节点：评审纪要","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigpt671s","rev":4,"created_at":"2026-09-04T23:11:31.000Z","updated_at":"2026-09-04T23:11:31.000Z","updated_by":"张丽华"},{"task":"t_mtuyqigfbngrk","plan_date":"2026-09-05","deliverable":"逾期未交付：跟踪表","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigpa7wv6","rev":1,"created_at":"2026-08-16T16:43:24.000Z","updated_at":"2026-08-27T21:23:54.000Z","updated_by":"陈晓明"},{"task":"t_mtuyqigfk8oqv","plan_date":"2026-09-02","deliverable":"逾期未交付：汇报材料","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigpyfa0c","rev":2,"created_at":"2026-08-14T00:32:19.000Z","updated_at":"2026-09-09T00:02:59.000Z","updated_by":"刘建国"},{"task":"t_mtuyqiggwmsff","plan_date":"2026-08-30","deliverable":"逾期未交付：会议纪要","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigpcibcb","rev":4,"created_at":"2026-08-10T19:09:56.000Z","updated_at":"2026-08-30T22:03:46.000Z","updated_by":"刘建国"},{"task":"t_mtuyqiggo9fn0","plan_date":"2026-08-27","deliverable":"逾期未交付：整改清单","report_level":"department","done":"0","actual_date":"","id":"m_mtuyqigp98mpe","rev":3,"created_at":"2026-08-07T21:30:50.000Z","updated_at":"2026-08-27T22:03:30.000Z","updated_by":"王建军"},{"task":"t_mtuyqiggiyqlz","plan_date":"2026-08-24","deliverable":"逾期未交付：总结报告","report_level":"bank","done":"0","actual_date":"","id":"m_mtuyqigpnwvaw","rev":1,"created_at":"2026-08-04T21:03:32.000Z","updated_at":"2026-09-07T22:18:45.000Z","updated_by":"黄文博"},{"task":"t_mtuyqigg0owo0","plan_date":"2026-08-21","deliverable":"逾期未交付：初稿文档","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigpa9jh3","rev":4,"created_at":"2026-08-01T20:07:20.000Z","updated_at":"2026-09-05T19:16:34.000Z","updated_by":"黄文博"},{"task":"t_mtuyqigfa1feh","plan_date":"2026-09-16","deliverable":"（超出任务期限的）补充材料","report_level":"section","done":"0","actual_date":"","id":"m_mtuyqigt0b5yb","rev":1,"created_at":"2026-08-27T20:25:15.000Z","updated_at":"2026-08-29T19:59:37.000Z","updated_by":"陈晓明"}],"tasks":[{"code":"01012601","work":"w_mtuyqigef18ia","title":"编制基础设施专项规划实施方案","owner":"陈晓明","assignees":["董海燕"],"status":"done","priority":"2","plan_date":"2026-09-06","progress":100,"actual_date":"2026-09-07","source":"","custom":"常规","id":"t_mtuyqigf928rf","rev":1,"created_at":"2026-04-30T16:22:28.000Z","updated_at":"2026-08-25T00:55:32.000Z","updated_by":"陈晓明"},{"code":"01012602","work":"w_mtuyqigef18ia","title":"基础设施专项规划内部评审","owner":"陈晓明","assignees":["冯雪梅","潘玉兰"],"status":"done","priority":"2","plan_date":"2026-08-22","progress":100,"actual_date":"2026-09-08","source":"领导交办","custom":"","id":"t_mtuyqigfa1feh","rev":1,"created_at":"2026-03-12T17:59:26.000Z","updated_at":"2026-09-03T21:55:44.000Z","updated_by":"陈晓明"},{"code":"01012603","work":"w_mtuyqigef18ia","title":"基础设施专项规划数据收集与整理","owner":"王建军","assignees":[],"status":"done","priority":"3","plan_date":"","progress":100,"actual_date":"2026-09-09","source":"监管要求","custom":"常规","id":"t_mtuyqigf5hb7f","rev":3,"created_at":"2026-05-26T17:43:46.000Z","updated_at":"2026-09-07T16:06:10.000Z","updated_by":"王建军"},{"code":"01012604","work":"w_mtuyqigef18ia","title":"基础设施专项规划材料报送","owner":"陈晓明","assignees":["冯雪梅","宋佳琪"],"status":"done","priority":"1","plan_date":"2026-09-01","progress":100,"actual_date":"2026-09-07","source":"内部发起","custom":"","id":"t_mtuyqigfbmto8","rev":3,"created_at":"2026-03-09T21:30:31.000Z","updated_at":"2026-08-24T17:38:46.000Z","updated_by":"陈晓明"},{"code":"01012605","work":"w_mtuyqigef18ia","title":"基础设施专项规划方案定稿与发布","owner":"陈晓明","assignees":[],"status":"todo","priority":"1","plan_date":"2026-09-09","progress":50,"actual_date":"","source":"","custom":"","id":"t_mtuyqigfbngrk","rev":3,"created_at":"2025-12-24T01:37:06.000Z","updated_at":"2026-08-21T18:59:01.000Z","updated_by":"陈晓明"},{"code":"01012606","work":"w_mtuyqigef18ia","title":"基础设施专项规划进度跟踪与督办","owner":"陈晓明","assignees":[],"status":"doing","priority":"2","plan_date":"2026-09-12","progress":95,"actual_date":"","source":"","custom":"攻坚","id":"t_mtuyqigfaeupz","rev":2,"created_at":"2026-01-18T01:29:33.000Z","updated_at":"2026-08-21T00:30:42.000Z","updated_by":"陈晓明"},{"code":"01022601","work":"w_mtuyqige3rk3b","title":"异地机构专项规划季度汇报","owner":"刘建国","assignees":[],"status":"doing","priority":"2","plan_date":"2026-09-18","progress":40,"actual_date":"","source":"监管要求","custom":"常规","id":"t_mtuyqigfk8oqv","rev":3,"created_at":"2026-01-27T22:57:33.000Z","updated_at":"2026-08-23T21:07:15.000Z","updated_by":"刘建国"},{"code":"01022602","work":"w_mtuyqige3rk3b","title":"与相关部门沟通异地机构专项规划事项","owner":"刘建国","assignees":["黄文博","林志远"],"status":"doing","priority":"3","plan_date":"2026-10-13","progress":95,"actual_date":"","source":"内部发起","custom":"","id":"t_mtuyqigfhu6gu","rev":2,"created_at":"2026-05-07T16:11:31.000Z","updated_at":"2026-09-07T18:38:25.000Z","updated_by":"刘建国"},{"code":"01022603","work":"w_mtuyqige3rk3b","title":"异地机构专项规划问题整改","owner":"刘建国","assignees":["傅思远","王建军"],"status":"doing","priority":"1","plan_date":"2026-09-08","progress":67,"actual_date":"","source":"领导交办","custom":"攻坚","id":"t_mtuyqiggwmsff","rev":3,"created_at":"2026-07-25T22:35:15.000Z","updated_at":"2026-09-07T00:35:03.000Z","updated_by":"刘建国"},{"code":"01022604","work":"w_mtuyqige3rk3b","title":"异地机构专项规划年度总结","owner":"刘建国","assignees":[],"status":"doing","priority":"1","plan_date":"2026-09-09","progress":67,"actual_date":"","source":"内部发起","custom":"","id":"t_mtuyqigg7b3r4","rev":4,"created_at":"2026-04-22T00:21:59.000Z","updated_at":"2026-08-31T18:10:48.000Z","updated_by":"刘建国"},{"code":"02012601","work":"w_mtuyqigew9avt","title":"前沿技术专题研究调研与需求梳理","owner":"王建军","assignees":["黄文博","林志远"],"status":"doing","priority":"2","plan_date":"2026-09-29","progress":50,"actual_date":"","source":"例行工作","custom":"重点","id":"t_mtuyqiggo9fn0","rev":1,"created_at":"2026-01-01T18:07:29.000Z","updated_at":"2026-08-30T21:36:38.000Z","updated_by":"王建军"},{"code":"02012602","work":"w_mtuyqigew9avt","title":"前沿技术专题研究培训与宣贯","owner":"王建军","assignees":["张丽华"],"status":"todo","priority":"2","plan_date":"","progress":0,"actual_date":"","source":"领导交办","custom":"","id":"t_mtuyqiggxsw92","rev":3,"created_at":"2026-07-14T23:37:52.000Z","updated_at":"2026-08-25T18:56:55.000Z","updated_by":"王建军"},{"code":"02012603","work":"w_mtuyqigew9avt","title":"编制前沿技术专题研究实施方案","owner":"王建军","assignees":["黄文博","林志远"],"status":"todo","priority":"3","plan_date":"2026-09-26","progress":0,"actual_date":"","source":"例行工作","custom":"攻坚","id":"t_mtuyqiggtwda2","rev":4,"created_at":"2026-06-26T20:15:22.000Z","updated_at":"2026-08-25T18:14:03.000Z","updated_by":"王建军"},{"code":"02012604","work":"w_mtuyqigew9avt","title":"前沿技术专题研究内部评审","owner":"王建军","assignees":[],"status":"todo","priority":"2","plan_date":"2026-09-21","progress":0,"actual_date":"","source":"","custom":"常规","id":"t_mtuyqigg1wxgd","rev":4,"created_at":"2026-05-26T00:33:59.000Z","updated_at":"2026-08-30T00:13:09.000Z","updated_by":"王建军"},{"code":"02022601","work":"w_mtuyqiget2mfx","title":"行业技术动态汇编月报数据收集与整理","owner":"黄文博","assignees":["曾雨桐"],"status":"hold","priority":"3","plan_date":"2026-08-28","progress":100,"actual_date":"","source":"领导交办","custom":"常规","id":"t_mtuyqiggk2nwl","rev":1,"created_at":"2025-12-23T20:54:42.000Z","updated_at":"2026-09-07T18:22:33.000Z","updated_by":"王建军"},{"code":"02022602","work":"w_mtuyqiget2mfx","title":"行业技术动态汇编月报材料报送","owner":"黄文博","assignees":["曾雨桐"],"status":"hold","priority":"3","plan_date":"2026-10-05","progress":0,"actual_date":"","source":"","custom":"攻坚","id":"t_mtuyqigg7f5i8","rev":4,"created_at":"2026-03-07T19:10:57.000Z","updated_at":"2026-09-06T17:07:49.000Z","updated_by":"黄文博"},{"code":"02022603","work":"w_mtuyqiget2mfx","title":"行业技术动态汇编月报方案定稿与发布","owner":"","assignees":["罗晓芳"],"status":"todo","priority":"2","plan_date":"2026-09-23","progress":0,"actual_date":"","source":"领导交办","custom":"重点","id":"t_mtuyqiggnwzcc","rev":1,"created_at":"2026-06-28T19:33:59.000Z","updated_at":"2026-08-23T18:01:54.000Z","updated_by":"黄文博"},{"code":"02022604","work":"w_mtuyqiget2mfx","title":"行业技术动态汇编月报进度跟踪与督办","owner":"黄文博","assignees":[],"status":"doing","priority":"2","plan_date":"2026-09-16","progress":75,"actual_date":"","source":"","custom":"攻坚","id":"t_mtuyqiggi77jd","rev":1,"created_at":"2026-06-30T22:13:41.000Z","updated_at":"2026-08-23T18:33:04.000Z","updated_by":"黄文博"},{"code":"02022605","work":"w_mtuyqiget2mfx","title":"行业技术动态汇编月报季度汇报","owner":"刘建国","assignees":["曾雨桐"],"status":"done","priority":"2","plan_date":"2026-09-06","progress":100,"actual_date":"2026-09-08","source":"领导交办","custom":"","id":"t_mtuyqiggk4w0x","rev":4,"created_at":"2026-02-20T20:35:18.000Z","updated_at":"2026-09-07T23:02:56.000Z","updated_by":"刘建国"},{"code":"02032601","work":"w_mtuyqige4yx6x","title":"与相关部门沟通研究课题管理事项","owner":"谢明辉","assignees":[],"status":"done","priority":"2","plan_date":"2026-08-22","progress":100,"actual_date":"2026-09-01","source":"领导交办","custom":"攻坚","id":"t_mtuyqiggbwk3i","rev":1,"created_at":"2026-07-28T22:45:43.000Z","updated_at":"2026-09-06T20:23:31.000Z","updated_by":"谢明辉"},{"code":"02032602","work":"w_mtuyqige4yx6x","title":"研究课题管理问题整改","owner":"黄文博","assignees":["张丽华"],"status":"done","priority":"3","plan_date":"2026-06-05","progress":100,"actual_date":"2026-09-04","source":"例行工作","custom":"攻坚","id":"t_mtuyqigg3r5cw","rev":1,"created_at":"2026-05-01T19:39:06.000Z","updated_at":"2026-08-20T16:46:24.000Z","updated_by":"黄文博"},{"code":"02032603","work":"w_mtuyqige4yx6x","title":"研究课题管理年度总结","owner":"黄文博","assignees":[],"status":"done","priority":"1","plan_date":"2026-09-01","progress":100,"actual_date":"2026-09-01","source":"领导交办","custom":"攻坚","id":"t_mtuyqiggjjzc6","rev":3,"created_at":"2026-05-23T16:46:49.000Z","updated_at":"2026-09-06T17:19:54.000Z","updated_by":"黄文博"},{"code":"02032604","work":"w_mtuyqige4yx6x","title":"研究课题管理调研与需求梳理","owner":"黄文博","assignees":["王建军"],"status":"doing","priority":"1","plan_date":"2026-09-09","progress":60,"actual_date":"","source":"例行工作","custom":"重点","id":"t_mtuyqiggiyqlz","rev":1,"created_at":"2026-05-14T18:51:18.000Z","updated_at":"2026-08-29T00:55:43.000Z","updated_by":"黄文博"},{"code":"02032605","work":"w_mtuyqige4yx6x","title":"研究课题管理培训与宣贯","owner":"黄文博","assignees":["陈晓明","林志远"],"status":"doing","priority":"2","plan_date":"2026-09-12","progress":0,"actual_date":"","source":"监管要求","custom":"攻坚","id":"t_mtuyqiggibeqe","rev":4,"created_at":"2026-03-05T19:32:34.000Z","updated_at":"2026-09-05T16:46:22.000Z","updated_by":"黄文博"},{"code":"02032606","work":"w_mtuyqige4yx6x","title":"编制研究课题管理实施方案","owner":"黄文博","assignees":["陈晓明"],"status":"doing","priority":"2","plan_date":"2026-09-18","progress":0,"actual_date":"","source":"监管要求","custom":"攻坚","id":"t_mtuyqigg0owo0","rev":2,"created_at":"2026-03-07T19:10:46.000Z","updated_at":"2026-08-23T16:11:57.000Z","updated_by":"黄文博"},{"code":"03012601","work":"w_mtuyqigewblhg","title":"外部资讯服务采购与管理内部评审","owner":"林志远","assignees":[],"status":"doing","priority":"3","plan_date":"2026-10-13","progress":15,"actual_date":"","source":"内部发起","custom":"攻坚","id":"t_mtuyqigg3dpbt","rev":2,"created_at":"2026-07-30T00:41:47.000Z","updated_at":"2026-09-08T19:43:30.000Z","updated_by":"林志远"},{"code":"03012602","work":"w_mtuyqigewblhg","title":"外部资讯服务采购与管理数据收集与整理","owner":"潘玉兰","assignees":["王建军"],"status":"doing","priority":"1","plan_date":"2026-09-03","progress":50,"actual_date":"","source":"监管要求","custom":"攻坚","id":"t_mtuyqigggtzg9","rev":3,"created_at":"2026-06-02T23:14:35.000Z","updated_at":"2026-09-04T17:16:29.000Z","updated_by":"潘玉兰"},{"code":"03012603","work":"w_mtuyqigewblhg","title":"外部资讯服务采购与管理材料报送","owner":"林志远","assignees":["张丽华"],"status":"doing","priority":"1","plan_date":"2026-07-30","progress":35,"actual_date":"","source":"例行工作","custom":"","id":"t_mtuyqiggbnj0a","rev":2,"created_at":"2026-06-16T16:56:07.000Z","updated_at":"2026-09-09T00:45:58.000Z","updated_by":"谢明辉"},{"code":"03012604","work":"w_mtuyqigewblhg","title":"外部资讯服务采购与管理方案定稿与发布","owner":"林志远","assignees":["傅思远"],"status":"doing","priority":"2","plan_date":"2026-09-29","progress":5,"actual_date":"","source":"","custom":"攻坚","id":"t_mtuyqiggec949","rev":2,"created_at":"2026-03-01T18:38:53.000Z","updated_at":"2026-08-23T22:02:45.000Z","updated_by":"林志远"},{"code":"03022601","work":"w_mtuyqigevvauv","title":"重要会议组织参与进度跟踪与督办","owner":"傅思远","assignees":[],"status":"todo","priority":"2","plan_date":"","progress":0,"actual_date":"","source":"监管要求","custom":"","id":"t_mtuyqiggawbgc","rev":4,"created_at":"2026-05-02T20:32:13.000Z","updated_at":"2026-09-07T00:01:10.000Z","updated_by":"傅思远"},{"code":"03022602","work":"w_mtuyqigevvauv","title":"重要会议组织参与季度汇报","owner":"林志远","assignees":["彭子涵"],"status":"todo","priority":"3","plan_date":"2026-09-26","progress":0,"actual_date":"","source":"监管要求","custom":"重点","id":"t_mtuyqiggddy7z","rev":2,"created_at":"2025-12-05T22:13:40.000Z","updated_at":"2026-09-06T19:25:11.000Z","updated_by":"林志远"},{"code":"03022603","work":"w_mtuyqigevvauv","title":"与相关部门沟通重要会议组织参与事项","owner":"曾雨桐","assignees":[],"status":"todo","priority":"2","plan_date":"2026-09-21","progress":0,"actual_date":"","source":"例行工作","custom":"","id":"t_mtuyqiggtwbbu","rev":3,"created_at":"2026-02-21T01:37:41.000Z","updated_at":"2026-08-29T00:42:50.000Z","updated_by":"曾雨桐"},{"code":"03022604","work":"w_mtuyqigevvauv","title":"重要会议组织参与问题整改","owner":"陈晓明","assignees":[],"status":"hold","priority":"3","plan_date":"2026-08-28","progress":50,"actual_date":"","source":"例行工作","custom":"重点","id":"t_mtuyqigg00ryf","rev":3,"created_at":"2026-04-12T16:03:27.000Z","updated_at":"2026-08-27T16:36:20.000Z","updated_by":"陈晓明"},{"code":"03032601","work":"w_mtuyqigejkl1t","title":"行业资讯周报年度总结","owner":"刘建国","assignees":[],"status":"hold","priority":"3","plan_date":"2026-10-05","progress":0,"actual_date":"","source":"例行工作","custom":"","id":"t_mtuyqiggydrwp","rev":2,"created_at":"2026-08-10T20:56:55.000Z","updated_at":"2026-09-01T22:52:31.000Z","updated_by":"刘建国"},{"code":"03032602","work":"w_mtuyqigejkl1t","title":"行业资讯周报调研与需求梳理","owner":"","assignees":["彭子涵"],"status":"todo","priority":"2","plan_date":"2026-09-23","progress":0,"actual_date":"","source":"监管要求","custom":"","id":"t_mtuyqigg0gvh9","rev":2,"created_at":"2026-03-06T17:14:51.000Z","updated_at":"2026-08-21T00:26:04.000Z","updated_by":"林志远"},{"code":"03032603","work":"w_mtuyqigejkl1t","title":"行业资讯周报培训与宣贯","owner":"林志远","assignees":[],"status":"doing","priority":"2","plan_date":"2026-09-16","progress":50,"actual_date":"","source":"内部发起","custom":"","id":"t_mtuyqigge15ib","rev":2,"created_at":"2026-04-30T18:36:46.000Z","updated_at":"2026-08-27T21:13:07.000Z","updated_by":"林志远"},{"code":"03032604","work":"w_mtuyqigejkl1t","title":"编制行业资讯周报实施方案","owner":"罗晓芳","assignees":[],"status":"done","priority":"2","plan_date":"2026-09-04","progress":100,"actual_date":"2026-09-04","source":"内部发起","custom":"攻坚","id":"t_mtuyqiggqpvcy","rev":1,"created_at":"2026-08-07T00:22:30.000Z","updated_at":"2026-08-24T22:58:29.000Z","updated_by":"罗晓芳"},{"code":"03032605","work":"w_mtuyqigejkl1t","title":"行业资讯周报内部评审","owner":"陈晓明","assignees":["曾雨桐"],"status":"done","priority":"2","plan_date":"2026-08-22","progress":100,"actual_date":"2026-09-01","source":"","custom":"常规","id":"t_mtuyqigg7trpn","rev":1,"created_at":"2026-04-09T00:36:36.000Z","updated_at":"2026-08-28T22:02:43.000Z","updated_by":"陈晓明"},{"code":"04012601","work":"w_mtuyqige4m43g","title":"数字化转型指标体系数据收集与整理","owner":"张丽华","assignees":["罗晓芳"],"status":"done","priority":"3","plan_date":"2026-06-05","progress":100,"actual_date":"2026-09-04","source":"内部发起","custom":"攻坚","id":"t_mtuyqiggfgqrl","rev":4,"created_at":"2026-02-05T17:35:45.000Z","updated_at":"2026-08-22T00:00:07.000Z","updated_by":"张丽华"},{"code":"04012602","work":"w_mtuyqige4m43g","title":"数字化转型指标体系材料报送","owner":"张丽华","assignees":["罗晓芳"],"status":"done","priority":"1","plan_date":"2026-09-01","progress":100,"actual_date":"2026-08-28","source":"内部发起","custom":"常规","id":"t_mtuyqigguc7tf","rev":4,"created_at":"2026-07-14T21:58:45.000Z","updated_at":"2026-09-05T20:04:17.000Z","updated_by":"张丽华"},{"code":"04012603","work":"w_mtuyqige4m43g","title":"数字化转型指标体系方案定稿与发布","owner":"张丽华","assignees":["董海燕"],"status":"doing","priority":"1","plan_date":"2026-09-09","progress":60,"actual_date":"","source":"内部发起","custom":"攻坚","id":"t_mtuyqiggde1rl","rev":2,"created_at":"2026-01-11T17:52:10.000Z","updated_at":"2026-09-08T16:57:19.000Z","updated_by":"张丽华"},{"code":"04012604","work":"w_mtuyqige4m43g","title":"数字化转型指标体系进度跟踪与督办","owner":"张丽华","assignees":[],"status":"doing","priority":"2","plan_date":"2026-09-12","progress":45,"actual_date":"","source":"领导交办","custom":"常规","id":"t_mtuyqigh4ixfa","rev":2,"created_at":"2026-03-25T00:51:39.000Z","updated_at":"2026-08-29T16:24:01.000Z","updated_by":"张丽华"},{"code":"04022601","work":"w_mtuyqigelmin7","title":"数字化转型办公室日常工作季度汇报","owner":"张丽华","assignees":["董海燕"],"status":"doing","priority":"2","plan_date":"2026-09-18","progress":30,"actual_date":"","source":"领导交办","custom":"","id":"t_mtuyqigh774ft","rev":1,"created_at":"2026-03-13T22:14:20.000Z","updated_at":"2026-08-31T19:54:55.000Z","updated_by":"张丽华"},{"code":"04022602","work":"w_mtuyqigelmin7","title":"与相关部门沟通数字化转型办公室日常工作事项","owner":"潘玉兰","assignees":["罗晓芳"],"status":"doing","priority":"3","plan_date":"2026-10-13","progress":0,"actual_date":"","source":"领导交办","custom":"常规","id":"t_mtuyqighl1zx3","rev":1,"created_at":"2026-02-21T21:58:58.000Z","updated_at":"2026-09-01T23:10:12.000Z","updated_by":"潘玉兰"},{"code":"04022603","work":"w_mtuyqigelmin7","title":"数字化转型办公室日常工作问题整改","owner":"张丽华","assignees":["冯雪梅"],"status":"doing","priority":"1","plan_date":"2026-09-03","progress":70,"actual_date":"","source":"内部发起","custom":"常规","id":"t_mtuyqighcc57l","rev":4,"created_at":"2026-04-30T21:19:20.000Z","updated_at":"2026-08-22T19:12:08.000Z","updated_by":"张丽华"},{"code":"04022604","work":"w_mtuyqigelmin7","title":"数字化转型办公室日常工作年度总结","owner":"黄文博","assignees":["董海燕"],"status":"doing","priority":"1","plan_date":"2026-07-30","progress":50,"actual_date":"","source":"内部发起","custom":"攻坚","id":"t_mtuyqigh57m47","rev":2,"created_at":"2026-05-20T16:50:22.000Z","updated_at":"2026-08-28T23:29:00.000Z","updated_by":"黄文博"},{"code":"04022605","work":"w_mtuyqigelmin7","title":"数字化转型办公室日常工作调研与需求梳理","owner":"张丽华","assignees":["罗晓芳"],"status":"doing","priority":"2","plan_date":"2026-09-29","progress":5,"actual_date":"","source":"","custom":"","id":"t_mtuyqighizftl","rev":1,"created_at":"2026-05-08T22:36:10.000Z","updated_at":"2026-09-06T21:52:56.000Z","updated_by":"张丽华"},{"code":"04022606","work":"w_mtuyqigelmin7","title":"数字化转型办公室日常工作培训与宣贯","owner":"张丽华","assignees":["罗晓芳","谢明辉"],"status":"todo","priority":"2","plan_date":"","progress":0,"actual_date":"","source":"领导交办","custom":"","id":"t_mtuyqighjkac3","rev":3,"created_at":"2026-07-03T18:24:39.000Z","updated_at":"2026-08-30T16:20:01.000Z","updated_by":"张丽华"},{"code":"04032601","work":"w_mtuyqigevh7x5","title":"编制数据合规专项实施方案","owner":"林志远","assignees":[],"status":"todo","priority":"3","plan_date":"2026-09-26","progress":0,"actual_date":"","source":"","custom":"攻坚","id":"t_mtuyqighkwp05","rev":4,"created_at":"2026-04-18T21:03:37.000Z","updated_at":"2026-09-08T19:48:55.000Z","updated_by":"林志远"},{"code":"04032602","work":"w_mtuyqigevh7x5","title":"数据合规专项内部评审","owner":"林志远","assignees":[],"status":"todo","priority":"2","plan_date":"2026-09-21","progress":0,"actual_date":"","source":"内部发起","custom":"攻坚","id":"t_mtuyqighkt0r6","rev":1,"created_at":"2026-06-12T23:12:02.000Z","updated_at":"2026-08-23T19:44:05.000Z","updated_by":"林志远"},{"code":"04032603","work":"w_mtuyqigevh7x5","title":"数据合规专项数据收集与整理","owner":"潘玉兰","assignees":[],"status":"hold","priority":"3","plan_date":"2026-08-28","progress":67,"actual_date":"","source":"","custom":"重点","id":"t_mtuyqighxyqsb","rev":3,"created_at":"2026-06-04T00:53:16.000Z","updated_at":"2026-09-01T19:59:08.000Z","updated_by":"潘玉兰"},{"code":"04032604","work":"w_mtuyqigevh7x5","title":"数据合规专项材料报送","owner":"林志远","assignees":["潘玉兰"],"status":"hold","priority":"3","plan_date":"2026-10-05","progress":0,"actual_date":"","source":"领导交办","custom":"","id":"t_mtuyqigh6m2qu","rev":3,"created_at":"2026-08-06T19:08:44.000Z","updated_at":"2026-09-02T20:37:53.000Z","updated_by":"林志远"},{"code":"04032605","work":"w_mtuyqigevh7x5","title":"数据合规专项方案定稿与发布","owner":"","assignees":["冯雪梅"],"status":"doing","priority":"2","plan_date":"2026-09-23","progress":33,"actual_date":"","source":"内部发起","custom":"","id":"t_mtuyqighcy0bf","rev":3,"created_at":"2026-05-22T16:53:43.000Z","updated_at":"2026-09-08T22:43:57.000Z","updated_by":"林志远"},{"code":"04032606","work":"w_mtuyqigevh7x5","title":"数据合规专项进度跟踪与督办","owner":"林志远","assignees":[],"status":"doing","priority":"2","plan_date":"2026-09-16","progress":50,"actual_date":"","source":"领导交办","custom":"重点","id":"t_mtuyqighyke72","rev":3,"created_at":"2026-05-05T16:51:49.000Z","updated_at":"2026-09-03T00:22:19.000Z","updated_by":"林志远"},{"code":"04042601","work":"w_mtuyqigex7hcs","title":"绿色发展与ESG协同季度汇报","owner":"黄文博","assignees":["刘建国","傅思远"],"status":"done","priority":"2","plan_date":"2026-09-06","progress":100,"actual_date":"2026-09-06","source":"领导交办","custom":"","id":"t_mtuyqighy3lkh","rev":4,"created_at":"2026-04-23T19:08:12.000Z","updated_at":"2026-08-29T16:31:20.000Z","updated_by":"黄文博"},{"code":"04042602","work":"w_mtuyqigex7hcs","title":"与相关部门沟通绿色发展与ESG协同事项","owner":"罗晓芳","assignees":["刘建国"],"status":"done","priority":"2","plan_date":"2026-08-22","progress":100,"actual_date":"2026-08-24","source":"","custom":"","id":"t_mtuyqightypgq","rev":1,"created_at":"2026-06-27T21:54:51.000Z","updated_at":"2026-08-20T22:01:07.000Z","updated_by":"罗晓芳"},{"code":"04042603","work":"w_mtuyqigex7hcs","title":"绿色发展与ESG协同问题整改","owner":"罗晓芳","assignees":[],"status":"done","priority":"3","plan_date":"2026-06-05","progress":100,"actual_date":"2026-06-07","source":"","custom":"攻坚","id":"t_mtuyqigh1ix7x","rev":2,"created_at":"2026-02-03T17:11:09.000Z","updated_at":"2026-09-06T18:46:13.000Z","updated_by":"罗晓芳"},{"code":"04042604","work":"w_mtuyqigex7hcs","title":"绿色发展与ESG协同年度总结","owner":"罗晓芳","assignees":[],"status":"done","priority":"1","plan_date":"2026-09-01","progress":100,"actual_date":"2026-08-28","source":"监管要求","custom":"","id":"t_mtuyqigh6zu33","rev":3,"created_at":"2025-12-31T22:48:54.000Z","updated_at":"2026-08-30T19:48:56.000Z","updated_by":"罗晓芳"},{"code":"05012601","work":"w_mtuyqigew4d8v","title":"系统集成压降专项调研与需求梳理","owner":"刘建国","assignees":[],"status":"doing","priority":"1","plan_date":"2026-09-09","progress":60,"actual_date":"","source":"监管要求","custom":"","id":"t_mtuyqighgzv5f","rev":2,"created_at":"2026-04-23T18:18:12.000Z","updated_at":"2026-09-07T22:15:21.000Z","updated_by":"刘建国","deleted_at":"2026-08-25T23:01:22.000Z"},{"code":"05012602","work":"w_mtuyqigew4d8v","title":"系统集成压降专项培训与宣贯","owner":"罗晓芳","assignees":[],"status":"doing","priority":"2","plan_date":"2026-09-12","progress":0,"actual_date":"","source":"内部发起","custom":"攻坚","id":"t_mtuyqighgm41b","rev":1,"created_at":"2025-12-10T00:34:59.000Z","updated_at":"2026-08-29T21:44:41.000Z","updated_by":"罗晓芳"},{"code":"05012603","work":"w_mtuyqigew4d8v","title":"编制系统集成压降专项实施方案","owner":"刘建国","assignees":[],"status":"doing","priority":"2","plan_date":"2026-09-18","progress":0,"actual_date":"","source":"领导交办","custom":"常规","id":"t_mtuyqigh6hnc5","rev":3,"created_at":"2026-05-17T22:01:54.000Z","updated_at":"2026-08-20T23:39:58.000Z","updated_by":"刘建国"},{"code":"05012604","work":"w_mtuyqigew4d8v","title":"系统集成压降专项内部评审","owner":"刘建国","assignees":["潘玉兰","陈晓明"],"status":"doing","priority":"3","plan_date":"2026-10-13","progress":0,"actual_date":"","source":"领导交办","custom":"","id":"t_mtuyqighhuz43","rev":4,"created_at":"2026-03-11T20:53:35.000Z","updated_at":"2026-09-04T23:55:15.000Z","updated_by":"刘建国"},{"code":"05012605","work":"w_mtuyqigew4d8v","title":"系统集成压降专项数据收集与整理","owner":"刘建国","assignees":[],"status":"doing","priority":"1","plan_date":"2026-09-03","progress":0,"actual_date":"","source":"例行工作","custom":"","id":"t_mtuyqigh13iqu","rev":3,"created_at":"2026-06-15T22:50:09.000Z","updated_at":"2026-08-28T20:51:33.000Z","updated_by":"刘建国"},{"code":"05012606","work":"w_mtuyqigew4d8v","title":"系统集成压降专项材料报送","owner":"刘建国","assignees":["潘玉兰"],"status":"doing","priority":"1","plan_date":"2026-07-30","progress":35,"actual_date":"","source":"领导交办","custom":"重点","id":"t_mtuyqigh0lidc","rev":1,"created_at":"2026-03-27T17:31:20.000Z","updated_at":"2026-08-25T16:54:37.000Z","updated_by":"刘建国"},{"code":"05022601","work":"w_mtuyqigetm5iz","title":"下属单位科技治理评估方案定稿与发布","owner":"潘玉兰","assignees":["杨志强"],"status":"doing","priority":"2","plan_date":"2026-09-29","progress":5,"actual_date":"","source":"","custom":"","id":"t_mtuyqighwn5fj","rev":2,"created_at":"2026-01-12T18:51:45.000Z","updated_at":"2026-09-06T19:11:14.000Z","updated_by":"潘玉兰"},{"code":"05022602","work":"w_mtuyqigetm5iz","title":"下属单位科技治理评估进度跟踪与督办","owner":"潘玉兰","assignees":["杨志强"],"status":"todo","priority":"2","plan_date":"","progress":0,"actual_date":"","source":"例行工作","custom":"","id":"t_mtuyqighinkfb","rev":1,"created_at":"2026-08-02T17:52:27.000Z","updated_at":"2026-08-27T18:08:47.000Z","updated_by":"潘玉兰"},{"code":"05022603","work":"w_mtuyqigetm5iz","title":"下属单位科技治理评估季度汇报","owner":"潘玉兰","assignees":["杨志强"],"status":"todo","priority":"3","plan_date":"2026-09-26","progress":0,"actual_date":"","source":"监管要求","custom":"重点","id":"t_mtuyqighirr4y","rev":1,"created_at":"2026-07-28T00:21:05.000Z","updated_at":"2026-08-20T16:13:27.000Z","updated_by":"潘玉兰"},{"code":"05022604","work":"w_mtuyqigetm5iz","title":"与相关部门沟通下属单位科技治理评估事项","owner":"陈晓明","assignees":["谢明辉","曾雨桐"],"status":"doing","priority":"2","plan_date":"2026-09-21","progress":50,"actual_date":"","source":"例行工作","custom":"攻坚","id":"t_mtuyqighu0l8a","rev":2,"created_at":"2026-03-05T20:13:30.000Z","updated_at":"2026-08-21T22:53:33.000Z","updated_by":"陈晓明"},{"code":"05022605","work":"w_mtuyqigetm5iz","title":"下属单位科技治理评估问题整改","owner":"潘玉兰","assignees":[],"status":"hold","priority":"3","plan_date":"2026-08-28","progress":20,"actual_date":"","source":"领导交办","custom":"","id":"t_mtuyqigh4a55k","rev":4,"created_at":"2026-05-21T19:18:59.000Z","updated_at":"2026-08-22T17:01:53.000Z","updated_by":"潘玉兰"},{"code":"06012601","work":"w_mtuyqigefwo8c","title":"专利与软件著作权申报管理年度总结","owner":"曾雨桐","assignees":["杨志强"],"status":"hold","priority":"3","plan_date":"2026-10-05","progress":0,"actual_date":"","source":"","custom":"常规","id":"t_mtuyqighqdk7a","rev":4,"created_at":"2026-03-25T17:07:24.000Z","updated_at":"2026-08-26T00:43:18.000Z","updated_by":"曾雨桐"},{"code":"06012602","work":"w_mtuyqigefwo8c","title":"专利与软件著作权申报管理调研与需求梳理","owner":"","assignees":[],"status":"todo","priority":"2","plan_date":"2026-09-23","progress":0,"actual_date":"","source":"例行工作","custom":"重点","id":"t_mtuyqighwc2wf","rev":2,"created_at":"2026-05-04T18:39:57.000Z","updated_at":"2026-09-01T22:43:46.000Z","updated_by":"曾雨桐"},{"code":"06012603","work":"w_mtuyqigefwo8c","title":"专利与软件著作权申报管理培训与宣贯","owner":"曾雨桐","assignees":[],"status":"doing","priority":"2","plan_date":"2026-09-16","progress":50,"actual_date":"","source":"内部发起","custom":"攻坚","id":"t_mtuyqigh2stxn","rev":4,"created_at":"2026-08-15T18:21:15.000Z","updated_at":"2026-08-20T17:38:26.000Z","updated_by":"曾雨桐"},{"code":"06012604","work":"w_mtuyqigefwo8c","title":"编制专利与软件著作权申报管理实施方案","owner":"黄文博","assignees":["杨志强"],"status":"done","priority":"2","plan_date":"2026-09-06","progress":100,"actual_date":"2026-09-06","source":"领导交办","custom":"重点","id":"t_mtuyqighqgleo","rev":3,"created_at":"2026-05-29T18:58:38.000Z","updated_at":"2026-08-31T21:22:10.000Z","updated_by":"黄文博"},{"code":"06012605","work":"w_mtuyqigefwo8c","title":"专利与软件著作权申报管理内部评审","owner":"曾雨桐","assignees":[],"status":"done","priority":"2","plan_date":"2026-08-22","progress":100,"actual_date":"2026-08-24","source":"内部发起","custom":"常规","id":"t_mtuyqigh2dk0l","rev":1,"created_at":"2026-01-24T01:09:22.000Z","updated_at":"2026-09-08T16:12:00.000Z","updated_by":"曾雨桐"},{"code":"06022601","work":"w_mtuyqige4w2wv","title":"知识产权年度盘点与激励数据收集与整理","owner":"杨志强","assignees":[],"status":"done","priority":"3","plan_date":"2026-06-05","progress":100,"actual_date":"2026-06-07","source":"例行工作","custom":"","id":"t_mtuyqighsebzu","rev":3,"created_at":"2025-12-25T23:28:17.000Z","updated_at":"2026-09-07T16:59:41.000Z","updated_by":"杨志强"},{"code":"06022602","work":"w_mtuyqige4w2wv","title":"知识产权年度盘点与激励材料报送","owner":"杨志强","assignees":["刘建国","谢明辉"],"status":"done","priority":"1","plan_date":"2026-09-01","progress":100,"actual_date":"2026-08-28","source":"例行工作","custom":"攻坚","id":"t_mtuyqighyrl14","rev":1,"created_at":"2026-08-13T18:54:16.000Z","updated_at":"2026-08-24T17:13:10.000Z","updated_by":"杨志强"},{"code":"06022603","work":"w_mtuyqige4w2wv","title":"知识产权年度盘点与激励方案定稿与发布","owner":"杨志强","assignees":[],"status":"doing","priority":"1","plan_date":"2026-09-09","progress":60,"actual_date":"","source":"领导交办","custom":"攻坚","id":"t_mtuyqighwbfs0","rev":3,"created_at":"2026-06-24T16:52:13.000Z","updated_at":"2026-08-25T16:33:37.000Z","updated_by":"杨志强"},{"code":"06022604","work":"w_mtuyqige4w2wv","title":"知识产权年度盘点与激励进度跟踪与督办","owner":"杨志强","assignees":["彭子涵"],"status":"doing","priority":"2","plan_date":"2026-09-12","progress":45,"actual_date":"","source":"","custom":"常规","id":"t_mtuyqigh7wdxb","rev":4,"created_at":"2026-05-08T20:23:13.000Z","updated_at":"2026-08-25T23:18:11.000Z","updated_by":"杨志强"},{"code":"06022605","work":"w_mtuyqige4w2wv","title":"知识产权年度盘点与激励季度汇报","owner":"杨志强","assignees":[],"status":"doing","priority":"2","plan_date":"2026-09-18","progress":67,"actual_date":"","source":"例行工作","custom":"攻坚","id":"t_mtuyqighw1ewf","rev":1,"created_at":"2026-05-20T21:08:14.000Z","updated_at":"2026-09-06T18:22:02.000Z","updated_by":"杨志强"},{"code":"06022606","work":"w_mtuyqige4w2wv","title":"与相关部门沟通知识产权年度盘点与激励事项","owner":"杨志强","assignees":["林志远","傅思远"],"status":"doing","priority":"3","plan_date":"2026-10-13","progress":15,"actual_date":"","source":"内部发起","custom":"常规","id":"t_mtuyqightgh74","rev":3,"created_at":"2026-05-25T23:34:10.000Z","updated_at":"2026-08-21T17:16:09.000Z","updated_by":"杨志强"},{"code":"07012601","work":"w_mtuyqige3md47","title":"重要科技成果申报问题整改","owner":"傅思远","assignees":["林志远"],"status":"doing","priority":"1","plan_date":"2026-09-03","progress":95,"actual_date":"","source":"监管要求","custom":"重点","id":"t_mtuyqighimnig","rev":3,"created_at":"2026-02-04T19:25:21.000Z","updated_at":"2026-08-27T21:47:10.000Z","updated_by":"傅思远"},{"code":"07012602","work":"w_mtuyqige3md47","title":"重要科技成果申报年度总结","owner":"傅思远","assignees":[],"status":"doing","priority":"1","plan_date":"2026-07-30","progress":50,"actual_date":"","source":"监管要求","custom":"重点","id":"t_mtuyqigh6iqim","rev":1,"created_at":"2026-04-13T16:35:15.000Z","updated_at":"2026-08-26T19:58:06.000Z","updated_by":"傅思远"},{"code":"07012603","work":"w_mtuyqige3md47","title":"重要科技成果申报调研与需求梳理","owner":"傅思远","assignees":["冯雪梅"],"status":"doing","priority":"2","plan_date":"2026-09-29","progress":5,"actual_date":"","source":"领导交办","custom":"","id":"t_mtuyqigh24c5w","rev":2,"created_at":"2026-05-27T00:34:03.000Z","updated_at":"2026-08-21T18:51:42.000Z","updated_by":"傅思远"},{"code":"07012604","work":"w_mtuyqige3md47","title":"重要科技成果申报培训与宣贯","owner":"傅思远","assignees":[],"status":"todo","priority":"2","plan_date":"","progress":0,"actual_date":"","source":"","custom":"常规","id":"t_mtuyqigheqy4r","rev":4,"created_at":"2026-05-26T16:00:21.000Z","updated_at":"2026-09-08T16:31:55.000Z","updated_by":"傅思远"},{"code":"07012605","work":"w_mtuyqige3md47","title":"编制重要科技成果申报实施方案","owner":"傅思远","assignees":["冯雪梅"],"status":"todo","priority":"3","plan_date":"2026-09-26","progress":0,"actual_date":"","source":"内部发起","custom":"","id":"t_mtuyqighm3xx1","rev":1,"created_at":"2026-08-11T21:14:01.000Z","updated_at":"2026-08-21T16:59:51.000Z","updated_by":"傅思远"},{"code":"08012601","work":"w_mtuyqige66j0a","title":"科技资源台账建设内部评审","owner":"董海燕","assignees":[],"status":"todo","priority":"2","plan_date":"2026-09-21","progress":0,"actual_date":"","source":"监管要求","custom":"","id":"t_mtuyqighc4oqu","rev":2,"created_at":"2026-06-17T23:26:10.000Z","updated_at":"2026-08-24T20:38:45.000Z","updated_by":"董海燕"},{"code":"08012602","work":"w_mtuyqige66j0a","title":"科技资源台账建设数据收集与整理","owner":"董海燕","assignees":[],"status":"hold","priority":"3","plan_date":"2026-08-28","progress":20,"actual_date":"","source":"内部发起","custom":"常规","id":"t_mtuyqighbyajh","rev":4,"created_at":"2026-06-12T00:15:05.000Z","updated_at":"2026-09-06T19:44:41.000Z","updated_by":"董海燕"},{"code":"08012603","work":"w_mtuyqige66j0a","title":"科技资源台账建设材料报送","owner":"董海燕","assignees":["宋佳琪"],"status":"hold","priority":"3","plan_date":"2026-10-05","progress":0,"actual_date":"","source":"监管要求","custom":"攻坚","id":"t_mtuyqighlqxe5","rev":1,"created_at":"2026-07-25T18:41:52.000Z","updated_at":"2026-08-30T16:45:36.000Z","updated_by":"董海燕"},{"code":"08012604","work":"w_mtuyqige66j0a","title":"科技资源台账建设方案定稿与发布","owner":"","assignees":["宋佳琪"],"status":"todo","priority":"2","plan_date":"2026-09-23","progress":0,"actual_date":"","source":"领导交办","custom":"常规","id":"t_mtuyqighywrqa","rev":3,"created_at":"2026-05-23T00:41:13.000Z","updated_at":"2026-09-06T22:56:06.000Z","updated_by":"董海燕"},{"code":"08012605","work":"w_mtuyqige66j0a","title":"科技资源台账建设进度跟踪与督办","owner":"张丽华","assignees":[],"status":"doing","priority":"2","plan_date":"2026-09-16","progress":50,"actual_date":"","source":"监管要求","custom":"常规","id":"t_mtuyqigh651sr","rev":3,"created_at":"2026-08-12T17:00:42.000Z","updated_at":"2026-08-21T19:28:08.000Z","updated_by":"张丽华"},{"code":"08012606","work":"w_mtuyqige66j0a","title":"科技资源台账建设季度汇报","owner":"董海燕","assignees":["宋佳琪"],"status":"done","priority":"2","plan_date":"2026-09-06","progress":100,"actual_date":"2026-09-06","source":"","custom":"重点","id":"t_mtuyqigi0esis","rev":4,"created_at":"2026-02-14T00:10:32.000Z","updated_at":"2026-09-01T17:53:50.000Z","updated_by":"董海燕","deleted_at":"2026-08-29T17:45:29.000Z"},{"code":"08022601","work":"w_mtuyqigeacibe","title":"与相关部门沟通科技投入产出分析事项","owner":"宋佳琪","assignees":["潘玉兰"],"status":"done","priority":"2","plan_date":"2026-08-22","progress":100,"actual_date":"2026-08-24","source":"监管要求","custom":"攻坚","id":"t_mtuyqigiojo5e","rev":4,"created_at":"2025-12-16T17:46:00.000Z","updated_at":"2026-08-30T23:17:48.000Z","updated_by":"宋佳琪"},{"code":"08022602","work":"w_mtuyqigeacibe","title":"科技投入产出分析问题整改","owner":"宋佳琪","assignees":["林志远"],"status":"done","priority":"3","plan_date":"2026-06-05","progress":100,"actual_date":"2026-06-07","source":"","custom":"攻坚","id":"t_mtuyqigi6889v","rev":2,"created_at":"2026-04-03T19:28:29.000Z","updated_at":"2026-09-06T19:29:54.000Z","updated_by":"宋佳琪"},{"code":"08022603","work":"w_mtuyqigeacibe","title":"科技投入产出分析年度总结","owner":"宋佳琪","assignees":["傅思远","王建军"],"status":"done","priority":"1","plan_date":"2026-09-01","progress":100,"actual_date":"2026-08-28","source":"监管要求","custom":"重点","id":"t_mtuyqigi2fo12","rev":2,"created_at":"2026-07-13T18:31:43.000Z","updated_at":"2026-09-07T17:16:58.000Z","updated_by":"宋佳琪"},{"code":"08022604","work":"w_mtuyqigeacibe","title":"科技投入产出分析调研与需求梳理","owner":"宋佳琪","assignees":["冯雪梅"],"status":"doing","priority":"1","plan_date":"2026-09-09","progress":60,"actual_date":"","source":"例行工作","custom":"攻坚","id":"t_mtuyqigiuge60","rev":1,"created_at":"2026-03-29T16:54:35.000Z","updated_at":"2026-08-30T20:18:19.000Z","updated_by":"宋佳琪"},{"code":"08022605","work":"w_mtuyqigeacibe","title":"科技投入产出分析培训与宣贯","owner":"潘玉兰","assignees":["黄文博","林志远"],"status":"doing","priority":"2","plan_date":"2026-09-12","progress":45,"actual_date":"","source":"监管要求","custom":"常规","id":"t_mtuyqigi5qquz","rev":3,"created_at":"2026-01-25T22:08:23.000Z","updated_at":"2026-09-01T00:31:37.000Z","updated_by":"潘玉兰"},{"code":"08022606","work":"w_mtuyqigeacibe","title":"编制科技投入产出分析实施方案","owner":"宋佳琪","assignees":["彭子涵"],"status":"doing","priority":"2","plan_date":"2026-09-18","progress":30,"actual_date":"","source":"","custom":"常规","id":"t_mtuyqigiz93bv","rev":2,"created_at":"2026-02-16T18:13:55.000Z","updated_at":"2026-09-04T17:57:46.000Z","updated_by":"宋佳琪"},{"code":"09012601","work":"w_mtuyqigehyw10","title":"自主可控终端与办公系…内部评审","owner":"谢明辉","assignees":["傅思远","张丽华"],"status":"doing","priority":"3","plan_date":"2026-10-13","progress":15,"actual_date":"","source":"内部发起","custom":"","id":"t_mtuyqigifgp8p","rev":4,"created_at":"2026-06-11T17:26:37.000Z","updated_at":"2026-09-03T22:27:29.000Z","updated_by":"谢明辉"},{"code":"09012602","work":"w_mtuyqigehyw10","title":"自主可控终端与办公系…数据收集与整理","owner":"潘玉兰","assignees":["曾雨桐"],"status":"doing","priority":"1","plan_date":"2026-09-03","progress":70,"actual_date":"","source":"","custom":"常规","id":"t_mtuyqigiu3b6y","rev":1,"created_at":"2026-02-13T18:37:46.000Z","updated_at":"2026-08-27T00:54:34.000Z","updated_by":"潘玉兰"},{"code":"09012603","work":"w_mtuyqigehyw10","title":"自主可控终端与办公系…材料报送","owner":"宋佳琪","assignees":["冯雪梅","杨志强"],"status":"doing","priority":"1","plan_date":"2026-07-30","progress":35,"actual_date":"","source":"例行工作","custom":"攻坚","id":"t_mtuyqigitsk59","rev":3,"created_at":"2026-02-04T18:57:17.000Z","updated_at":"2026-09-02T23:39:05.000Z","updated_by":"宋佳琪"},{"code":"09012604","work":"w_mtuyqigehyw10","title":"自主可控终端与办公系…方案定稿与发布","owner":"谢明辉","assignees":[],"status":"doing","priority":"2","plan_date":"2026-09-29","progress":0,"actual_date":"","source":"领导交办","custom":"攻坚","id":"t_mtuyqigioglhq","rev":1,"created_at":"2026-08-11T00:31:04.000Z","updated_at":"2026-08-21T16:21:56.000Z","updated_by":"谢明辉"},{"code":"09022601","work":"w_mtuyqigeewo4q","title":"自主可控基础软件适配验证进度跟踪与督办","owner":"彭子涵","assignees":["林志远"],"status":"todo","priority":"2","plan_date":"","progress":0,"actual_date":"","source":"领导交办","custom":"","id":"t_mtuyqigi170n6","rev":3,"created_at":"2026-03-31T20:54:23.000Z","updated_at":"2026-08-28T17:31:32.000Z","updated_by":"彭子涵"},{"code":"09022602","work":"w_mtuyqigeewo4q","title":"自主可控基础软件适配验证季度汇报","owner":"彭子涵","assignees":["陈晓明"],"status":"todo","priority":"3","plan_date":"2026-09-26","progress":0,"actual_date":"","source":"例行工作","custom":"攻坚","id":"t_mtuyqigir02s6","rev":3,"created_at":"2026-06-26T16:41:40.000Z","updated_at":"2026-09-07T22:34:08.000Z","updated_by":"彭子涵"},{"code":"09022603","work":"w_mtuyqigeewo4q","title":"与相关部门沟通自主可控基础软件适配验证事项","owner":"彭子涵","assignees":[],"status":"todo","priority":"2","plan_date":"2026-09-21","progress":0,"actual_date":"","source":"监管要求","custom":"","id":"t_mtuyqigile2t3","rev":1,"created_at":"2026-05-30T00:10:22.000Z","updated_at":"2026-09-07T00:06:30.000Z","updated_by":"彭子涵"},{"code":"09022604","work":"w_mtuyqigeewo4q","title":"自主可控基础软件适配验证问题整改","owner":"董海燕","assignees":["刘建国","王建军"],"status":"hold","priority":"3","plan_date":"2026-08-28","progress":20,"actual_date":"","source":"例行工作","custom":"重点","id":"t_mtuyqigi3jxin","rev":3,"created_at":"2026-01-21T19:38:44.000Z","updated_at":"2026-09-02T23:52:29.000Z","updated_by":"董海燕"},{"code":"10012601","work":"w_mtuyqige5o1um","title":"综合项目管理办公室例…年度总结","owner":"宋佳琪","assignees":["张丽华","王建军"],"status":"hold","priority":"3","plan_date":"2026-10-05","progress":0,"actual_date":"","source":"领导交办","custom":"攻坚","id":"t_mtuyqiginv9h8","rev":4,"created_at":"2026-07-04T20:11:51.000Z","updated_at":"2026-09-01T00:48:44.000Z","updated_by":"宋佳琪"},{"code":"10012602","work":"w_mtuyqige5o1um","title":"综合项目管理办公室例…调研与需求梳理","owner":"","assignees":["潘玉兰"],"status":"todo","priority":"2","plan_date":"2026-09-23","progress":0,"actual_date":"","source":"监管要求","custom":"","id":"t_mtuyqigihn0xl","rev":1,"created_at":"2025-12-18T22:19:16.000Z","updated_at":"2026-08-24T16:16:44.000Z","updated_by":"潘玉兰"},{"code":"10012603","work":"w_mtuyqige5o1um","title":"综合项目管理办公室例…培训与宣贯","owner":"潘玉兰","assignees":[],"status":"doing","priority":"2","plan_date":"2026-09-16","progress":50,"actual_date":"","source":"例行工作","custom":"","id":"t_mtuyqigistz49","rev":4,"created_at":"2025-12-20T19:22:26.000Z","updated_at":"2026-08-27T17:16:16.000Z","updated_by":"潘玉兰"},{"code":"10012604","work":"w_mtuyqige5o1um","title":"编制综合项目管理办公室例…实施方案","owner":"陈晓明","assignees":["黄文博"],"status":"done","priority":"2","plan_date":"2026-09-06","progress":100,"actual_date":"2026-09-06","source":"","custom":"","id":"t_mtuyqigisq105","rev":3,"created_at":"2026-06-16T16:37:27.000Z","updated_at":"2026-08-30T21:18:26.000Z","updated_by":"陈晓明"},{"code":"11012601","work":"w_mtuyqigeeygb3","title":"专项委员会日常工作内部评审","owner":"冯雪梅","assignees":[],"status":"done","priority":"2","plan_date":"2026-08-22","progress":100,"actual_date":"2026-08-24","source":"监管要求","custom":"攻坚","id":"t_mtuyqigi7xub2","rev":4,"created_at":"2026-08-09T19:22:26.000Z","updated_at":"2026-09-05T23:12:00.000Z","updated_by":"冯雪梅"},{"code":"11012602","work":"w_mtuyqigeeygb3","title":"专项委员会日常工作数据收集与整理","owner":"陈晓明","assignees":["曾雨桐"],"status":"done","priority":"3","plan_date":"2026-06-05","progress":100,"actual_date":"2026-06-07","source":"领导交办","custom":"常规","id":"t_mtuyqigi6k4f4","rev":1,"created_at":"2026-03-08T01:57:34.000Z","updated_at":"2026-08-23T00:08:48.000Z","updated_by":"陈晓明"},{"code":"11012603","work":"w_mtuyqigeeygb3","title":"专项委员会日常工作材料报送","owner":"宋佳琪","assignees":["罗晓芳"],"status":"done","priority":"1","plan_date":"2026-09-01","progress":100,"actual_date":"2026-08-28","source":"例行工作","custom":"常规","id":"t_mtuyqigiryo78","rev":4,"created_at":"2026-04-29T16:43:49.000Z","updated_at":"2026-09-06T20:46:36.000Z","updated_by":"宋佳琪","deleted_at":"2026-02-21T17:35:57.000Z"},{"code":"11012604","work":"w_mtuyqigeeygb3","title":"专项委员会日常工作方案定稿与发布","owner":"张丽华","assignees":[],"status":"doing","priority":"1","plan_date":"2026-10-21","progress":0,"actual_date":"","source":"内部发起","custom":"攻坚","id":"t_mtuyqigienqcw","rev":4,"created_at":"2026-01-18T19:58:43.000Z","updated_at":"2026-09-05T19:00:29.000Z","updated_by":"张丽华"},{"code":"12012601","work":"w_mtuyqigeu6n6a","title":"技术标准体系建设进度跟踪与督办","owner":"张丽华","assignees":["刘建国"],"status":"doing","priority":"2","plan_date":"2026-09-12","progress":45,"actual_date":"","source":"内部发起","custom":"","id":"t_mtuyqigikq9zw","rev":1,"created_at":"2026-04-19T19:04:09.000Z","updated_at":"2026-08-30T20:17:15.000Z","updated_by":"张丽华"},{"code":"12012602","work":"w_mtuyqigeu6n6a","title":"技术标准体系建设季度汇报","owner":"杨志强","assignees":["刘建国"],"status":"doing","priority":"2","plan_date":"2026-10-17","progress":0,"actual_date":"","source":"领导交办","custom":"常规","id":"t_mtuyqigidwh19","rev":2,"created_at":"2025-12-29T01:28:19.000Z","updated_at":"2026-08-27T16:11:38.000Z","updated_by":"杨志强"},{"code":"12012603","work":"w_mtuyqigeu6n6a","title":"与相关部门沟通技术标准体系建设事项","owner":"杨志强","assignees":[],"status":"doing","priority":"3","plan_date":"2026-10-13","progress":0,"actual_date":"","source":"领导交办","custom":"","id":"t_mtuyqigiev43s","rev":2,"created_at":"2026-06-23T21:01:50.000Z","updated_at":"2026-08-26T19:38:24.000Z","updated_by":"杨志强"},{"code":"12012604","work":"w_mtuyqigeu6n6a","title":"技术标准体系建设问题整改","owner":"杨志强","assignees":[],"status":"doing","priority":"1","plan_date":"2026-10-13","progress":0,"actual_date":"","source":"监管要求","custom":"重点","id":"t_mtuyqigiww0bn","rev":1,"created_at":"2026-01-25T21:36:52.000Z","updated_at":"2026-08-26T18:50:58.000Z","updated_by":"杨志强"},{"code":"12012605","work":"w_mtuyqigeu6n6a","title":"技术标准体系建设年度总结","owner":"杨志强","assignees":[],"status":"doing","priority":"1","plan_date":"2026-09-20","progress":0,"actual_date":"","source":"监管要求","custom":"","id":"t_mtuyqigidq9yh","rev":4,"created_at":"2026-03-02T19:41:45.000Z","updated_at":"2026-09-01T21:11:46.000Z","updated_by":"杨志强"},{"code":"12012606","work":"w_mtuyqigeu6n6a","title":"技术标准体系建设调研与需求梳理","owner":"杨志强","assignees":["刘建国"],"status":"doing","priority":"2","plan_date":"2026-10-09","progress":0,"actual_date":"","source":"内部发起","custom":"重点","id":"t_mtuyqigi292o0","rev":1,"created_at":"2026-04-24T19:06:25.000Z","updated_at":"2026-08-21T19:17:04.000Z","updated_by":"杨志强"},{"code":"13012601","work":"w_mtuyqigeiyjty","title":"软件资产年度核查培训与宣贯","owner":"宋佳琪","assignees":["傅思远"],"status":"todo","priority":"2","plan_date":"","progress":0,"actual_date":"","source":"领导交办","custom":"常规","id":"t_mtuyqigixgeun","rev":4,"created_at":"2026-04-25T20:01:19.000Z","updated_at":"2026-08-29T23:30:12.000Z","updated_by":"宋佳琪","deleted_at":"2026-09-02T19:43:39.000Z"},{"code":"13012602","work":"w_mtuyqigeiyjty","title":"编制软件资产年度核查实施方案","owner":"宋佳琪","assignees":["冯雪梅"],"status":"todo","priority":"3","plan_date":"2026-09-26","progress":0,"actual_date":"","source":"","custom":"重点","id":"t_mtuyqigiqlpay","rev":1,"created_at":"2026-02-28T00:54:11.000Z","updated_at":"2026-08-26T18:58:29.000Z","updated_by":"宋佳琪"},{"code":"13012603","work":"w_mtuyqigeiyjty","title":"软件资产年度核查内部评审","owner":"彭子涵","assignees":["林志远"],"status":"todo","priority":"2","plan_date":"2026-09-21","progress":0,"actual_date":"","source":"监管要求","custom":"攻坚","id":"t_mtuyqigizvl6h","rev":4,"created_at":"2026-05-01T16:40:08.000Z","updated_at":"2026-08-28T19:41:31.000Z","updated_by":"彭子涵"},{"code":"13012604","work":"w_mtuyqigeiyjty","title":"软件资产年度核查数据收集与整理","owner":"冯雪梅","assignees":[],"status":"hold","priority":"3","plan_date":"2026-08-28","progress":0,"actual_date":"","source":"内部发起","custom":"","id":"t_mtuyqigi8x280","rev":2,"created_at":"2026-07-22T00:41:25.000Z","updated_at":"2026-09-03T16:14:14.000Z","updated_by":"冯雪梅"},{"code":"14012601","work":"w_mtuyqigexn3am","title":"外部生态协同与联合创新材料报送","owner":"曾雨桐","assignees":[],"status":"hold","priority":"3","plan_date":"2026-10-05","progress":0,"actual_date":"","source":"","custom":"攻坚","id":"t_mtuyqigi36gyw","rev":3,"created_at":"2026-04-13T22:06:21.000Z","updated_at":"2026-09-07T00:08:48.000Z","updated_by":"曾雨桐"},{"code":"14012602","work":"w_mtuyqigexn3am","title":"外部生态协同与联合创新方案定稿与发布","owner":"","assignees":["杨志强","陈晓明"],"status":"todo","priority":"2","plan_date":"2026-09-23","progress":0,"actual_date":"","source":"","custom":"","id":"t_mtuyqigizs0e3","rev":1,"created_at":"2026-07-15T00:34:11.000Z","updated_at":"2026-08-25T20:22:33.000Z","updated_by":"曾雨桐"},{"code":"14012603","work":"w_mtuyqigexn3am","title":"外部生态协同与联合创新进度跟踪与督办","owner":"曾雨桐","assignees":[],"status":"doing","priority":"2","plan_date":"2026-09-18","progress":0,"actual_date":"","source":"监管要求","custom":"常规","id":"t_mtuyqigifb3du","rev":3,"created_at":"2025-12-04T23:22:31.000Z","updated_at":"2026-08-25T18:59:03.000Z","updated_by":"曾雨桐"},{"code":"14012604","work":"w_mtuyqigexn3am","title":"外部生态协同与联合创新季度汇报","owner":"曾雨桐","assignees":[],"status":"done","priority":"2","plan_date":"2026-09-06","progress":100,"actual_date":"2026-09-06","source":"","custom":"","id":"t_mtuyqigii3pp8","rev":2,"created_at":"2026-07-01T16:11:39.000Z","updated_at":"2026-08-31T18:05:18.000Z","updated_by":"曾雨桐"},{"code":"14012605","work":"w_mtuyqigexn3am","title":"与相关部门沟通外部生态协同与联合创新事项","owner":"曾雨桐","assignees":[],"status":"done","priority":"2","plan_date":"2026-08-22","progress":100,"actual_date":"2026-08-24","source":"例行工作","custom":"重点","id":"t_mtuyqigicpreg","rev":3,"created_at":"2026-03-10T22:05:12.000Z","updated_at":"2026-08-27T18:24:03.000Z","updated_by":"曾雨桐"},{"code":"14012606","work":"w_mtuyqigexn3am","title":"外部生态协同与联合创新问题整改","owner":"曾雨桐","assignees":[],"status":"done","priority":"3","plan_date":"2026-06-05","progress":100,"actual_date":"2026-06-07","source":"监管要求","custom":"常规","id":"t_mtuyqigiyn4dd","rev":2,"created_at":"2026-02-01T01:45:49.000Z","updated_at":"2026-09-06T18:58:41.000Z","updated_by":"曾雨桐"},{"code":"15012601","work":"w_mtuyqige8slb1","title":"领导交办的临时事项年度总结","owner":"杨志强","assignees":["傅思远"],"status":"done","priority":"1","plan_date":"2026-09-01","progress":100,"actual_date":"2026-08-28","source":"","custom":"攻坚","id":"t_mtuyqigifblq1","rev":1,"created_at":"2026-02-05T22:58:45.000Z","updated_at":"2026-09-08T18:24:27.000Z","updated_by":"杨志强"},{"code":"15012602","work":"w_mtuyqige8slb1","title":"领导交办的临时事项调研与需求梳理","owner":"王建军","assignees":[],"status":"doing","priority":"1","plan_date":"2026-10-05","progress":40,"actual_date":"","source":"例行工作","custom":"常规","id":"t_mtuyqigitweth","rev":2,"created_at":"2025-12-07T22:05:00.000Z","updated_at":"2026-08-28T21:00:51.000Z","updated_by":"王建军"},{"code":"15012603","work":"w_mtuyqige8slb1","title":"领导交办的临时事项培训与宣贯","owner":"王建军","assignees":[],"status":"doing","priority":"2","plan_date":"2026-09-16","progress":0,"actual_date":"","source":"","custom":"攻坚","id":"t_mtuyqigis1awm","rev":3,"created_at":"2026-04-24T20:35:23.000Z","updated_at":"2026-08-24T21:03:55.000Z","updated_by":"王建军"},{"code":"15012604","work":"w_mtuyqige8slb1","title":"编制领导交办的临时事项实施方案","owner":"曾雨桐","assignees":[],"status":"doing","priority":"2","plan_date":"2026-10-01","progress":0,"actual_date":"","source":"","custom":"攻坚","id":"t_mtuyqigi2apz4","rev":1,"created_at":"2026-05-26T22:03:25.000Z","updated_at":"2026-09-02T22:37:18.000Z","updated_by":"曾雨桐"},{"code":"15012605","work":"w_mtuyqige8slb1","title":"领导交办的临时事项内部评审","owner":"王建军","assignees":[],"status":"doing","priority":"3","plan_date":"2026-10-13","progress":0,"actual_date":"","source":"领导交办","custom":"常规","id":"t_mtuyqigilk0ws","rev":2,"created_at":"2026-08-01T18:15:47.000Z","updated_at":"2026-09-06T17:04:22.000Z","updated_by":"王建军"},{"code":"01012501","work":"w_mtuyqigf3svd0","title":"编制基础设施专项规划实施方案","owner":"陈晓明","assignees":["冯雪梅"],"status":"done","priority":"2","plan_date":"2025-10-24","progress":100,"actual_date":"2025-10-26","source":"例行工作","custom":"常规","id":"t_mtuyqigjeb99j","rev":3,"created_at":"2025-08-05T17:03:28.000Z","updated_at":"2025-11-03T22:22:50.000Z","updated_by":"陈晓明"},{"code":"01012502","work":"w_mtuyqigf3svd0","title":"基础设施专项规划内部评审","owner":"陈晓明","assignees":["冯雪梅"],"status":"done","priority":"2","plan_date":"2025-10-04","progress":100,"actual_date":"2025-10-06","source":"例行工作","custom":"常规","id":"t_mtuyqigjo71ww","rev":4,"created_at":"2025-07-26T19:08:06.000Z","updated_at":"2025-10-14T17:51:28.000Z","updated_by":"陈晓明"},{"code":"01012503","work":"w_mtuyqigf3svd0","title":"基础设施专项规划数据收集与整理","owner":"陈晓明","assignees":["冯雪梅"],"status":"done","priority":"2","plan_date":"2025-09-14","progress":100,"actual_date":"2025-09-16","source":"例行工作","custom":"常规","id":"t_mtuyqigjic0sf","rev":4,"created_at":"2025-07-16T21:34:57.000Z","updated_at":"2025-09-24T21:38:02.000Z","updated_by":"陈晓明"},{"code":"02012501","work":"w_mtuyqigf2oq71","title":"编制前沿技术专题研究实施方案","owner":"王建军","assignees":["黄文博"],"status":"done","priority":"2","plan_date":"2025-10-24","progress":100,"actual_date":"2025-10-26","source":"例行工作","custom":"常规","id":"t_mtuyqigjwpimd","rev":2,"created_at":"2025-08-05T19:20:58.000Z","updated_at":"2025-11-04T01:10:36.000Z","updated_by":"王建军"},{"code":"02012502","work":"w_mtuyqigf2oq71","title":"前沿技术专题研究内部评审","owner":"王建军","assignees":["黄文博"],"status":"done","priority":"2","plan_date":"2025-10-04","progress":100,"actual_date":"2025-10-06","source":"例行工作","custom":"常规","id":"t_mtuyqigjv7c5k","rev":3,"created_at":"2025-07-26T22:40:44.000Z","updated_at":"2025-10-14T23:39:25.000Z","updated_by":"王建军"},{"code":"02012503","work":"w_mtuyqigf2oq71","title":"前沿技术专题研究数据收集与整理","owner":"王建军","assignees":["黄文博"],"status":"done","priority":"2","plan_date":"2025-09-14","progress":100,"actual_date":"2025-09-16","source":"例行工作","custom":"常规","id":"t_mtuyqigjnv41b","rev":4,"created_at":"2025-07-16T19:34:02.000Z","updated_at":"2025-09-24T21:03:29.000Z","updated_by":"王建军"},{"code":"02022501","work":"w_mtuyqigfrop62","title":"编制行业技术动态汇编月报实施方案","owner":"黄文博","assignees":["曾雨桐"],"status":"done","priority":"2","plan_date":"2025-10-24","progress":100,"actual_date":"2025-10-26","source":"例行工作","custom":"常规","id":"t_mtuyqigjcy4xe","rev":1,"created_at":"2025-08-05T19:42:27.000Z","updated_at":"2025-11-03T20:38:10.000Z","updated_by":"黄文博"},{"code":"02022502","work":"w_mtuyqigfrop62","title":"行业技术动态汇编月报内部评审","owner":"黄文博","assignees":["曾雨桐"],"status":"done","priority":"2","plan_date":"2025-10-04","progress":100,"actual_date":"2025-10-06","source":"例行工作","custom":"常规","id":"t_mtuyqigj9ww80","rev":1,"created_at":"2025-07-26T16:40:28.000Z","updated_at":"2025-10-14T17:53:27.000Z","updated_by":"黄文博"},{"code":"02022503","work":"w_mtuyqigfrop62","title":"行业技术动态汇编月报数据收集与整理","owner":"黄文博","assignees":["曾雨桐"],"status":"done","priority":"2","plan_date":"2025-09-14","progress":100,"actual_date":"2025-09-16","source":"例行工作","custom":"常规","id":"t_mtuyqigjlmq1d","rev":1,"created_at":"2025-07-16T16:24:24.000Z","updated_at":"2025-09-24T18:29:39.000Z","updated_by":"黄文博"},{"code":"03012501","work":"w_mtuyqigfjueox","title":"编制外部资讯服务采购与管理实施方案","owner":"林志远","assignees":[],"status":"done","priority":"2","plan_date":"2025-10-24","progress":100,"actual_date":"2025-10-26","source":"例行工作","custom":"常规","id":"t_mtuyqigjj60dh","rev":2,"created_at":"2025-08-05T16:18:38.000Z","updated_at":"2025-11-03T22:09:22.000Z","updated_by":"林志远"},{"code":"03012502","work":"w_mtuyqigfjueox","title":"外部资讯服务采购与管理内部评审","owner":"林志远","assignees":[],"status":"done","priority":"2","plan_date":"2025-10-04","progress":100,"actual_date":"2025-10-06","source":"例行工作","custom":"常规","id":"t_mtuyqigk3ia3s","rev":1,"created_at":"2025-07-26T21:50:26.000Z","updated_at":"2025-10-15T00:12:06.000Z","updated_by":"林志远"},{"code":"03012503","work":"w_mtuyqigfjueox","title":"外部资讯服务采购与管理数据收集与整理","owner":"林志远","assignees":[],"status":"done","priority":"2","plan_date":"2025-09-14","progress":100,"actual_date":"2025-09-16","source":"例行工作","custom":"常规","id":"t_mtuyqigkfeor0","rev":4,"created_at":"2025-07-16T18:21:36.000Z","updated_at":"2025-09-25T00:26:10.000Z","updated_by":"林志远"},{"code":"04012501","work":"w_mtuyqigf63a97","title":"编制数字化转型指标体系实施方案","owner":"张丽华","assignees":["董海燕"],"status":"done","priority":"2","plan_date":"2025-10-24","progress":100,"actual_date":"2025-10-26","source":"例行工作","custom":"常规","id":"t_mtuyqigklq5wa","rev":4,"created_at":"2025-08-05T22:10:25.000Z","updated_at":"2025-11-03T23:36:17.000Z","updated_by":"张丽华"},{"code":"04012502","work":"w_mtuyqigf63a97","title":"数字化转型指标体系内部评审","owner":"张丽华","assignees":["董海燕"],"status":"done","priority":"2","plan_date":"2025-10-04","progress":100,"actual_date":"2025-10-06","source":"例行工作","custom":"常规","id":"t_mtuyqigkmaa3s","rev":4,"created_at":"2025-07-26T20:55:20.000Z","updated_at":"2025-10-14T21:56:10.000Z","updated_by":"张丽华"},{"code":"04012503","work":"w_mtuyqigf63a97","title":"数字化转型指标体系数据收集与整理","owner":"张丽华","assignees":["董海燕"],"status":"done","priority":"2","plan_date":"2025-09-14","progress":100,"actual_date":"2025-09-16","source":"例行工作","custom":"常规","id":"t_mtuyqigkxgip2","rev":1,"created_at":"2025-07-16T17:32:13.000Z","updated_at":"2025-09-24T23:07:07.000Z","updated_by":"张丽华"},{"code":"05012501","work":"w_mtuyqigf3dygf","title":"编制系统集成压降专项实施方案","owner":"刘建国","assignees":["潘玉兰"],"status":"done","priority":"2","plan_date":"2025-10-24","progress":100,"actual_date":"2025-10-26","source":"例行工作","custom":"常规","id":"t_mtuyqigktg0jd","rev":1,"created_at":"2025-08-05T21:05:09.000Z","updated_at":"2025-11-04T00:14:23.000Z","updated_by":"刘建国"},{"code":"05012502","work":"w_mtuyqigf3dygf","title":"系统集成压降专项内部评审","owner":"刘建国","assignees":["潘玉兰"],"status":"done","priority":"2","plan_date":"2025-10-04","progress":100,"actual_date":"2025-10-06","source":"例行工作","custom":"常规","id":"t_mtuyqigkusu7e","rev":3,"created_at":"2025-07-26T22:42:47.000Z","updated_at":"2025-10-15T00:02:29.000Z","updated_by":"刘建国"},{"code":"05012503","work":"w_mtuyqigf3dygf","title":"系统集成压降专项数据收集与整理","owner":"刘建国","assignees":["潘玉兰"],"status":"done","priority":"2","plan_date":"2025-09-14","progress":100,"actual_date":"2025-09-16","source":"例行工作","custom":"常规","id":"t_mtuyqigks87ye","rev":3,"created_at":"2025-07-16T19:06:20.000Z","updated_at":"2025-09-24T23:33:38.000Z","updated_by":"刘建国"},{"code":"01012607","work":"w_mtuyqigef18ia","title":"基础设施专项规划方案定稿与发布","owner":"陈晓明","assignees":[],"status":"todo","priority":"2","plan_date":"2026-09-30","progress":0,"actual_date":"","source":"内部发起","custom":"","id":"t_mtuyqigtuis6r","rev":2,"created_at":"2026-08-10T21:34:34.000Z","updated_at":"2026-08-30T23:15:58.000Z","updated_by":"陈晓明"},{"code":"01012601","work":"w_mtuyqigef18ia","title":"（编号与他人重复）基础设施专项规划专项","owner":"张丽华","assignees":[],"status":"todo","priority":"3","plan_date":"2026-10-07","progress":0,"actual_date":"","source":"","custom":"","id":"t_mtuyqigt6m5mo","rev":1,"created_at":"2026-08-15T22:06:18.000Z","updated_at":"2026-08-31T21:42:25.000Z","updated_by":"王建军"}],"changelog":[{"id":"log_demo_0001","at":"2026-02-06T22:07:29.000Z","by":"王建军","kind":"admin","taskId":"","summary":"新建账号 王建军，角色「管理员」","target":"王建军","roleTo":"admin"},{"id":"log_demo_0002","at":"2026-02-07T20:36:30.000Z","by":"王建军","kind":"admin","taskId":"","summary":"新建账号 张丽华，角色「处室领导」","target":"张丽华","roleTo":"director"},{"id":"log_demo_0003","at":"2026-02-08T18:44:47.000Z","by":"王建军","kind":"admin","taskId":"","summary":"新建账号 刘建国，角色「部门领导」","target":"刘建国","roleTo":"gm"},{"id":"log_demo_0004","at":"2026-02-10T00:02:32.000Z","by":"王建军","kind":"admin","taskId":"","summary":"新建账号 陈晓明，角色「组长」","target":"陈晓明","roleTo":"comanager"},{"id":"log_demo_0005","at":"2026-02-11T01:13:57.000Z","by":"王建军","kind":"admin","taskId":"","summary":"新建账号 杨志强，角色「组长」","target":"杨志强","roleTo":"comanager"},{"id":"log_demo_0006","at":"2026-02-11T18:30:43.000Z","by":"王建军","kind":"admin","taskId":"","summary":"新建账号 黄文博，角色「员工」","target":"黄文博","roleTo":"staff"},{"id":"log_demo_0007","at":"2026-02-12T20:31:39.000Z","by":"王建军","kind":"admin","taskId":"","summary":"新建账号 林志远，角色「员工」","target":"林志远","roleTo":"staff"},{"id":"log_demo_0008","at":"2026-02-13T19:30:42.000Z","by":"王建军","kind":"admin","taskId":"","summary":"新建账号 罗晓芳，角色「员工」","target":"罗晓芳","roleTo":"staff"},{"id":"log_demo_0009","at":"2026-02-15T00:26:47.000Z","by":"王建军","kind":"admin","taskId":"","summary":"新建账号 冯雪梅，角色「员工」","target":"冯雪梅","roleTo":"staff"},{"id":"log_demo_0010","at":"2026-02-15T22:09:21.000Z","by":"王建军","kind":"admin","taskId":"","summary":"新建账号 董海燕，角色「员工」","target":"董海燕","roleTo":"staff"},{"id":"log_demo_0011","at":"2026-02-16T22:46:13.000Z","by":"王建军","kind":"admin","taskId":"","summary":"新建账号 潘玉兰，角色「员工」","target":"潘玉兰","roleTo":"staff"},{"id":"log_demo_0012","at":"2026-02-17T17:28:24.000Z","by":"王建军","kind":"admin","taskId":"","summary":"新建账号 谢明辉，角色「员工」","target":"谢明辉","roleTo":"staff"},{"id":"log_demo_0013","at":"2026-02-18T19:02:31.000Z","by":"王建军","kind":"admin","taskId":"","summary":"新建账号 曾雨桐，角色「员工」","target":"曾雨桐","roleTo":"staff"},{"id":"log_demo_0014","at":"2026-02-20T01:52:30.000Z","by":"王建军","kind":"admin","taskId":"","summary":"新建账号 彭子涵，角色「员工」","target":"彭子涵","roleTo":"staff"},{"id":"log_demo_0015","at":"2026-02-20T18:08:02.000Z","by":"王建军","kind":"admin","taskId":"","summary":"新建账号 傅思远，角色「员工」","target":"傅思远","roleTo":"staff"},{"id":"log_demo_0016","at":"2026-02-21T23:54:18.000Z","by":"王建军","kind":"admin","taskId":"","summary":"新建账号 宋佳琪，角色「员工」","target":"宋佳琪","roleTo":"staff"},{"id":"log_demo_0018","at":"2026-07-12T00:05:39.000Z","by":"王建军","kind":"admin","taskId":"","summary":"停用了账号 秦晓丽","target":"秦晓丽"},{"id":"log_demo_0017","at":"2026-07-13T23:36:01.000Z","by":"王建军","kind":"admin","taskId":"","summary":"把 张丽华 的角色从「员工」改为「处室领导」","target":"张丽华","roleFrom":"staff","roleTo":"director"},{"id":"log_demo_0121","at":"2026-07-27T16:13:23.000Z","by":"董海燕","kind":"edit","entity":"task","refId":"t_mtuyqighbyajh","taskId":"t_mtuyqighbyajh","summary":"状态：未开始→已挂起","changes":[{"k":"status","from":"todo","to":"hold"}]},{"id":"log_demo_0139","at":"2026-07-27T21:13:04.000Z","by":"黄文博","kind":"edit","entity":"task","refId":"t_mtuyqigjlmq1d","taskId":"t_mtuyqigjlmq1d","summary":"状态：进行中→已完成","changes":[{"k":"status","from":"doing","to":"done"}]},{"id":"log_demo_0082","at":"2026-07-27T21:17:15.000Z","by":"傅思远","kind":"edit","entity":"task","refId":"t_mtuyqigh24c5w","taskId":"t_mtuyqigh24c5w","summary":"完成了里程碑交付「总结报告」"},{"id":"log_demo_0085","at":"2026-07-28T18:45:45.000Z","by":"杨志强","kind":"edit","entity":"task","refId":"t_mtuyqigiev43s","taskId":"t_mtuyqigiev43s","summary":"进度：0%→0%","changes":[{"k":"progress","from":0,"to":0}]},{"id":"log_demo_0092","at":"2026-07-30T00:14:48.000Z","by":"王建军","kind":"edit","entity":"task","refId":"t_mtuyqiggtwda2","taskId":"t_mtuyqiggtwda2","summary":"新建了任务"},{"id":"log_demo_0131","at":"2026-07-30T23:35:45.000Z","by":"黄文博","kind":"edit","entity":"task","refId":"t_mtuyqiggjjzc6","taskId":"t_mtuyqiggjjzc6","summary":"优先级：中→高","changes":[{"k":"priority","from":"2","to":"1"}]},{"id":"log_demo_0114","at":"2026-07-31T18:20:35.000Z","by":"黄文博","kind":"edit","entity":"task","refId":"t_mtuyqigj9ww80","taskId":"t_mtuyqigj9ww80","summary":"状态：进行中→已完成","changes":[{"k":"status","from":"doing","to":"done"}]},{"id":"log_demo_0087","at":"2026-07-31T23:12:46.000Z","by":"谢明辉","kind":"edit","entity":"task","refId":"t_mtuyqighcy0bf","taskId":"t_mtuyqighcy0bf","summary":"优先级：低→中","changes":[{"k":"priority","from":"3","to":"2"}]},{"id":"log_demo_0122","at":"2026-08-01T18:13:30.000Z","by":"陈晓明","kind":"edit","entity":"task","refId":"t_mtuyqigjeb99j","taskId":"t_mtuyqigjeb99j","summary":"优先级：低→中","changes":[{"k":"priority","from":"3","to":"2"}]},{"id":"log_demo_0077","at":"2026-08-01T19:17:24.000Z","by":"杨志强","kind":"edit","entity":"task","refId":"t_mtuyqigidq9yh","taskId":"t_mtuyqigidq9yh","summary":"新建了任务"},{"id":"log_demo_0074","at":"2026-08-02T17:02:00.000Z","by":"陈晓明","kind":"edit","entity":"task","refId":"t_mtuyqigjic0sf","taskId":"t_mtuyqigjic0sf","summary":"优先级：低→中","changes":[{"k":"priority","from":"3","to":"2"}]},{"id":"log_demo_0084","at":"2026-08-02T18:39:06.000Z","by":"彭子涵","kind":"edit","entity":"task","refId":"t_mtuyqigi170n6","taskId":"t_mtuyqigi170n6","summary":"进度：0%→0%","changes":[{"k":"progress","from":0,"to":0}]},{"id":"log_demo_0134","at":"2026-08-02T19:34:26.000Z","by":"黄文博","kind":"edit","entity":"task","refId":"t_mtuyqigjcy4xe","taskId":"t_mtuyqigjcy4xe","summary":"状态：进行中→已完成","changes":[{"k":"status","from":"doing","to":"done"}]},{"id":"log_demo_0137","at":"2026-08-03T18:28:48.000Z","by":"林志远","kind":"edit","entity":"task","refId":"t_mtuyqigjj60dh","taskId":"t_mtuyqigjj60dh","summary":"进度：80%→100%","changes":[{"k":"progress","from":80,"to":100}]},{"id":"log_demo_0136","at":"2026-08-03T19:53:48.000Z","by":"潘玉兰","kind":"edit","entity":"task","refId":"t_mtuyqigistz49","taskId":"t_mtuyqigistz49","summary":"进度：30%→50%","changes":[{"k":"progress","from":30,"to":50}]},{"id":"log_demo_0091","at":"2026-08-04T16:13:36.000Z","by":"黄文博","kind":"edit","entity":"task","refId":"t_mtuyqigjlmq1d","taskId":"t_mtuyqigjlmq1d","summary":"状态：进行中→已完成","changes":[{"k":"status","from":"doing","to":"done"}]},{"id":"log_demo_0115","at":"2026-08-06T23:14:19.000Z","by":"杨志强","kind":"edit","entity":"task","refId":"t_mtuyqigiww0bn","taskId":"t_mtuyqigiww0bn","summary":"进度：0%→0%","changes":[{"k":"progress","from":0,"to":0}]},{"id":"log_demo_0138","at":"2026-08-09T16:55:09.000Z","by":"潘玉兰","kind":"edit","entity":"task","refId":"t_mtuyqighinkfb","taskId":"t_mtuyqighinkfb","summary":"优先级：低→中","changes":[{"k":"priority","from":"3","to":"2"}]},{"id":"log_demo_0103","at":"2026-08-09T17:10:14.000Z","by":"黄文博","kind":"edit","entity":"task","refId":"t_mtuyqigg7f5i8","taskId":"t_mtuyqigg7f5i8","summary":"状态：未开始→已挂起","changes":[{"k":"status","from":"todo","to":"hold"}]},{"id":"log_demo_0066","at":"2026-08-10T00:56:36.000Z","by":"张丽华","kind":"edit","entity":"task","refId":"t_mtuyqiggfgqrl","taskId":"t_mtuyqiggfgqrl","summary":"状态：进行中→已完成","changes":[{"k":"status","from":"doing","to":"done"}]},{"id":"log_demo_0119","at":"2026-08-10T21:43:34.000Z","by":"刘建国","kind":"edit","entity":"task","refId":"t_mtuyqigfk8oqv","taskId":"t_mtuyqigfk8oqv","summary":"计划完成：2026-09-02→2026-09-18","changes":[{"k":"plan_date","from":"2026-09-02","to":"2026-09-18"}]},{"id":"log_demo_0108","at":"2026-08-11T20:05:32.000Z","by":"冯雪梅","kind":"edit","entity":"task","refId":"t_mtuyqigi7xub2","taskId":"t_mtuyqigi7xub2","summary":"状态：进行中→已完成","changes":[{"k":"status","from":"doing","to":"done"}]},{"id":"log_demo_0056","at":"2026-08-12T16:02:08.000Z","by":"曾雨桐","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0061","at":"2026-08-12T16:20:46.000Z","by":"曾雨桐","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0065","at":"2026-08-12T23:49:58.000Z","by":"陈晓明","kind":"edit","entity":"task","refId":"t_mtuyqigfa1feh","taskId":"t_mtuyqigfa1feh","summary":"完成了里程碑交付「初稿文档」"},{"id":"log_demo_0048","at":"2026-08-13T15:11:38.000Z","by":"王建军","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0057","at":"2026-08-13T15:55:36.000Z","by":"张丽华","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0034","at":"2026-08-14T15:40:54.000Z","by":"刘建国","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0041","at":"2026-08-14T16:23:38.000Z","by":"曾雨桐","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0053","at":"2026-08-14T16:23:38.000Z","by":"曾雨桐","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0118","at":"2026-08-15T00:22:54.000Z","by":"黄文博","kind":"edit","entity":"task","refId":"t_mtuyqigh57m47","taskId":"t_mtuyqigh57m47","summary":"状态：未开始→进行中","changes":[{"k":"status","from":"todo","to":"doing"}]},{"id":"log_demo_0026","at":"2026-08-15T15:55:15.000Z","by":"杨志强","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0064","at":"2026-08-15T16:20:42.000Z","by":"冯雪梅","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0062","at":"2026-08-15T16:24:20.000Z","by":"董海燕","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0129","at":"2026-08-15T17:55:41.000Z","by":"罗晓芳","kind":"edit","entity":"task","refId":"t_mtuyqiggqpvcy","taskId":"t_mtuyqiggqpvcy","summary":"进度：80%→100%","changes":[{"k":"progress","from":80,"to":100}]},{"id":"log_demo_0079","at":"2026-08-15T19:26:56.000Z","by":"张丽华","kind":"edit","entity":"task","refId":"t_mtuyqigikq9zw","taskId":"t_mtuyqigikq9zw","summary":"进度：25%→45%","changes":[{"k":"progress","from":25,"to":45}]},{"id":"log_demo_0038","at":"2026-08-16T15:00:47.000Z","by":"潘玉兰","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0097","at":"2026-08-16T21:00:49.000Z","by":"杨志强","kind":"edit","entity":"task","refId":"t_mtuyqigh7wdxb","taskId":"t_mtuyqigh7wdxb","summary":"状态：未开始→进行中","changes":[{"k":"status","from":"todo","to":"doing"}]},{"id":"log_demo_0072","at":"2026-08-16T23:09:40.000Z","by":"刘建国","kind":"edit","entity":"task","refId":"t_mtuyqigh6hnc5","taskId":"t_mtuyqigh6hnc5","summary":"状态：未开始→进行中","changes":[{"k":"status","from":"todo","to":"doing"}]},{"id":"log_demo_0125","at":"2026-08-16T23:38:18.000Z","by":"潘玉兰","kind":"edit","entity":"task","refId":"t_mtuyqighl1zx3","taskId":"t_mtuyqighl1zx3","summary":"状态：未开始→进行中","changes":[{"k":"status","from":"todo","to":"doing"}]},{"id":"log_demo_0070","at":"2026-08-17T00:02:16.000Z","by":"潘玉兰","kind":"edit","entity":"task","refId":"t_mtuyqighl1zx3","taskId":"t_mtuyqighl1zx3","summary":"优先级：低→低","changes":[{"k":"priority","from":"3","to":"3"}]},{"id":"log_demo_0063","at":"2026-08-17T16:13:09.000Z","by":"谢明辉","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0106","at":"2026-08-17T18:16:02.000Z","by":"张丽华","kind":"edit","entity":"task","refId":"t_mtuyqigkmaa3s","taskId":"t_mtuyqigkmaa3s","summary":"优先级：低→中","changes":[{"k":"priority","from":"3","to":"2"}]},{"id":"log_demo_0132","at":"2026-08-17T19:28:09.000Z","by":"陈晓明","kind":"edit","entity":"task","refId":"t_mtuyqigjic0sf","taskId":"t_mtuyqigjic0sf","summary":"新建了任务"},{"id":"log_demo_0068","at":"2026-08-17T20:09:10.000Z","by":"黄文博","kind":"edit","entity":"task","refId":"t_mtuyqiggk2nwl","taskId":"t_mtuyqiggk2nwl","summary":"状态：未开始→已挂起","changes":[{"k":"status","from":"todo","to":"hold"}]},{"id":"log_demo_0042","at":"2026-08-18T16:19:50.000Z","by":"董海燕","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0039","at":"2026-08-18T16:40:10.000Z","by":"杨志强","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0033","at":"2026-08-19T15:27:40.000Z","by":"冯雪梅","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0051","at":"2026-08-19T16:04:44.000Z","by":"冯雪梅","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0111","at":"2026-08-19T16:21:50.000Z","by":"傅思远","kind":"edit","entity":"task","refId":"t_mtuyqigheqy4r","taskId":"t_mtuyqigheqy4r","summary":"进度：0%→0%","changes":[{"k":"progress","from":0,"to":0}]},{"id":"log_demo_0032","at":"2026-08-19T16:35:47.000Z","by":"罗晓芳","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0116","at":"2026-08-19T17:21:55.000Z","by":"陈晓明","kind":"edit","entity":"task","refId":"t_mtuyqigtuis6r","taskId":"t_mtuyqigtuis6r","summary":"进度：0%→0%","changes":[{"k":"progress","from":0,"to":0}]},{"id":"log_demo_0094","at":"2026-08-19T18:35:26.000Z","by":"宋佳琪","kind":"edit","entity":"task","refId":"t_mtuyqigiz93bv","taskId":"t_mtuyqigiz93bv","summary":"优先级：低→中","changes":[{"k":"priority","from":"3","to":"2"}]},{"id":"log_demo_0142","at":"2026-08-19T18:42:41.000Z","by":"系统","kind":"alert","taskId":"","summary":"合并时挡下一次未经授权的角色提升：傅思远 员工→管理员","target":"傅思远","roleTo":"admin"},{"id":"log_demo_0089","at":"2026-08-19T20:30:19.000Z","by":"罗晓芳","kind":"edit","entity":"task","refId":"t_mtuyqigh1ix7x","taskId":"t_mtuyqigh1ix7x","summary":"进度：80%→100%","changes":[{"k":"progress","from":80,"to":100}]},{"id":"log_demo_0117","at":"2026-08-19T21:27:35.000Z","by":"曾雨桐","kind":"edit","entity":"task","refId":"t_mtuyqigh2dk0l","taskId":"t_mtuyqigh2dk0l","summary":"计划完成：2026-09-02→2026-08-22","changes":[{"k":"plan_date","from":"2026-09-02","to":"2026-08-22"}]},{"id":"log_demo_0123","at":"2026-08-19T21:52:56.000Z","by":"杨志强","kind":"edit","entity":"task","refId":"t_mtuyqigidq9yh","taskId":"t_mtuyqigidq9yh","summary":"进度：0%→0%","changes":[{"k":"progress","from":0,"to":0}]},{"id":"log_demo_0073","at":"2026-08-20T18:41:25.000Z","by":"王建军","kind":"edit","entity":"task","refId":"t_mtuyqigis1awm","taskId":"t_mtuyqigis1awm","summary":"计划完成：2026-09-02→2026-09-16","changes":[{"k":"plan_date","from":"2026-09-02","to":"2026-09-16"}]},{"id":"log_demo_0090","at":"2026-08-21T00:04:41.000Z","by":"刘建国","kind":"edit","entity":"task","refId":"t_mtuyqigks87ye","taskId":"t_mtuyqigks87ye","summary":"状态：进行中→已完成","changes":[{"k":"status","from":"doing","to":"done"}]},{"id":"log_demo_0088","at":"2026-08-21T00:20:16.000Z","by":"刘建国","kind":"edit","entity":"task","refId":"t_mtuyqigg7b3r4","taskId":"t_mtuyqigg7b3r4","summary":"计划完成：2026-09-02→2026-09-09","changes":[{"k":"plan_date","from":"2026-09-02","to":"2026-09-09"}]},{"id":"log_demo_0027","at":"2026-08-21T15:22:47.000Z","by":"潘玉兰","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0126","at":"2026-08-21T17:21:00.000Z","by":"陈晓明","kind":"edit","entity":"task","refId":"t_mtuyqigfa1feh","taskId":"t_mtuyqigfa1feh","summary":"进度：80%→100%","changes":[{"k":"progress","from":80,"to":100}]},{"id":"log_demo_0081","at":"2026-08-22T00:03:27.000Z","by":"傅思远","kind":"edit","entity":"task","refId":"t_mtuyqigh24c5w","taskId":"t_mtuyqigh24c5w","summary":"状态：未开始→进行中","changes":[{"k":"status","from":"todo","to":"doing"}]},{"id":"log_demo_0040","at":"2026-08-22T16:01:20.000Z","by":"刘建国","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0050","at":"2026-08-22T16:19:14.000Z","by":"曾雨桐","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0101","at":"2026-08-22T18:32:12.000Z","by":"张丽华","kind":"edit","entity":"task","refId":"t_mtuyqigkxgip2","taskId":"t_mtuyqigkxgip2","summary":"状态：进行中→已完成","changes":[{"k":"status","from":"doing","to":"done"}]},{"id":"log_demo_0025","at":"2026-08-23T15:35:16.000Z","by":"王建军","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0054","at":"2026-08-23T15:37:13.000Z","by":"张丽华","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0058","at":"2026-08-23T15:56:27.000Z","by":"王建军","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0096","at":"2026-08-23T16:27:27.000Z","by":"王建军","kind":"edit","entity":"task","refId":"t_mtuyqigjnv41b","taskId":"t_mtuyqigjnv41b","summary":"状态：进行中→已完成","changes":[{"k":"status","from":"doing","to":"done"}]},{"id":"log_demo_0075","at":"2026-08-23T17:02:14.000Z","by":"傅思远","kind":"edit","entity":"task","refId":"t_mtuyqiggawbgc","taskId":"t_mtuyqiggawbgc","summary":"完成了里程碑交付「评审纪要」"},{"id":"log_demo_0069","at":"2026-08-23T19:18:36.000Z","by":"陈晓明","kind":"edit","entity":"task","refId":"t_mtuyqigfbmto8","taskId":"t_mtuyqigfbmto8","summary":"新建了任务"},{"id":"log_demo_0046","at":"2026-08-24T15:07:38.000Z","by":"彭子涵","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0104","at":"2026-08-24T19:44:57.000Z","by":"杨志强","kind":"edit","entity":"task","refId":"t_mtuyqighwbfs0","taskId":"t_mtuyqighwbfs0","summary":"优先级：中→高","changes":[{"k":"priority","from":"2","to":"1"}]},{"id":"log_demo_0031","at":"2026-08-25T15:19:46.000Z","by":"王建军","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0124","at":"2026-08-26T18:32:42.000Z","by":"陈晓明","kind":"edit","entity":"task","refId":"t_mtuyqigfa1feh","taskId":"t_mtuyqigfa1feh","summary":"状态：进行中→已完成","changes":[{"k":"status","from":"doing","to":"done"}]},{"id":"log_demo_0098","at":"2026-08-26T20:02:59.000Z","by":"张丽华","kind":"edit","entity":"task","refId":"t_mtuyqigkxgip2","taskId":"t_mtuyqigkxgip2","summary":"新建了任务"},{"id":"log_demo_0099","at":"2026-08-26T23:15:44.000Z","by":"刘建国","kind":"edit","entity":"task","refId":"t_mtuyqigfhu6gu","taskId":"t_mtuyqigfhu6gu","summary":"优先级：低→低","changes":[{"k":"priority","from":"3","to":"3"}]},{"id":"log_demo_0035","at":"2026-08-27T15:16:01.000Z","by":"潘玉兰","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0049","at":"2026-08-27T15:41:41.000Z","by":"黄文博","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0043","at":"2026-08-27T16:02:20.000Z","by":"罗晓芳","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0130","at":"2026-08-27T20:38:15.000Z","by":"曾雨桐","kind":"edit","entity":"task","refId":"t_mtuyqigicpreg","taskId":"t_mtuyqigicpreg","summary":"进度：80%→100%","changes":[{"k":"progress","from":80,"to":100}]},{"id":"log_demo_0024","at":"2026-08-28T15:28:55.000Z","by":"潘玉兰","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0028","at":"2026-08-28T15:31:12.000Z","by":"张丽华","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0019","at":"2026-08-28T16:59:53.000Z","by":"王建军","kind":"admin","taskId":"","summary":"调整了权限矩阵：处室领导可查看日志页"},{"id":"log_demo_0076","at":"2026-08-28T22:59:20.000Z","by":"曾雨桐","kind":"edit","entity":"task","refId":"t_mtuyqigi2apz4","taskId":"t_mtuyqigi2apz4","summary":"新建了任务"},{"id":"log_demo_0020","at":"2026-08-29T16:07:50.000Z","by":"董海燕","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0044","at":"2026-08-29T16:12:15.000Z","by":"张丽华","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0105","at":"2026-08-29T17:22:41.000Z","by":"张丽华","kind":"edit","entity":"task","refId":"t_mtuyqigkxgip2","taskId":"t_mtuyqigkxgip2","summary":"状态：进行中→已完成","changes":[{"k":"status","from":"doing","to":"done"}]},{"id":"log_demo_0120","at":"2026-08-29T17:36:35.000Z","by":"陈晓明","kind":"edit","entity":"task","refId":"t_mtuyqigf928rf","taskId":"t_mtuyqigf928rf","summary":"计划完成：2026-09-02→2026-09-06","changes":[{"k":"plan_date","from":"2026-09-02","to":"2026-09-06"}]},{"id":"log_demo_0071","at":"2026-08-29T17:59:06.000Z","by":"张丽华","kind":"edit","entity":"task","refId":"t_mtuyqigh774ft","taskId":"t_mtuyqigh774ft","summary":"新建了任务"},{"id":"log_demo_0100","at":"2026-08-30T17:41:21.000Z","by":"罗晓芳","kind":"edit","entity":"task","refId":"t_mtuyqiggqpvcy","taskId":"t_mtuyqiggqpvcy","summary":"进度：80%→100%","changes":[{"k":"progress","from":80,"to":100}]},{"id":"log_demo_0060","at":"2026-08-31T15:28:54.000Z","by":"董海燕","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0110","at":"2026-09-01T16:57:25.000Z","by":"王建军","kind":"edit","entity":"task","refId":"t_mtuyqigis1awm","taskId":"t_mtuyqigis1awm","summary":"计划完成：2026-09-02→2026-09-16","changes":[{"k":"plan_date","from":"2026-09-02","to":"2026-09-16"}]},{"id":"log_demo_0135","at":"2026-09-01T20:26:56.000Z","by":"宋佳琪","kind":"edit","entity":"task","refId":"t_mtuyqighcy0bf","taskId":"t_mtuyqighcy0bf","summary":"完成了里程碑交付「报送回执」"},{"id":"log_demo_0029","at":"2026-09-02T15:28:59.000Z","by":"陈晓明","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0037","at":"2026-09-02T15:29:29.000Z","by":"刘建国","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0059","at":"2026-09-02T15:41:34.000Z","by":"潘玉兰","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0047","at":"2026-09-02T15:49:49.000Z","by":"刘建国","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0030","at":"2026-09-02T16:25:14.000Z","by":"董海燕","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0022","at":"2026-09-02T16:45:19.000Z","by":"张丽华","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0113","at":"2026-09-02T22:27:55.000Z","by":"张丽华","kind":"edit","entity":"task","refId":"t_mtuyqigienqcw","taskId":"t_mtuyqigienqcw","summary":"进度：0%→0%","changes":[{"k":"progress","from":0,"to":0}]},{"id":"log_demo_0055","at":"2026-09-03T15:44:38.000Z","by":"罗晓芳","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0052","at":"2026-09-04T15:36:13.000Z","by":"谢明辉","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0023","at":"2026-09-04T15:45:42.000Z","by":"潘玉兰","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0093","at":"2026-09-04T17:45:29.000Z","by":"杨志强","kind":"edit","entity":"task","refId":"t_mtuyqighyrl14","taskId":"t_mtuyqighyrl14","summary":"计划完成：2026-09-02→2026-09-01","changes":[{"k":"plan_date","from":"2026-09-02","to":"2026-09-01"}]},{"id":"log_demo_0086","at":"2026-09-04T21:15:20.000Z","by":"刘建国","kind":"edit","entity":"task","refId":"t_mtuyqighhuz43","taskId":"t_mtuyqighhuz43","summary":"状态：未开始→进行中","changes":[{"k":"status","from":"todo","to":"doing"}]},{"id":"log_demo_0078","at":"2026-09-04T23:09:09.000Z","by":"杨志强","kind":"edit","entity":"task","refId":"t_mtuyqigh7wdxb","taskId":"t_mtuyqigh7wdxb","summary":"计划完成：2026-09-02→2026-09-12","changes":[{"k":"plan_date","from":"2026-09-02","to":"2026-09-12"}]},{"id":"log_demo_0080","at":"2026-09-05T00:14:51.000Z","by":"彭子涵","kind":"edit","entity":"task","refId":"t_mtuyqigizvl6h","taskId":"t_mtuyqigizvl6h","summary":"优先级：低→中","changes":[{"k":"priority","from":"3","to":"2"}]},{"id":"log_demo_0083","at":"2026-09-05T18:04:00.000Z","by":"冯雪梅","kind":"edit","entity":"task","refId":"t_mtuyqigi8x280","taskId":"t_mtuyqigi8x280","summary":"新建了任务"},{"id":"log_demo_0127","at":"2026-09-06T17:45:25.000Z","by":"林志远","kind":"edit","entity":"task","refId":"t_mtuyqigh6m2qu","taskId":"t_mtuyqigh6m2qu","summary":"进度：0%→0%","changes":[{"k":"progress","from":0,"to":0}]},{"id":"log_demo_0133","at":"2026-09-06T19:09:51.000Z","by":"黄文博","kind":"edit","entity":"task","refId":"t_mtuyqigj9ww80","taskId":"t_mtuyqigj9ww80","summary":"新建了任务"},{"id":"log_demo_0141","at":"2026-09-06T21:53:30.000Z","by":"黄文博","kind":"edit","entity":"task","refId":"t_mtuyqiggk2nwl","taskId":"t_mtuyqiggk2nwl","summary":"状态：已挂起→已完成","changes":[{"k":"status","from":"hold","to":"done"},{"k":"progress","from":100,"to":100}]},{"id":"log_demo_0067","at":"2026-09-06T22:47:21.000Z","by":"王建军","kind":"edit","entity":"task","refId":"t_mtuyqiggo9fn0","taskId":"t_mtuyqiggo9fn0","summary":"状态：未开始→进行中","changes":[{"k":"status","from":"todo","to":"doing"}]},{"id":"log_demo_0095","at":"2026-09-07T17:57:26.000Z","by":"张丽华","kind":"edit","entity":"task","refId":"t_mtuyqigh4ixfa","taskId":"t_mtuyqigh4ixfa","summary":"完成了里程碑交付「跟踪表」"},{"id":"log_demo_0128","at":"2026-09-07T21:08:49.000Z","by":"曾雨桐","kind":"edit","entity":"task","refId":"t_mtuyqigifb3du","taskId":"t_mtuyqigifb3du","summary":"状态：未开始→进行中","changes":[{"k":"status","from":"todo","to":"doing"}]},{"id":"log_demo_0140","at":"2026-09-07T23:16:16.000Z","by":"林志远","kind":"edit","entity":"task","refId":"t_mtuyqiggbnj0a","taskId":"t_mtuyqiggbnj0a","summary":"状态：进行中→已完成","changes":[{"k":"status","from":"doing","to":"done"},{"k":"progress","from":35,"to":100}]},{"id":"log_demo_0112","at":"2026-09-07T23:20:22.000Z","by":"张丽华","kind":"edit","entity":"task","refId":"t_mtuyqigkmaa3s","taskId":"t_mtuyqigkmaa3s","summary":"优先级：低→中","changes":[{"k":"priority","from":"3","to":"2"}]},{"id":"log_demo_0036","at":"2026-09-08T16:30:57.000Z","by":"刘建国","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0102","at":"2026-09-08T18:47:51.000Z","by":"杨志强","kind":"edit","entity":"task","refId":"t_mtuyqigidwh19","taskId":"t_mtuyqigidwh19","summary":"状态：未开始→进行中","changes":[{"k":"status","from":"todo","to":"doing"}]},{"id":"log_demo_0021","at":"2026-09-09T16:04:09.000Z","by":"陈晓明","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0109","at":"2026-09-09T16:39:03.000Z","by":"宋佳琪","kind":"edit","entity":"task","refId":"t_mtuyqigiz93bv","taskId":"t_mtuyqigiz93bv","summary":"进度：10%→30%","changes":[{"k":"progress","from":10,"to":30}]},{"id":"log_demo_0045","at":"2026-09-09T16:53:00.000Z","by":"潘玉兰","kind":"login","taskId":"","summary":"登录"},{"id":"log_demo_0107","at":"2026-09-09T18:58:08.000Z","by":"杨志强","kind":"edit","entity":"task","refId":"t_mtuyqighsebzu","taskId":"t_mtuyqighsebzu","summary":"新建了任务"}],"users":[{"name":"王建军","role":"admin","salt":"33d53c48814007d55e6a5843f5dc8232","hash":"3ea1a36a2bf0254abb4c19bed89d793b29c24035019652f06528a46e37232da2","iterations":100000,"created_at":"2026-02-02T01:53:59.000Z","updated_at":"2026-09-02T16:07:17.000Z","updated_by":"王建军","rev":2,"lastSeenAt":"2026-09-09T20:37:52.000Z","lastAppVersion":"v20260909015241-patent-demo"},{"name":"张丽华","role":"director","salt":"a8830dd8a412ba0f559ae079548df812","hash":"8bf5e9928514f13d47328a12415c99726bcac84def10f9ac50f535fe4bdad93c","iterations":100000,"created_at":"2026-02-01T23:14:07.000Z","updated_at":"2026-09-01T16:43:00.000Z","updated_by":"王建军","rev":4,"lastSeenAt":"2026-09-07T17:09:40.000Z","lastAppVersion":"v20260909015241-patent-demo"},{"name":"刘建国","role":"gm","salt":"a0aba43a8ba5e64b57412aab9a0acf26","hash":"ccae12201b1ba0d04ddd6e333c4fe53e96ccc0648c7bafcd3525459697f7b49f","iterations":100000,"created_at":"2026-02-01T21:19:39.000Z","updated_at":"2026-08-28T16:32:15.000Z","updated_by":"王建军","rev":2,"lastSeenAt":"2026-09-08T22:35:26.000Z","lastAppVersion":"v20260909015241-patent-demo"},{"name":"陈晓明","role":"comanager","salt":"1d0752e842938b746b11ca30dd525f3c","hash":"5f470ad4c05a730734b52e07b80de43f7fe85286a7268eff6d6ba77c5775574e","iterations":100000,"created_at":"2026-02-02T00:00:11.000Z","updated_at":"2026-08-19T20:01:50.000Z","updated_by":"王建军","rev":2,"lastSeenAt":"2026-09-07T17:33:47.000Z","lastAppVersion":"v20260909015241-patent-demo"},{"name":"杨志强","role":"comanager","salt":"8553d73e2cfce2a890e5166d97109ad7","hash":"2585d5e68862816901efd2292c313389d9f86b67de6034eaa99fd8d2bedf4b76","iterations":100000,"created_at":"2026-02-01T19:30:07.000Z","updated_at":"2026-08-12T20:53:18.000Z","updated_by":"王建军","rev":1,"lastSeenAt":"2026-09-07T20:53:19.000Z","lastAppVersion":"v20260909015241-patent-demo"},{"name":"黄文博","role":"staff","salt":"53e09c6c368c31d194664f0dca8bcf4b","hash":"6035f52199409f60019c03af0aa1f1711c679cf8f1bb95ff48df93b42dd9eaf1","iterations":100000,"created_at":"2026-02-02T01:08:08.000Z","updated_at":"2026-09-05T23:21:54.000Z","updated_by":"王建军","rev":3,"lastSeenAt":"2026-09-07T22:06:24.000Z","lastAppVersion":"v20260909015241-patent-demo"},{"name":"林志远","role":"staff","salt":"e009c0d721e8f38b5bc6d24552e7aa83","hash":"eaabbc74b7234cb6c44a70b17b452b84b14f52144ec4b99ef99742a26486ba6f","iterations":100000,"created_at":"2026-02-01T18:15:15.000Z","updated_at":"2026-08-20T18:24:31.000Z","updated_by":"王建军","rev":3,"lastSeenAt":"2026-09-06T19:11:56.000Z","lastAppVersion":"v20260909015241-patent-demo"},{"name":"罗晓芳","role":"staff","salt":"2d1ddd47a8fadb7c54f469caca58a66a","hash":"5689df7605f7f34bae8d1942197491e19f89316e091b51c05e3e5e27d5ca2b15","iterations":100000,"created_at":"2026-02-01T17:11:43.000Z","updated_at":"2026-08-20T16:05:52.000Z","updated_by":"王建军","rev":1,"lastSeenAt":"2026-09-08T00:26:59.000Z","lastAppVersion":"v20260909015241-patent-demo"},{"name":"冯雪梅","role":"staff","salt":"02be94fd4790ba68dc3bf0c4e999218f","hash":"69dab35dab1c255281d00270d1f27a203c1e342e0810759584e48ed4e1a024d4","iterations":100000,"created_at":"2026-02-01T18:59:39.000Z","updated_at":"2026-09-04T22:57:52.000Z","updated_by":"王建军","rev":2,"lastSeenAt":"2026-09-08T20:33:09.000Z","lastAppVersion":"v20260909015241-patent-demo"},{"name":"董海燕","role":"staff","salt":"179c2eca971c258a5efa789012897364","hash":"a90d25ffacba3d79cd2a5ff9eedd871dc04ebc913add579495b8c1372c241906","iterations":100000,"created_at":"2026-02-01T20:11:29.000Z","updated_at":"2026-08-11T16:23:04.000Z","updated_by":"王建军","rev":4,"lastSeenAt":"2026-07-25T21:04:26.000Z","lastAppVersion":"v20260909015241-patent-demo"},{"name":"潘玉兰","role":"staff","salt":"e14afefb9b75bad41f515ac580d3455e","hash":"be5468babb657df7983b2f26e727a5c4a4bc9af635a10edb10e5481c4f32f898","iterations":100000,"created_at":"2026-02-01T18:49:25.000Z","updated_at":"2026-08-27T16:41:32.000Z","updated_by":"王建军","rev":2,"lastSeenAt":"2026-09-06T17:45:52.000Z","lastAppVersion":"v20260909015241-patent-demo"},{"name":"谢明辉","role":"staff","salt":"0ed9aadd6b6a8a13d05cf18a918a6984","hash":"3f1c6de88de328511d8741797c406e1c06f9aa13f308edaf936e0833b865b700","iterations":100000,"created_at":"2026-02-01T22:24:34.000Z","updated_at":"2026-09-03T22:42:09.000Z","updated_by":"王建军","rev":1,"lastSeenAt":"2026-09-09T00:04:13.000Z","lastAppVersion":"v20260909015241-patent-demo"},{"name":"曾雨桐","role":"staff","salt":"3f21e15478fefe4bc9114b7f11bfe444","hash":"f423481111ceb4e5d2f4b4020df7da322eed3b3553466e6cca7fd2aae7f167bc","iterations":100000,"created_at":"2026-02-01T22:13:12.000Z","updated_at":"2026-08-18T20:58:53.000Z","updated_by":"王建军","rev":2,"lastSeenAt":"2026-09-09T20:46:50.000Z","lastAppVersion":"v20260909015241-patent-demo"},{"name":"彭子涵","role":"staff","salt":"3e81220c93790c19dfee788b16dcb49d","hash":"c9d3cb7621cc4717518eadd9c99a5cb7cdff5baadc166daf33b371c093eabf43","iterations":100000,"created_at":"2026-02-01T22:42:26.000Z","updated_at":"2026-08-18T20:59:25.000Z","updated_by":"王建军","rev":3,"lastSeenAt":"2026-07-25T20:23:33.000Z","lastAppVersion":"v20260909015241-patent-demo"},{"name":"傅思远","role":"staff","salt":"","hash":"","iterations":0,"created_at":"2026-02-01T20:56:58.000Z","updated_at":"2026-08-27T22:42:02.000Z","updated_by":"王建军","rev":3,"lastSeenAt":"2026-09-06T20:31:04.000Z","lastAppVersion":"v20260909015241-patent-demo"},{"name":"宋佳琪","role":"staff","salt":"","hash":"","iterations":0,"created_at":"2026-02-01T22:09:04.000Z","updated_at":"2026-08-29T00:27:21.000Z","updated_by":"王建军","rev":3,"lastSeenAt":"2026-09-07T00:52:10.000Z","lastAppVersion":"v20260909015241-patent-demo"},{"name":"秦晓丽","role":"staff","salt":"","hash":"","iterations":0,"created_at":"2026-02-21T23:00:02.000Z","updated_at":"2026-07-11T21:48:07.000Z","updated_by":"王建军","rev":1,"deleted_at":"2026-07-12T00:46:42.000Z"}],"permissionMatrix":{"staff":{"view_tasks":true,"view_works":true,"view_duties":true,"view_charts":true,"view_report":true,"view_others_detail":true,"view_others_dashboard":false,"view_data":false,"view_logs":false,"view_permissions":false,"edit_others_task":false,"manage_duty_work":false,"bulk_ops":false,"config_report":false,"config_dashboard":false,"manage_staff_accounts":false,"manage_director_accounts":false,"system_admin":false},"comanager":{"view_tasks":true,"view_works":true,"view_duties":true,"view_charts":true,"view_report":true,"view_others_detail":true,"view_others_dashboard":false,"view_data":false,"view_logs":false,"view_permissions":false,"edit_others_task":true,"manage_duty_work":true,"bulk_ops":true,"config_report":false,"config_dashboard":true,"manage_staff_accounts":false,"manage_director_accounts":false,"system_admin":false},"director":{"view_tasks":true,"view_works":true,"view_duties":true,"view_charts":true,"view_report":true,"view_others_detail":true,"view_others_dashboard":true,"view_data":true,"view_logs":true,"view_permissions":false,"edit_others_task":true,"manage_duty_work":true,"bulk_ops":true,"config_report":false,"config_dashboard":false,"manage_staff_accounts":true,"manage_director_accounts":false,"system_admin":false},"gm":{"view_tasks":true,"view_works":true,"view_duties":true,"view_charts":true,"view_report":true,"view_others_detail":true,"view_others_dashboard":true,"view_data":false,"view_logs":false,"view_permissions":false,"edit_others_task":false,"manage_duty_work":false,"bulk_ops":false,"config_report":false,"config_dashboard":false,"manage_staff_accounts":false,"manage_director_accounts":false,"system_admin":false},"created_at":"2026-08-28T21:24:38.000Z","updated_at":"2026-08-28T21:24:38.000Z","updated_by":"王建军","rev":4},"shareConfig":{"fileName":"示例科技管理处工作管理.json","autoBackupEnabled":false,"autoBackupHours":24,"recycleKeepDays":60,"created_at":"2026-06-01T18:52:13.000Z","updated_at":"2026-08-10T19:47:47.000Z","updated_by":"王建军","rev":2},"reportConfig":{"presets":[{"id":"preset_default","name":"默认编排","sections":[{"id":"sec_overall","title":"一、处室工作整体统计","modules":["overallDuty","overallWork","overallTask","overallMs"]},{"id":"sec_goal","title":"二、本期处室工作目标","modules":["periodOverallScope","periodOverallPlan"]},{"id":"sec_state","title":"三、本期处室工作进展","modules":["periodStatus","dutyTree"]},{"id":"sec_focus","title":"四、本期需要关注的工作","modules":["highPriority","overdueTasks","overdueMs","soonTasks","soonMs"]},{"id":"sec_people","title":"五、人员工作情况","modules":["personBars"]}]},{"id":"preset_week","name":"周会精简版","sections":[{"id":"sec_state","title":"一、本期工作进展","modules":["periodStatus","dutyTree"]},{"id":"sec_focus","title":"二、需要关注","modules":["highPriority","overdueTasks","overdueMs"]}]}],"activeId":"preset_default","rev":2,"updated_at":"2026-09-01T00:24:39.000Z","updated_by":"王建军"},"dashboardConfig":{"presets":[{"id":"dashpreset_default","name":"默认编排","sections":[{"id":"sec_mine","title":"我的","modules":["dashMyCards","dashMyOpenTasks","dashMyDoneSplit","dashMyDoingSplit","dashMyOverdueSplit","dashMyNextPlan","dashMyMsTimeline"],"inline":["dashMyDoneSplit","dashMyOverdueSplit"],"personScope":{"dashMyCards":"self","dashMyOpenTasks":"self","dashMyDoneSplit":"self","dashMyDoingSplit":"self","dashMyOverdueSplit":"self","dashMyNextPlan":"self","dashMyMsTimeline":"self"}},{"id":"sec_overview","title":"处室概览","modules":["periodOverallScope","periodOverallStatus","periodOverallPlan","dutyTree","recentActivity"],"inline":[],"personScope":{"periodOverallScope":"all","periodOverallStatus":"all","periodOverallPlan":"all","dutyTree":"all","recentActivity":"all"}}]},{"id":"dashpreset_lead","name":"领导视角","sections":[{"id":"sec_overview","title":"处室概览","modules":["periodOverallScope","periodOverallStatus","periodOverallPlan","dutyTree","personBars","recentActivity"],"inline":[],"personScope":{"periodOverallScope":"all","periodOverallStatus":"all","periodOverallPlan":"all","dutyTree":"all","personBars":"all","recentActivity":"all"}}]}],"activeId":"dashpreset_default","rev":2,"updated_at":"2026-08-31T19:06:00.000Z","updated_by":"王建军"},"purged":[{"entity":"task","id":"t_demo_purged_1","at":"2026-07-31T16:16:23.000Z","by":"王建军"},{"entity":"task","id":"t_demo_purged_2","at":"2026-08-07T18:02:20.000Z","by":"张丽华"},{"entity":"milestone","id":"m_demo_purged_1","at":"2026-08-07T22:27:56.000Z","by":"张丽华"},{"entity":"work","id":"w_demo_purged_1","at":"2026-08-25T16:13:34.000Z","by":"王建军"}]};
+
 async function boot() {
   // 先问一句"这台设备连过共享文件夹没有"，再往下走。
   // 必须放在最前面：下面的数据迁移、身份门禁都会调 Repo.persist，而 persist 要靠 _everConnected
@@ -14532,10 +14098,24 @@ async function boot() {
     if (migratedMs || migratedCodes || migrated || migratedPerm) await Repo.persist(DB);
     rebuildIndex();
     restoreUI();
+  } else {
+    /* ★ 专利演示版专用分支：正式产品这里什么都不做（见下面保留的原版注释），
+       但评审员没有共享文件夹可连、也没有账号可登录，那样打开就是一片空白，
+       没法评审任何功能。所以本机第一次打开、还没有任何存档时，
+       直接把内置的虚构数据灌进去，并且直接以演示管理员身份进入，不需要过登录/PIN。
+       这份数据是怎么造出来的、为什么保证是虚构的，见文件最上面的说明。
+       之后不管怎么操作、刷新多少次，都是在改这一份本机缓存，不会去连任何共享文件夹。 */
+    Object.assign(DB, JSON.parse(JSON.stringify(PATENT_DEMO_PAYLOAD)));
+    ['duty', 'work', 'milestone', 'task'].forEach(e => coll(e).forEach(r => normalize(e, r)));
+    clearSyncBaseline(DB);
+    rebuildIndex();
+    DB.settings.me = PATENT_DEMO_ADMIN;
+    await Repo.persist(DB);
   }
   // 首次打开、本机没有任何存档：什么都不做，就是一份空系统。
   // 这个 html 不自带任何演示/测试数据——它是发给全处同事的正式工具，一打开就摆一堆假任务，
   // 既容易被当成真数据，也可能被谁一不小心同步进共享文件里。数据只有两个来源：连共享文件夹，或者管理员导入。
+  // （以上是正式产品的行为；专利演示版在上面 else 分支里另外处理，见那段说明）
   if ('showDirectoryPicker' in window) {
     const reconnected = await tryReconnectSharedFile();
     if (reconnected) {
