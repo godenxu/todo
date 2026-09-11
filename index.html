@@ -756,7 +756,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260910221643';
+const APP_VERSION = 'v20260911044415';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -1028,12 +1028,52 @@ function isStaleApp() {
   const hi = DB.settings.maxSeenAppVersion || '';
   return !!hi && hi > APP_VERSION;
 }
+/* ★★★ 发现共享文件里有更新的版本时，先自己静默重载一次 ★★★
+   分发方式是"共享文件夹里放一个 html，双击打开"。为了绕开浏览器缓存，以前每次投产
+   都要换个文件名（index0911.html → index0912.html），同事得重新找文件、重新建快捷方式，
+   很折腾。其实不必：重新加载时在地址后面带一个查询串（?_=时间戳）就能绕开缓存，
+   file:// 下同样有效 —— 旧版门禁上那个"强制刷新试试"按钮一直就是这么做的，
+   只是要人自己去点，而且得先看懂那一屏说明。
+
+   现在把它自动化：检测到更新的版本、并且本机这会儿没有未保存的东西，就自己重载一次。
+   同事的体验变成"刷新一下（或者等下一轮自动同步）就用上新版了"，
+   管理员那边只要覆盖同一个 index.html 就行。
+
+   两道护栏，缺一不可：
+   · 同一个目标版本只自动试一次（记在 localStorage 里）。万一本机那份 html 真的是旧的
+     —— 比如有人把它复制到桌面单独用、或者共享文件夹那份还没换 —— 重载回来仍然是旧版，
+     再自动重载就成了无限刷新。所以第二次不再自动刷，老老实实把门禁摆出来让人按步骤处理。
+   · 手上有没保存的东西时不刷：开着弹窗、正在编辑某一格、有积压未同步的改动，
+     这时候刷新等于把人正在做的事抹掉。那就先摆门禁，让人自己挑时机点那个按钮。
+
+   另外提醒一件运维上的事（写在这里免得以后忘）：版本号是靠 filePayload 里的 lastWriteApp
+   带进共享文件的，所以管理员换完 html 之后要自己用新版保存一次（随便改点什么、或者等它同步一轮），
+   新版本号才会出现在共享文件里，别人才检测得到。 */
+const STALE_RELOAD_KEY = 'todo_v4_stale_reload';
+function clearStaleReloadMark() { try { localStorage.removeItem(STALE_RELOAD_KEY); } catch (e) {} }
+function autoReloadForNewVersion() {
+  const target = DB.settings.maxSeenAppVersion || '';
+  if (!target) return false;
+  let tried = '';
+  try { tried = localStorage.getItem(STALE_RELOAD_KEY) || ''; } catch (e) { return false; }
+  if (tried === target) return false;                                  // 这个版本已经自动试过一次
+  if ($('#modal-overlay').classList.contains('show')) return false;    // 开着弹窗，别把人正在填的东西刷掉
+  if (_activeEdit) return false;                                       // 正在编辑某一格
+  if (DB.settings.pendingSync) return false;                           // 还有改动没推上去
+  try { localStorage.setItem(STALE_RELOAD_KEY, target); } catch (e) { return false; }
+  const base = location.href.split('#')[0].split('?')[0];
+  location.href = base + '?_=' + Date.now();
+  return true;
+}
 function checkAppVersion(remote) {
   noteRemoteAppVersion(remote);
-  if (!isStaleApp()) return true;
+  // 已经是最新版了：把"自动重载试过"的标记清掉，下一次投产才能再自动试一次
+  if (!isStaleApp()) { clearStaleReloadMark(); return true; }
   if (!_staleAppBlocked) {
     _staleAppBlocked = true;
     stopAutoReload();
+    // 先自己静默升级一次；真的升不上去（本机那份 html 就是旧的）再摆门禁
+    if (autoReloadForNewVersion()) return false;
     showStaleAppGate();
   }
   return false;
@@ -1509,15 +1549,104 @@ function mergeRecordThreeWay(entity, local, remote, base) {
   if (otherBy && otherBy !== (local.updated_by || '')) out.merged_from = otherBy;
   return { rec: out, conflicts };
 }
-/* 逐条走三方合并。没有基线的记录（新升级上来、缓存被清过、对方新建的）退回原来的整条规则。 */
-function mergeEntityListWithBase(entity, localList, remoteList, baseMap) {
+/* ★★★ 没有同步基线的那条回退路径，是"数据被莫名其妙退回旧状态"的根 ★★★
+   （第十四轮排查。处里第二次报上来同一个表象，这次找到的是这里。）
+
+   原来这里写的是：没基线就退回"整条比较、谁 rev 高听谁的"。
+   问题在于 rev 是【每台设备各自 +1】的计数，不是全局序号 —— 这件事在 mergeRecordThreeWay
+   开头那一大段里已经写明过一次了，而且 mergeRecordThreeWay 每次合并都取 max(两边)+1，
+   所以经常同步的设备 rev 会被顶得很高。于是一台【rev 被顶高过、之后又丢了基线】的设备
+   重新连上来，它手里那份几天前的旧内容会整条赢过文件里的最新值，并且被写回共享文件，
+   全处一起退回旧状态。rev 平局时比 updated_at，本机时钟快一点同样会赢。
+   实测（scratchpad/probe-stale.js）：rev 高、rev 平局+时钟快，两种都能复现，
+   而且不只是本机——共享文件也一起被改坏。
+
+   什么时候会没有基线，一点都不罕见：
+     · 本机缓存是"引入基线机制之前"那一版留下的（同事很久没打开过页面）；
+     · 从备份恢复之后、以共享文件为准重置缓存之后；
+     · 断开共享文件夹、又连到另一个文件夹之后。
+
+   根治思路：没有基线时，这台设备【拿不出任何凭据】证明手里的值是"我改的"还是
+   "我只是没收到新的"。既然证明不了，就不能赌 —— 默认以共享文件为准。
+   但也不能一刀切，否则会把真正还没推上去的改动弄丢（离线干了一天活、基线又恰好没了），
+   那是同样严重的另一个方向。区分的凭据是【变更日志】：本机有、文件里没有的那些条目，
+   就是"我做过、还没推上去"的铁证，而且它带 refId（是哪条记录）和 changes（哪几个字段）。
+
+   所以分三种情况（见 mergeWithoutBase）：
+     · 有逐字段凭据 → 拿 remote 当基线走一次三方合并，只采用日志里记过的那几个字段，
+       我没改过的字段一律听文件的；
+     · 有凭据但说不清字段（老日志没有 changes 明细）→ 退回原来的整条竞争，
+       至少不会凭空丢掉这条记录上真实发生过的改动；
+     · 一点凭据都没有 → 以文件为准，并且把"本机这份差异被丢掉了"记一条告警。
+       绝大多数情况这丢掉的就是旧缓存里的过期内容（正是我们要的），
+       但万一真有没留下日志凭据的改动被丢了，管理员也看得见、查得到，不会悄无声息。
+
+   关于 deleted_at：它也在 mergeableKeys 里。一次"没留下日志凭据、又没推上去的软删除"
+   会被这条规则撤回（记录重新出现）。这是刻意选的方向——记录多回来一条，人看见了再删一次就行；
+   反过来把别人的数据删掉则救不回来。 */
+let _noBaseOverrides = [];   // 没基线回退时"本机差异按文件为准丢掉"的记录，供 noteNoBaseOverrides 报告
+/* 把"本机有、共享文件里没有"的变更日志整理成：entity+主键 → 这条记录上我改过哪些字段。
+   值是 null 表示"确实动过这条记录，但说不清哪几个字段"（老日志没有 changes 明细）。 */
+function buildLocalOnlyChangeMap(localLog, remoteLog) {
+  const remoteIds = new Set((remoteLog || []).map(e => e && e.id).filter(Boolean));
+  const map = new Map();
+  (localLog || []).forEach(e => {
+    if (!e || !e.id || remoteIds.has(e.id)) return;   // 文件里已经有这条日志 → 这次改动早推上去了
+    if (logKind(e) !== 'edit') return;                // 登录/告警/管理动作不是"我改了哪条业务记录"
+    const id = logRefId(e);
+    if (!id) return;                                  // 批量动作那种汇总日志定位不到具体记录
+    const key = logEntity(e) + ' ' + id;
+    if (Array.isArray(e.changes) && e.changes.length) {
+      if (map.get(key) === null) return;              // 已经有"说不清字段"的凭据，按整条竞争处理
+      const set = map.get(key) || new Set();
+      e.changes.forEach(c => { if (c && c.k) set.add(c.k); });
+      map.set(key, set);
+    } else {
+      map.set(key, null);
+    }
+  });
+  return map;
+}
+function mergeWithoutBase(entity, local, remote, proven) {
+  const pk = schema(entity).pk;
+  const keys = mergeableKeys(entity);
+  const diff = keys.filter(k => !sameFieldValue(local[k], remote[k]));
+  if (!diff.length) return remote;                    // 两边一模一样，没什么要决定的
+  const ev = (proven && proven.fields) ? proven.fields.get(entity + ' ' + local[pk]) : undefined;
+  const dirty = !!(proven && proven.dirty && proven.dirty.has(local[pk]));
+  if (ev === null || (ev === undefined && dirty)) {
+    /* 确实动过这条记录，但说不清动了哪几个字段：退回整条竞争。
+       两种来源——老日志没有逐字段明细，或者凭据来自 stampMeta 留下的"我改过"标记
+       （批量/导入类动作只写汇总日志，定位不到具体记录，见 markLocallyChanged）。 */
+    return newerRecord(local, remote) ? local : remote;
+  }
+  if (ev && ev.size) {
+    // 有逐字段凭据：以文件为底，只把"日志记过的那几个字段"换成本机的值
+    const out = Object.assign({}, remote);
+    const took = [];
+    diff.forEach(k => { if (ev.has(k)) { out[k] = local[k]; took.push(k); } });
+    const dropped = diff.filter(k => !ev.has(k));
+    if (dropped.length) _noBaseOverrides.push({ entity, id: local[pk], fields: dropped });
+    if (!took.length) return remote;
+    // 这份结果同时含两边的内容，版本号要压得住双方（跟三方合并那里同一个道理）
+    out.rev = Math.max(Number(local.rev) || 0, Number(remote.rev) || 0) + 1;
+    out.updated_at = (local.updated_at || '') > (remote.updated_at || '') ? local.updated_at : remote.updated_at;
+    out.updated_by = local.updated_by || remote.updated_by || '';
+    return out;
+  }
+  // 一点凭据都没有：以共享文件为准，并记下来报告
+  _noBaseOverrides.push({ entity, id: local[pk], fields: diff });
+  return remote;
+}
+/* 逐条走三方合并。没有基线的记录走 mergeWithoutBase（见上面那一大段）。 */
+function mergeEntityListWithBase(entity, localList, remoteList, baseMap, proven) {
   const pk = schema(entity).pk;
   const map = new Map((localList || []).map(r => [r[pk], r]));
   (remoteList || []).forEach(rec => {
     const cur = map.get(rec[pk]);
     if (!cur) { map.set(rec[pk], rec); return; }                       // 对方新增的，收进来
     const base = baseMap && baseMap[rec[pk]];
-    if (!base) { if (newerRecord(rec, cur)) map.set(rec[pk], rec); return; }   // 没基线：老规则
+    if (!base) { map.set(rec[pk], mergeWithoutBase(entity, cur, rec, proven)); return; }
     const r = mergeRecordThreeWay(entity, cur, rec, base);
     if (r.conflicts.length) _mergeFieldConflicts = _mergeFieldConflicts.concat(r.conflicts);
     map.set(rec[pk], r.rec);
@@ -1731,6 +1860,8 @@ const SYNC_BASE_ENTITIES = [['duty', 'duties'], ['work', 'works'], ['milestone',
    三个调用点：从备份恢复、以共享文件为准重置本机缓存、播种演示数据。 */
 function clearSyncBaseline(db) {
   db.syncBase = null;
+  // "本机改过哪些记录"也是对文件的记忆的一部分，同一时刻一起清（见 markLocallyChanged）
+  clearLocallyChanged(db);
   if (db.settings) { db.settings.lastWriteId = ''; db.settings.lastWriteIdAt = ''; }
   _lastWriteId = '';
   _preWriteBase = null;
@@ -2247,7 +2378,13 @@ function guardRoleIntegrity(localUsers, mergedUsers, mergedChangelog) {
 function mergeSyncPayload(local, remote, base) {
   _mergeFieldConflicts = [];
   _objConflicts = [];      // 整体配置对象被整份覆盖的情况，跟字段冲突一起在 noteFieldConflicts 里报
+  _noBaseOverrides = [];   // 没基线回退时被按"以文件为准"丢掉的本机差异
   const b = base || {};
+  /* "本机有、文件里没有"的变更日志 = 这台设备还没推上去的改动的凭据。
+     只有在某条记录【没有基线】时才用得上它（见 mergeWithoutBase 上面那一大段）；
+     有基线的记录照常走逐字段三方合并，不需要凭据。 */
+  const proven = { fields: buildLocalOnlyChangeMap(local.changelog, remote.changelog),
+                   dirty: new Set(((DB.settings && DB.settings.dirtyKeys) || [])) };
   // 先把两边的墓碑并起来，再拿并集去筛每一类记录——
   // 只要有任何一台设备记得"这条被彻底删过"，它就不该在合并结果里重新出现
   const purged = mergePurged(local.purged, remote.purged);
@@ -2260,12 +2397,12 @@ function mergeSyncPayload(local, remote, base) {
   const guard = guardRoleIntegrity(local.users, mergedUsers, changelog);
   _integrityAlerts = guard.alerts;
   // 任务先算出来：里程碑要按"所属任务是不是被彻底删了"再筛一道，得先有任务名单
-  const mergedTasks = applyPurged('task', 'id', mergeEntityListWithBase('task', local.tasks, remote.tasks, b.task), purged);
+  const mergedTasks = applyPurged('task', 'id', mergeEntityListWithBase('task', local.tasks, remote.tasks, b.task, proven), purged);
   return {
-    duties: applyPurged('duty', 'code', mergeEntityListWithBase('duty', local.duties, remote.duties, b.duty), purged),
-    works: applyPurged('work', 'id', mergeEntityListWithBase('work', local.works, remote.works, b.work), purged),
+    duties: applyPurged('duty', 'code', mergeEntityListWithBase('duty', local.duties, remote.duties, b.duty, proven), purged),
+    works: applyPurged('work', 'id', mergeEntityListWithBase('work', local.works, remote.works, b.work, proven), purged),
     milestones: dropMilestonesOfPurgedTasks(
-      applyPurged('milestone', 'id', mergeEntityListWithBase('milestone', local.milestones, remote.milestones, b.milestone), purged),
+      applyPurged('milestone', 'id', mergeEntityListWithBase('milestone', local.milestones, remote.milestones, b.milestone, proven), purged),
       purged, mergedTasks),
     tasks: mergedTasks,
     changelog,
@@ -2439,6 +2576,35 @@ function noteFieldConflicts() {
   pushAlertLog(`同步时发现 ${list.length} 处"同一个字段被两个人同时改动"：${shown}${list.length > 5 ? ' 等' : ''}。`
     + `其余字段已按各自的改动分别保留，没有互相覆盖。`);
   return alerts + 1;
+}
+/* ★ 没基线回退时，按"以共享文件为准"丢掉的本机差异必须让人看见 ★
+   这条路绝大多数时候丢掉的正是旧缓存设备上的过期内容——那就是我们要的效果，
+   也正是"数据被莫名其妙退回旧状态"的解药（见 mergeWithoutBase 上面那一大段）。
+   但它毕竟是"本机有东西、没被采用"，万一真有一份没来得及推上去、又没留下日志凭据的改动
+   被丢掉了，必须留下痕迹让人查得到，不能悄无声息。
+   告警随共享文件同步给所有人：这类事只让当事那台机器知道是没有意义的。
+   返回有没有写过告警，调用方要据此强制写一次文件（理由同 noteFieldConflicts）。 */
+function noteNoBaseOverrides() {
+  const list = _noBaseOverrides;
+  _noBaseOverrides = [];
+  if (!list.length) return 0;
+  const label = { task: '任务', work: '工作', duty: '职责', milestone: '里程碑' };
+  const one = c => {
+    const rec = byId(c.entity, c.id);
+    const sc = schema(c.entity);
+    const title = rec ? (rec[sc.titleField] || c.id) : c.id;
+    const fs = c.fields.map(k => (fieldDef(c.entity, k) || {}).label || k).join('、');
+    return `${label[c.entity] || c.entity}「${title}」的 ${fs}`;
+  };
+  const shown = list.slice(0, 5).map(one).join('；');
+  pushAlertLog(`本机有 ${list.length} 处内容跟共享文件不一致，但找不到"是这台机器改的"的凭据`
+    + `（本机缓存缺少同步基线，常见于很久没打开过页面、从备份恢复过、或者重置过本机缓存），`
+    + `本次一律以共享文件为准，没有拿本机这份去覆盖：${shown}${list.length > 5 ? ' 等' : ''}。`
+    + `这样做是为了避免一台旧缓存的机器把全处的数据顶回旧状态；`
+    + `如果上面哪一处其实是你刚做、还没同步出去的改动，请重新改一次。`);
+  showSnack(`⚠ 本机有 ${list.length} 处说不清来路的内容，已按共享文件为准（详见「日志」页），`
+    + `如果是你刚改的请重新改一次`, { priority: true });
+  return 1;
 }
 function loadMergeAlert() {
   try { const raw = localStorage.getItem(MERGE_ALERT_KEY); return raw ? JSON.parse(raw) : null; }
@@ -2811,7 +2977,7 @@ async function syncToFileInner(db) {
        localPayload 仍然是合并前那份——syncPayload 拿的是数组引用，
        Object.assign 换掉的是 db 上的指向，不影响它。 */
     noteMergeAlerts(localPayload, merged);
-    const conflictAlerts = noteFieldConflicts();   // 三方合并里"两人同时改了同一个字段"的，写日志让人看得见
+    const conflictAlerts = noteFieldConflicts() + noteNoBaseOverrides();   // 三方合并里"两人同时改了同一个字段"的，写日志让人看得见
     noteDerivedProgressOverride();   // 我刚填的进度被按里程碑重算盖掉了的，当场说一声
     noteCascadedMilestoneDrop();     // 我刚加的里程碑被"同事删了任务"连带删掉的，当场说一声
     /* ★ 本机没有任何文件里还没有的东西，就不写 ★（见 hasLocalContribution 的注释）
@@ -2878,6 +3044,8 @@ async function syncToFileInner(db) {
     db.settings.lastSyncAt = new Date().toISOString();
     const verify = await readSharedFile();
     if (!verify || verify.remote.writeId === writeId) {
+    // 这次写成功了，本机手里的东西已经在文件里 → "我改过哪些记录"的标记可以清空
+    clearLocallyChanged(db);
       /* 确认文件里就是我们刚写的这份 merged——基线对齐到它。
          这一步是整套三方合并的立足点：下一次合并时"我改过哪些字段"正是拿它当参照。
          校验没通过（有人在这几毫秒里也写了）时刻意不更新基线：那时候文件里是别人的内容，
@@ -2932,6 +3100,7 @@ async function pullFromFileInner() {
   // 同样必须放在 Object.assign 之后，理由见 syncToFile 里那段注释
   noteMergeAlerts(localPayload, merged);
   noteFieldConflicts();
+  noteNoBaseOverrides();
   noteDerivedProgressOverride();
   noteCascadedMilestoneDrop();
   /* ★ 基线对齐到"刚读到的文件内容"，不是对齐到合并结果 ★
@@ -3049,12 +3218,47 @@ const Repo = {
 
 /* ★ 可迁移性设计 3：每条记录带 updated_by / updated_at / rev。
    rev 是冲突检测的最小前提，updated_by 支撑「谁改的」。 */
+/* ★★★ "这条记录是这台机器自己改的" —— 没有基线时的第二种凭据 ★★★
+   （要跟 mergeWithoutBase 上面那一大段一起看）
+
+   变更日志能证明"我改过哪条记录的哪几个字段"，但它盖不全：CSV 导入、宽表导入、批量操作、
+   复制到新年度、数据体检修复这些一次改几百条的动作，按设计只写一条汇总日志
+   （refId 是空的，定位不到具体记录）。只认日志凭据的话，这些动作在【没有基线】时
+   会被当成说不清来路的内容整批丢掉——一位缓存还是旧版（没有基线）的同事，
+   打开页面第一件事就是导一份 CSV，那次导入会原地消失。
+
+   所以再加一条更粗、但覆盖得全的凭据：stampMeta 是"本机正在修改这条记录"的唯一必经之路
+   （不盖戳的改动根本传不出去，这件事在 softDelete 那段注释里已经写明过），
+   在这里顺手把主键记下来即可——一处改完，所有入口自动都有凭据，不会再漏掉哪一条。
+   合并时它只能说明"动过这条记录"、说不清动了哪几格，所以按整条竞争处理。
+
+   只存本机、不进共享文件。而且它只在【没有基线】时才会被用到，所以 clearSyncBaseline
+   （"把我对共享文件的全部记忆清干净"）和"成功写进文件之后"这两个时刻都会清掉它——
+   这样它永远只攒一小段时间，不会无限长大。
+   主键天然不会互相撞（任务/工作/里程碑是带前缀的随机 id，职责是两位编号，账号是姓名），
+   所以放一个扁平集合里就够，不用按实体分开。 */
+const LOCAL_DIRTY_LIMIT = 5000;
+function localKeyOf(rec) { return rec ? (rec.id || rec.code || rec.name || '') : ''; }
+function markLocallyChanged(rec) {
+  const k = localKeyOf(rec);
+  if (!k || !DB.settings) return;
+  const s = DB.settings;
+  if (!Array.isArray(s.dirtyKeys)) s.dirtyKeys = [];
+  if (s.dirtyKeys.indexOf(k) !== -1) return;
+  s.dirtyKeys.push(k);
+  if (s.dirtyKeys.length > LOCAL_DIRTY_LIMIT) s.dirtyKeys.splice(0, s.dirtyKeys.length - LOCAL_DIRTY_LIMIT);
+}
+function clearLocallyChanged(db) {
+  const s = (db || DB).settings;
+  if (s) s.dirtyKeys = [];
+}
 function stampMeta(rec) {
   const now = new Date().toISOString();
   if (!rec.created_at) rec.created_at = now;
   rec.updated_at = now;
   rec.updated_by = DB.settings.me || '未署名';
   rec.rev = (rec.rev || 0) + 1;
+  markLocallyChanged(rec);   // 见上面那一大段：没有基线时，这就是"这条是我改的"的凭据
   // 一次正常编辑之后，这条记录的最新状态就是我改出来的，合并留下的那个"吸收过谁的改动"
   // 标记到此为止（见 mergeRecordThreeWay 里 merged_from 那段）——留着只会让以后的撤销
   // 白白多跳过一些本该能撤的记录
@@ -3168,6 +3372,27 @@ function pushAlertLog(summary, extra) {
   trimChangelog();
 }
 function roleLabel(v) { return (ROLES.find(r => r.v === v) || {}).label || v || '（未知角色）'; }
+/* ★ 连续动作合并成一条日志 ★
+   报告页/工作台的编排是拖着改的：加一个模块、挪一下位置、改个宽度，一次编排调整
+   轻轻松松触发十几二十次保存。每次都写一条的话，日志页会被刷屏，
+   而且带明细的变更记录本来就要跟这些挤同一个 800 条上限（见 capChangelog）。
+   所以同一个人、同一件事、在时间窗口内的连续改动只留一条，把时间戳顺延到最后一次——
+   事后想知道的是"谁、什么时候、改了哪份编排"，中间拖了多少下并不重要。
+   tag 是这类动作的标识，存在日志条目上用来认出"上一条是不是同一件事"。 */
+const COALESCE_LOG_WINDOW_MS = 10 * 60 * 1000;
+function pushCoalescedAdminLog(tag, summary) {
+  const me = DB.settings.me || '未署名';
+  const now = Date.now();
+  for (let i = DB.changelog.length - 1; i >= 0 && i >= DB.changelog.length - 30; i--) {
+    const e = DB.changelog[i];
+    if (!e || e.coalesceTag !== tag || (e.by || '') !== me) continue;
+    if (!e.at || now - new Date(e.at).getTime() > COALESCE_LOG_WINDOW_MS) break;
+    e.summary = summary;
+    e.at = new Date().toISOString();   // 顺延到最后一次，日志页按时间倒序才排得对
+    return;
+  }
+  pushAdminLog(summary, { coalesceTag: tag });
+}
 /* 比较一条记录编辑前后的字段差异，拼成人话描述；keys 缺省时比较全部非虚拟字段。
    原来这个函数写死了 'task'，所以工作页、职责页上的任何修改都不进日志——
    管理员翻日志只看得到任务的改动，工作和职责改了什么完全没有痕迹。
@@ -4881,6 +5106,9 @@ async function saveDashboardConfig(mutate) {
   });
   mutate(next);
   DB.dashboardConfig = next;
+  // 同 saveReportConfig：整份生效、同步给全处，必须查得到是谁改的
+  pushCoalescedAdminLog('dashboardConfig',
+    `调整了工作台编排（当前预案「${(activeDashboardPreset() || {}).name || '默认'}」），已同步给全处`);
   await Repo.persist(DB);
   renderDashboard();
 }
@@ -7676,6 +7904,12 @@ async function saveReportConfig(mutate) {
   });
   mutate(next);
   DB.reportConfig = next;
+  /* 编排是整份生效、随共享文件同步给全处的：一个人改完，所有人看到的报告页都变了。
+     "我的报告页怎么自己变了"这种事必须查得到是谁改的（合并冲突那一头已经有告警了，
+     见 mergePermissionMatrix，但正常的单人修改一直没有任何痕迹）。
+     连续拖拽会触发很多次保存，所以合并成一条，见 pushCoalescedAdminLog。 */
+  pushCoalescedAdminLog('reportConfig',
+    `调整了报告页编排（当前预案「${(activeReportPreset() || {}).name || '默认'}」），已同步给全处`);
   await Repo.persist(DB);
   renderReport();
 }
@@ -10277,6 +10511,8 @@ const ACTIONS = {
       + '共享文件夹的连接、你的登录身份不受影响。'
       + '<br><br><b>如果这台机器上还有没同步出去的改动，会一起丢掉，且无法撤销。</b>不确定的话，先到「备份」那一栏导出一份 JSON。',
       '确定重置', async () => {
+        // 清之前先数一下，日志里要说清楚这台机器上丢掉了多少东西
+        const lost = { 职责: DB.duties.length, 工作: DB.works.length, 任务: DB.tasks.length, 里程碑: DB.milestones.length };
         DB.duties = []; DB.works = []; DB.milestones = []; DB.tasks = [];
         DB.changelog = []; DB.purged = [];
         // 本机数据整个清掉了，旧基线不再对应任何东西，留着只会误导下一次合并；
@@ -10286,6 +10522,14 @@ const ACTIONS = {
         const ok = await pullFromFile();
         if (!ok) { showSnack('读取共享文件失败，本机数据已清空但没能拉回来，请检查网盘后点顶栏「立即同步」', { priority: true }); return; }
         _localCacheStale = false;
+        /* ★ 必须写在 pullFromFile 之后 ★ 上面把 DB.changelog 整个清空了，写在前面会被一起抹掉。
+           为什么这件事值得留痕：它会丢掉这台机器上所有没同步出去的改动，而且它正是
+           "本机没有同步基线"这个状态的制造者之一——而没有基线时的合并要靠凭据才敢采用本机内容
+           （见 mergeWithoutBase）。事后排查"某台机器的东西怎么没了""那天怎么冒出一堆按文件为准的告警"，
+           全靠这条记录对得上时间。用告警级别，随共享文件同步给所有人。 */
+        pushAlertLog(`${DB.settings.me || '未署名'}在自己这台机器上执行了"以共享文件为准重置本机缓存"，`
+          + `丢弃了本机原有的 职责 ${lost.职责}、工作 ${lost.工作}、任务 ${lost.任务}、里程碑 ${lost.里程碑} 条，`
+          + `改用共享文件里的那一份。这台机器上如果有还没同步出去的改动，已经一并丢掉了。`);
         await Repo.persist(DB);
         renderShell(); renderPage();
         showSnack('已用共享文件重置本机缓存', { priority: true });
@@ -10768,7 +11012,15 @@ const ACTIONS = {
            （这正是 cascadeRemoveHardTask 存在的理由）。
          改成跟"回收站里彻底删除"走同一个函数，这两件事就都由它负责了。 */
       const ids = DB.tasks.filter(t => t.custom === '测试').map(t => t.id);
-      await Repo.bulk(() => { ids.forEach(id => cascadeRemoveHardTask(id)); });
+      const names = DB.tasks.filter(t => t.custom === '测试').map(t => t.title || t.id);
+      await Repo.bulk(() => {
+        ids.forEach(id => cascadeRemoveHardTask(id));
+        /* ★ 这是一次彻底删除，必须留痕 ★ 跟批量彻底删除同一个口径（见 'batch-purge'）：
+           彻底删除退不回来，事后只剩这条日志能说明"那批任务是谁、什么时候清掉的"。
+           点名写进去，不然在按时间倒序的日志里根本对不上是哪几条。 */
+        pushChangeLog('task', '', `清除测试数据：彻底删除了 ${n} 条标记为「测试」的任务（连同它们的里程碑）：`
+          + names.slice(0, 8).map(x => `「${x}」`).join('') + (names.length > 8 ? ` 等 ${names.length} 条` : ''));
+      });
       renderShell(); renderPage(); showSnack(`已清除 ${n} 条测试任务`);
     }, true);
   },
@@ -10778,7 +11030,15 @@ const ACTIONS = {
     if (_fileHandle) { showSnack('已连接共享文件夹，不能清空数据，避免连大家的真实数据一起抹掉'); return; }
     confirmModal('清空全部数据', '将清空本机的职责、工作、里程碑、任务（账号和权限配置保留）。可用 Ctrl+Z 撤销。', '清空', async () => {
       snapshot();
-      await Repo.bulk(() => { DB.duties = []; DB.works = []; DB.milestones = []; DB.tasks = []; });
+      const lost = { 职责: DB.duties.length, 工作: DB.works.length, 任务: DB.tasks.length, 里程碑: DB.milestones.length };
+      await Repo.bulk(() => {
+        DB.duties = []; DB.works = []; DB.milestones = []; DB.tasks = [];
+        /* 清空是这台机器上破坏力最大的动作之一，必须留一条查得到的记录。
+           它不清 changelog，所以这条写在清空之后照样留得住；日后这台机器再连上共享文件夹时，
+           这条记录会跟着推出去，管理员才说得清那天到底发生了什么。 */
+        pushChangeLog('task', '', `清空了本机全部业务数据：职责 ${lost.职责}、工作 ${lost.工作}、`
+          + `任务 ${lost.任务}、里程碑 ${lost.里程碑} 条（账号和权限配置保留）`);
+      });
       renderShell(); renderPage(); showSnack('已清空');
     }, true);
   },
@@ -11230,16 +11490,41 @@ async function finishSpCommitSingle(entity, id, field, val) {
 }
 // 任务下是否还有没标完成的里程碑
 function hasIncompleteCheckpoints(t) { return DB.milestones.some(m => m.task === t.id && !m.deleted_at && m.done !== '1'); }
+// 还差几个没交付
+function incompleteCheckpointCount(t) {
+  return t ? DB.milestones.filter(m => m.task === t.id && !m.deleted_at && m.done !== '1').length : 0;
+}
+/* ★★★ 把一条任务名下还没交付的里程碑一并标记为已交付 ★★★
+   "任务已经标成已完成、名下里程碑却还挂着未交付"这种矛盾状态，会同时连带三处出问题：
+     · 进度卡在半截 —— 有里程碑的任务，进度是按已交付比例算出来的（见 recalcProgress），
+       里程碑不勾，进度就永远上不到 100%，任务却显示已完成；
+     · 交付统计和报表少算 —— 本期已交付里程碑、交付物层级分布这些口径只认 done='1'，
+       活干完了却不体现在给领导看的报表里；
+     · 数据体检一直报"进度和状态对不上"，而点"自动纠正"又会把状态打回"进行中"，
+       看起来就像系统自己把完成的任务改回去了。
+
+   任务列表的状态下拉、任务详情保存这两条路径早就做对了（走 openDoneAutoFillModal 问一句、
+   再由 commitTaskStatus 勾完），但另外两条路径一直漏着，只改状态、里程碑一个不动：
+     · 批量改状态 → 已完成（openBatchEdit）—— 一次能放倒几十条，影响最大；
+     · 双击"实际完成时间"填一个日期（dpCommit 会顺手把状态改成已完成）。
+   收口成这一个函数，这几条路径全部改走它，以后新加入口照着调，不会再漏。
+   返回这次勾了几个，调用方要把它写进日志——否则事后看不出这批里程碑是谁、什么时候勾的。 */
+function completeCheckpointsOf(t) {
+  if (!t) return 0;
+  const pend = DB.milestones.filter(m => m.task === t.id && !m.deleted_at && m.done !== '1');
+  pend.forEach(m => {
+    m.done = '1';
+    m.actual_date = m.actual_date || todayStr();
+    stampMeta(m);
+  });
+  return pend.length;
+}
 // 真正落地"改状态"这个动作：跟原来单击循环切换时的副作用保持一致——变成已完成要顺带填计划/实际完成时间、
 // 没有里程碑时进度直接设 100，有里程碑时按里程碑完成比例重算；alsoCompleteCheckpoints 为真时连里程碑一起标完成
 async function commitTaskStatus(t, newStatus, alsoCompleteCheckpoints) {
   snapshot();
   const before = clone(t);
-  if (alsoCompleteCheckpoints) {
-    DB.milestones.filter(m => m.task === t.id && !m.deleted_at && m.done !== '1').forEach(m => {
-      m.done = '1'; m.actual_date = m.actual_date || todayStr(); stampMeta(m);
-    });
-  }
+  const cpDone = alsoCompleteCheckpoints ? completeCheckpointsOf(t) : 0;
   t.status = newStatus;
   if (newStatus === 'done') {
     // 计划完成时间、实际完成时间都补成今天——标"已完成"却缺日期，会让"本期涉及范围"
@@ -11250,7 +11535,10 @@ async function commitTaskStatus(t, newStatus, alsoCompleteCheckpoints) {
   } else {
     t.actual_date = '';
   }
-  logRecordChange('task', t.id, before, t, ['status', 'plan_date', 'actual_date', 'progress']);
+  // 勾了里程碑就要在日志里说出来：里程碑自己不单独写变更记录，不在这句里带上，
+  // 事后就查不出这批交付物是谁、什么时候一次性勾完的
+  logRecordChange('task', t.id, before, t, ['status', 'plan_date', 'actual_date', 'progress'],
+    cpDone ? `并把名下 ${cpDone} 个里程碑一并标记为已交付` : '');
   await Repo.upsert('task', t);
   afterEdit('task', t.id, 'status');
 }
@@ -11506,16 +11794,36 @@ async function dpCommit(date) {
   const { entity, id, field } = _dp;
   dpClose();
   const r = byId(entity, id); if (!r) return;
-  snapshot();
-  const before = clone(r);   // 工作/职责上的日期字段同样要留痕
-  r[field] = date;
-  if (entity === 'task' && field === 'actual_date' && date && r.status !== 'done') {
-    r.status = 'done';
-    if (!hasCheckpoints(r)) r.progress = 100;
+  /* ★ 填上"实际完成时间"等于宣告这条任务干完了，所以这里会顺手把状态改成已完成 ★
+     既然如此，就得跟别的"标记已完成"入口走同一套规矩：名下里程碑没勾完的，
+     问一句再一并勾完。以前这条路径只改状态、里程碑一个不动，于是填个日期就悄悄造出一条
+     "已完成、进度却卡在半截、里程碑还挂着未交付"的矛盾记录（见 completeCheckpointsOf 的注释）。 */
+  const willComplete = entity === 'task' && field === 'actual_date' && date && r.status !== 'done';
+  const cpN = willComplete ? incompleteCheckpointCount(r) : 0;
+  const apply = async (alsoCompleteCp) => {
+    snapshot();
+    const before = clone(r);   // 工作/职责上的日期字段同样要留痕
+    r[field] = date;
+    let cpDone = 0;
+    if (willComplete) {
+      if (alsoCompleteCp) cpDone = completeCheckpointsOf(r);
+      r.status = 'done';
+      r.plan_date = r.plan_date || todayStr();
+      if (hasCheckpoints(r)) recalcProgress(r); else r.progress = 100;
+    }
+    /* 字段名要去重：这里改的可能本来就是 plan_date，跟下面那几个联动字段撞在一起的话，
+       diffRecord 会把同一处改动描述两遍（"计划完成：A→B；计划完成：A→B"），
+       结构化明细里也会出现两条一样的 plan_date */
+    logRecordChange(entity, id, before, r, uniq([field, 'status', 'plan_date', 'progress']),
+      cpDone ? `并把名下 ${cpDone} 个里程碑一并标记为已交付` : '');
+    await Repo.upsert(entity, r);
+    afterEdit(entity, id, field);
+  };
+  if (cpN) {
+    openDoneAutoFillModal(!r.plan_date, false, cpN, () => apply(true));
+    return;
   }
-  logRecordChange(entity, id, before, r, [field, 'status', 'progress']);
-  await Repo.upsert(entity, r);
-  afterEdit(entity, id, field);
+  await apply(false);
 }
 function dpClose() {
   $('#date-picker-wrap').classList.remove('show'); _dp = null;
@@ -11688,9 +11996,13 @@ function openBatchEdit(fieldKey) {
     '应用', async () => {
       const val = readControl(f, 'be-');
       closeModal();
-      const doApply = async () => {
+      /* alsoCompleteCp：批量标"已完成"时，是不是要把这些任务名下没交付的里程碑一并勾完。
+         跟单条改状态那条路径（doneAutoFillNeeded / openDoneAutoFillModal → commitTaskStatus）
+         对齐 —— 以前这里只改状态、里程碑一个不动，于是一次就能造出几十条
+         "任务已完成、进度却卡在 33%、里程碑还挂着未交付"的矛盾记录（见 completeCheckpointsOf 的注释）。 */
+      const doApply = async (alsoCompleteCp) => {
         snapshot();
-        let skipped = 0;
+        let skipped = 0, cpTotal = 0;
         await Repo.bulk(() => {
           ids.forEach(id => {
             const t = byId('task', id);
@@ -11698,29 +12010,59 @@ function openBatchEdit(fieldKey) {
             if (!canEditRecord('task', t)) { skipped++; return; }   // 不是自己负责/参与的任务，组长以下跳过不改
             const before = clone(t);
             t[fieldKey] = val;
+            let cpDone = 0;
             if (fieldKey === 'status') {
-              if (val === 'done') { t.actual_date = t.actual_date || todayStr(); if (!hasCheckpoints(t)) t.progress = 100; }
-              else t.actual_date = '';
+              if (val === 'done') {
+                if (alsoCompleteCp) cpDone = completeCheckpointsOf(t);
+                /* 计划完成时间也要补：缺了会让"本期涉及范围""本期完成进度"这类按日期归期的统计
+                   把这条任务漏掉，理由跟 commitTaskStatus 里那段一样。以前这里只补了实际完成时间 */
+                t.plan_date = t.plan_date || todayStr();
+                t.actual_date = t.actual_date || todayStr();
+                // 勾完里程碑之后进度才算得对；没有里程碑的任务直接 100
+                if (hasCheckpoints(t)) recalcProgress(t); else t.progress = 100;
+              } else t.actual_date = '';
             }
             if (fieldKey === 'work') t.code = val ? nextTaskCode(val) : '';  // 编号跟着新工作重新生成；里程碑挂在任务下，换工作不受影响
-            logRecordChange('task', id, before, t, [fieldKey, 'actual_date', 'progress', 'code']);
+            cpTotal += cpDone;
+            logRecordChange('task', id, before, t, [fieldKey, 'plan_date', 'actual_date', 'progress', 'code'],
+              cpDone ? `并把名下 ${cpDone} 个里程碑一并标记为已交付` : '');
             stampMeta(t);
           });
         });
         renderShell(); renderPage();
-        showSnack(skipped
+        showSnack((skipped
           ? `已修改 ${ids.length - skipped} 条任务的${f.label}，${skipped} 条为防误操作被跳过（不是你负责/参与的）`
-          : `已修改 ${ids.length} 条任务的${f.label}`);
+          : `已修改 ${ids.length} 条任务的${f.label}`)
+          + (cpTotal ? `，并把 ${cpTotal} 个里程碑一并标记为已交付` : ''));
       };
       // 员工批量把自己牵头的任务转给别人：转移后这些任务就不归自己编辑了，先提醒一句再动手
       if (fieldKey === 'owner' && !hasPermission('edit_others_task')) {
         const affected = ids.filter(id => { const t = byId('task', id); return t && t.owner === DB.settings.me && val !== DB.settings.me; }).length;
         if (affected) {
-          confirmModal('转移牵头人', `这次会把 ${affected} 条你牵头的任务转给别人，转移后你将不能再编辑它们（除非同时是参与人）。确定要继续吗？`, '确定改', doApply, true);
+          confirmModal('转移牵头人', `这次会把 ${affected} 条你牵头的任务转给别人，转移后你将不能再编辑它们（除非同时是参与人）。确定要继续吗？`,
+            '确定改', () => doApply(false), true);
           return;
         }
       }
-      await doApply();
+      /* 批量标"已完成"：跟单条那条路径一样，先把"会顺带改什么"问清楚再动手。
+         不提供"只改状态、不动里程碑"的选项 —— 那正是以前那个矛盾状态的来源。 */
+      if (fieldKey === 'status' && val === 'done') {
+        const affected = ids.map(id => byId('task', id))
+          .filter(t => t && canEditRecord('task', t) && incompleteCheckpointCount(t) > 0);
+        const cpN = affected.reduce((a, t) => a + incompleteCheckpointCount(t), 0);
+        const noDate = ids.map(id => byId('task', id))
+          .filter(t => t && canEditRecord('task', t) && (!t.plan_date || !t.actual_date)).length;
+        if (cpN || noDate) {
+          confirmModal('批量标记为已完成',
+            (cpN ? `这 ${affected.length} 条任务名下还有 ${cpN} 个里程碑没有标记为已交付，确定后会一并标记为已交付（实际完成日期补成今天 ${todayStr()}）。\n\n` : '')
+            + (noDate ? `其中 ${noDate} 条任务的计划/实际完成时间没填，确定后会自动补成今天。\n\n` : '')
+            + `不这么做的话，这些任务会停在"已完成、进度却不到 100%、里程碑还挂着未交付"的状态——`
+            + `交付统计和报表会少算，数据体检也会一直报"进度和状态对不上"。可以 Ctrl+Z 撤销。`,
+            '确定', () => doApply(true));
+          return;
+        }
+      }
+      await doApply(false);
     });
   setTimeout(() => { const el = $('#be-' + fieldKey); if (el) el.focus(); }, 60);
 }
@@ -12223,6 +12565,8 @@ const HEALTH_META = {
   dupMs:             { level: 'warn',  undoable: true },
   msLateThanTask:    { level: 'warn',  undoable: true },
   progressMismatch:  { level: 'warn',  undoable: true },
+  // 定成 error：任务说干完了、里程碑说没交付，这是明确的状态不一致，而且会让报表少算
+  doneWithOpenCp:    { level: 'error', undoable: true },
   noDateHasMs:       { level: 'warn',  undoable: true },
   noWork:            { level: 'info',  undoable: true },
   noDate:            { level: 'info',  undoable: true },
@@ -12472,6 +12816,23 @@ function healthCheck() {
     fix: '按当前进度自动纠正状态', items: progressMismatch.map(t => ({ id: t.id, act: 'focus-task',
       label: `${taskItem(t).label}（进度 ${t.progress || 0}% · 状态 ${(TASK_STATUS.find(s => s.v === t.status) || {}).label || t.status}）` })) });
 
+  /* ★ 任务已完成，名下里程碑却还挂着未交付 ★
+     这是一种很具体的脏数据，而且上面那个 progressMismatch 的修复方式对它恰恰是【反的】：
+     它会"按当前进度自动纠正状态"，把这条任务的状态从已完成打回进行中——
+     活明明干完了，点一下体检反而被改回没干完，使用者只会觉得系统在乱改。
+     这一项单独拎出来，修复方式是把里程碑补成已交付（顺带把进度重算对），
+     方向才跟人的意图一致。来源是那几条只改状态、不动里程碑的入口
+     （批量改状态、双击实际完成时间），已经在 completeCheckpointsOf 那里修掉了，
+     但在那之前产生的记录还躺在数据里，得给一条清理的路。 */
+  const doneWithOpenCp = DB.tasks.filter(t =>
+    !t.deleted_at && t.status === 'done' && incompleteCheckpointCount(t) > 0);
+  if (doneWithOpenCp.length) issues.push({ k: 'doneWithOpenCp', n: doneWithOpenCp.length,
+    msg: `${doneWithOpenCp.length} 条任务已经标为"已完成"，名下却还有里程碑没标已交付`
+      + `（这样进度上不到 100%，交付统计和报表也会少算）`,
+    fix: '把这些任务名下没交付的里程碑一并标记为已交付，并重算进度',
+    items: doneWithOpenCp.map(t => ({ id: t.id, act: 'focus-task',
+      label: `${taskItem(t).label}（还有 ${incompleteCheckpointCount(t)} 个里程碑未交付 · 当前进度 ${t.progress || 0}%）` })) });
+
   /* 分级和"能不能撤销"在这里统一挂上，而不是让十几个 issues.push 各自去写——
      漏写一处就会出现一条没有等级、渲染时不知道该摆在哪一档的体检项。
      排序也在这里做：🔴 在最上面，人一眼先看到真正坏掉的东西，⚪ 那些垫底。 */
@@ -12483,7 +12844,7 @@ function healthCheck() {
   });
   issues.sort((a, b) => order[a.level] - order[b.level]);
   return { issues, orphanTasks, orphanMs, msLateMap, noDateHasMsMap, dupMsIds, progressMismatch, msOfDeletedTask,
-    dupTaskIds, dupWorkIds, dupTaskCodeIds, taskOfDeletedWork,
+    dupTaskIds, dupWorkIds, dupTaskCodeIds, taskOfDeletedWork, doneWithOpenCp,
     counts: {
       error: issues.filter(i => i.level === 'error').length,
       warn: issues.filter(i => i.level === 'warn').length,
@@ -12511,6 +12872,7 @@ function fixHealthPreview(kind) {
     msLateThanTask: '把这些任务的「计划完成时间」顺延到它最晚的那个里程碑日期',
     noDateHasMs: '用最后一个里程碑的日期，补上这些任务空着的「计划完成时间」',
     progressMismatch: '按当前进度自动纠正状态（跟手工改进度时的联动规则完全一致）',
+    doneWithOpenCp: '把这些任务名下没交付的里程碑标记为已交付（实际完成日期补成今天），并重算进度',
   };
   return {
     kind, n: issue.n, level: issue.level, undoable: meta.undoable,
@@ -12595,6 +12957,25 @@ async function fixHealth(kind) {
         logRecordChange('task', t.id, before, t, ['status', 'actual_date', 'progress']);
         stampMeta(t);
       });
+    }
+    /* 任务已完成、里程碑却没勾完：往"把里程碑补成已交付"这个方向修，
+       而不是像 progressMismatch 那样把状态打回进行中（方向反了，见 healthCheck 里那段注释）。
+       勾的动作复用 completeCheckpointsOf，跟界面上那几个入口用的是同一个函数。 */
+    if (kind === 'doneWithOpenCp') {
+      let cpTotal = 0;
+      (r.doneWithOpenCp || []).forEach(t0 => {
+        const t = byId('task', t0.id); if (!t) return;
+        const before = clone(t);
+        const n = completeCheckpointsOf(t);
+        cpTotal += n;
+        recalcProgress(t);
+        t.actual_date = t.actual_date || todayStr();
+        logRecordChange('task', t.id, before, t, ['status', 'actual_date', 'progress'],
+          n ? `数据体检：把名下 ${n} 个里程碑补标为已交付` : '');
+        stampMeta(t);
+      });
+      if (cpTotal) pushChangeLog('task', '',
+        `数据体检：把 ${(r.doneWithOpenCp || []).length} 条已完成任务名下的 ${cpTotal} 个里程碑补标为已交付，并重算了进度`);
     }
   });
   renderPage();
@@ -12917,9 +13298,22 @@ function importBackup(text) {
       DB.works = restored.works;
       DB.milestones = restored.milestones;
       DB.tasks = restored.tasks;
-      /* 基线和写入链标记一起清：本机数据整批换掉了，旧基线跟这份数据毫无关系。
-         有了上面那一步顶版本号，清基线不再导致还原失效（这正是以前那个 bug 的来处）。 */
+      /* ★ 基线要【对齐到共享文件当前内容】，不能留空 ★
+         先 clearSyncBaseline 把写入链标记清掉（本机数据整批换掉了，旧标记跟这份数据毫无关系），
+         然后把基线设成"文件里现在是什么"。这一步是还原能生效的真正依据：
+         基线 = 文件现状，本机 = 还原出来的那份，于是"还原值跟文件不一样"的那些字段
+         相对基线就是【我的改动】，正常三方合并会让它们逐字段赢，并推给全处；
+         还原值跟文件本来就一样的字段不算改动，不会白白抬版本号。
+
+         为什么不能留空：第十四轮给"没有基线"那条回退路径上了锁 —— 没有基线、
+         又拿不出"这是我改的"的日志凭据时，一律以共享文件为准（见 mergeWithoutBase，
+         那是"旧缓存把数据顶回旧状态"的根）。备份还原恰恰符合这个特征：
+         它整批换掉本机数据，却不会为每条记录留下逐字段变更日志。所以一旦基线留空，
+         这次还原就会被那条保护当成"说不清来路的本机内容"整批丢掉 ——
+         P104 那八条断言就是这么红的，而且表象跟最早那个"点了确认恢复、数据一个字没变"一模一样。
+         对齐到 remote 之后两者各归其位：旧缓存仍然被挡住，而还原是有依据的正当改动。 */
       clearSyncBaseline(DB);
+      if (remote) DB.syncBase = buildSyncBase(remote);
       // ② 墓碑取三方并集（备份 + 本机现有 + 文件里），再把备份里还活着的那些记录的墓碑作废
       const tomb = new Map();
       [...(Array.isArray(d.purged) ? d.purged : []), ...prevPurged, ...(((remote && remote.purged) || []))]
@@ -13506,10 +13900,26 @@ function effectiveShareCfg() {
    修法：先铺一层现有的 DB.shareConfig（把 rev/updated_at/created_at 以及将来可能新增的
    未知字段都保住），再用规范化后的值覆盖那四个业务字段，最后打补丁。这样 stampMeta 拿得到旧 rev，
    版本号能正常递增，时钟只在"两边版本号真的打平"时才需要出场。 */
+const SHARE_CFG_LABEL = { recycleKeepDays: '回收站保留期（天）', fileName: '共享数据文件名',
+  folderName: '共享文件夹名称', autoReloadMin: '自动同步间隔（分钟）' };
 async function updateShareConfig(patch) {
+  // 改动前那一份，下面拿它跟 patch 比，只报真的变了的项。
+  // 刻意单独取一次，不把它塞进下面那行——那行的写法被 P98/P99 的源码断言钉着
+  // （"先铺一层 DB.shareConfig 保住 rev"，改坏过一次），不该为了省一次调用把它改形
+  const before = effectiveShareCfg();
   const cfg = Object.assign({}, DB.shareConfig || {}, effectiveShareCfg(), patch);
   stampMeta(cfg);
   DB.shareConfig = cfg;
+  /* 这份配置是整份生效、随共享文件同步给全处的，而且里面有几项直接决定数据怎么留存——
+     比如回收站保留期，它决定"多久以前删的算过期、可以被彻底清理"。管理员把 180 天改成 30 天，
+     下一次清空回收站就会多删掉一大批，事后却完全查不到是谁什么时候改的。必须留痕。
+     只报真的变了的项，别在每次点保存时都记一条没内容的流水账。 */
+  const changed = Object.keys(patch || {}).filter(k => JSON.stringify(before[k]) !== JSON.stringify(patch[k]));
+  if (changed.length) {
+    pushAdminLog('共享文件夹配置：' + changed.map(k =>
+      `${SHARE_CFG_LABEL[k] || k} ${JSON.stringify(before[k])}→${JSON.stringify(patch[k])}`).join('；')
+      + '（这份配置同步给全处）');
+  }
   /* ★ 落盘收在这个函数里，不留给每个调用点自己记得加 ★
      原来它只改内存，四个调用点各自在后面跟一句 Repo.persist——结果"改回收站保留期"那一处漏了，
      而且写成了 await updateShareConfig(...)，看上去像是等过了（它当时是同步函数，
@@ -13662,6 +14072,7 @@ async function connectSharedFile() {
          放前面会被紧接着的 assign 整个换掉（同步路径那边早就踩过这个坑，注释在 syncToFileInner 里）。 */
       noteMergeAlerts(localPayload, merged);
       noteFieldConflicts();
+      noteNoBaseOverrides();
       noteDerivedProgressOverride();
       noteCascadedMilestoneDrop();
     }

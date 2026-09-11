@@ -145,6 +145,13 @@ async function main() {
   S.openBatchEdit('status');
   q('#be-status').value = 'done';
   await S.modalCallback(); await tick();
+  /* P105 起，批量标"已完成"会再问一层：名下里程碑没勾完的会一并勾完、缺的日期会补上
+     （理由见 completeCheckpointsOf 的注释——以前只改状态，一次就能造出几十条
+     "已完成、进度却卡在半截、里程碑还挂着未交付"的矛盾记录）。
+     这里把那一层也点掉，否则这次批量根本没落地，下面几条断言测的是"什么都没发生"。 */
+  if (q('#modal-overlay').classList.contains('show') && typeof S.modalCallback === 'function') {
+    await S.modalCallback(); await tick();
+  }
   let ch = ids.map(i => S.byId('task', i));
   ok('批量改状态生效', ch.every(t => t.status === 'done'));
   ok('done 都有实际完成日', ch.every(t => !!t.actual_date));

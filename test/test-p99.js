@@ -188,6 +188,9 @@ async function main() {
       migrateMilestonesToTasks: '同上',
       migrateWorkIds: '同上',
       seedAll: '正式程序里从不调用（只有测试脚手架播种用），是 dead code',
+      // P105：把"勾完名下里程碑"收口成的工具函数，四个调用点（commitTaskStatus、
+      // 批量改状态、双击实际完成时间、体检修复）各自负责落盘，跟 softDelete 同一类
+      completeCheckpointsOf: '给调用方在 Repo.bulk/upsert 里用的同步工具函数，落盘是调用方的事',
     };
     const bad = [];
     const seen = new Set();

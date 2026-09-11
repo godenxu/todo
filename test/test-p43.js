@@ -73,6 +73,11 @@ async function main() {
   section('★①：判定为旧版时弹门禁，并把话说清楚');
   reset();
   S.DB.settings.maxSeenAppVersion = NEWER;
+  /* P105 起，第一次发现自己落后会先自己静默重载一次（带查询串绕开浏览器缓存），
+     好让管理员能一直用同一个 index.html 投产、同事刷一下就升上去。
+     只有"重载过一次还是旧版"才退回这道门禁。这里预先把"已经自动试过"的标记摆上，
+     模拟的就是那种情况 —— 本机那份 html 确实是旧的，自动刷解决不了，必须把话讲清楚让人处理。 */
+  try { S.storage.setItem(S.STALE_RELOAD_KEY, NEWER); } catch (e) {}
   const passed = S.checkAppVersion({ lastWriteApp: NEWER });
   ok('checkAppVersion 返回 false（调用方据此取消本次写入）', passed === false);
   ok('进入了旧版封锁状态', S.staleAppBlocked === true);

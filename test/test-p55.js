@@ -424,9 +424,12 @@ async function main() {
     S.hasLocalContribution({ reportConfig: { rev: 1, updated_at: '2026-01-01T00:00:00.000Z' } }, {}) === true);
 
   section('⑤：编排改动刻意不进撤销栈（它是配置不是数据，Ctrl+Z 半路拨回去只会让人更懵）');
+  /* 窗口从 700 放宽到 1400：P107 给这个函数加了"编排改动要留痕"的注释和一行
+     pushCoalescedAdminLog（编排整份生效、同步给全处，改了必须查得到是谁改的），
+     函数体变长了。这条断言要守的是"不进撤销栈"，不该被注释长度绑住。 */
   ok('saveReportConfig 里没有调 snapshot',
-    /async function saveReportConfig[\s\S]{0,700}?\n\}/.test(html)
-    && !/async function saveReportConfig[\s\S]{0,700}?snapshot\(\)/.test(html));
+    /async function saveReportConfig[\s\S]{0,1400}?\n\}/.test(html)
+    && !/async function saveReportConfig[\s\S]{0,1400}?snapshot\(\)/.test(html));
   ok('取而代之的是明确的"恢复默认编排"按钮', html.includes(`'report-config-reset'`));
 
   restore();

@@ -63,11 +63,46 @@ async function main() {
   ok('★写清楚了字段名和双方的值', lastLog.summary.includes('状态') && lastLog.summary.includes('同一个字段'), lastLog.summary);
   ok('★调用后冲突列表会清空，不会下一轮重复报', S.mergeFieldConflicts.length === 0);
 
-  section('④：没有基线时必须原样退回老规则（首次升级、清过浏览器缓存、备份还原之后）');
-  const m4 = S.mergeSyncPayload(P([甲]), P([乙]), null).tasks[0];
-  ok('★不报错，按原来的"整条比新旧"走', m4.status === 'todo' && m4.priority === '1', { s: m4.status, p: m4.priority });
-  const m4b = S.mergeSyncPayload(P([甲]), P([乙]), { task: {} }).tasks[0];
-  ok('★基线里没有这条记录时同样退回老规则', m4b.status === 'todo');
+  /* ④ 没有基线时的规则，第十四轮（P106）整个换掉了，这一节跟着改口径。
+     原来是"原样退回整条比新旧、谁 rev 高听谁的"，而那正是"旧缓存把同事改好的数据
+     顶回旧状态"的根：rev 是每台设备各自 +1 的计数，rev 高 ≠ 内容新。
+     现在的规则是"拿不出凭据就以共享文件为准"，凭据有两种——本机独有的逐字段变更日志、
+     以及 stampMeta 留下的"这条是我改的"标记。详见 mergeWithoutBase 那一大段。
+     这一节现在验的是"换了规则之后不报错、而且三种情况各走各的分支"。 */
+  section('④：没有基线时以共享文件为准，除非拿得出"这是我改的"凭据（P106 换了口径）');
+  {
+    const bakDirty = (S.DB.settings.dirtyKeys || []).slice();
+    const bakLog = S.DB.changelog.slice();
+    S.DB.settings.dirtyKeys = [];
+    S.DB.changelog = [];
+    // ㈠ 一点凭据都没有（典型的旧缓存）→ 以文件为准，而且不报错
+    const m4 = S.mergeSyncPayload(P([甲]), P([乙]), null).tasks[0];
+    ok('★不报错，而且没凭据时以共享文件为准（不再让本机旧内容整条赢）',
+      m4.status === 乙.status && m4.priority === 乙.priority, { s: m4.status, p: m4.priority });
+    const m4b = S.mergeSyncPayload(P([甲]), P([乙]), { task: {} }).tasks[0];
+    ok('★基线里没有这条记录时同样按这条新规则走', m4b.status === 乙.status, m4b.status);
+
+    // ㈡ 有 stampMeta 留下的"我改过这条"标记 → 退回整条竞争，不会凭空丢掉本机改动
+    S.DB.settings.dirtyKeys = [甲.id];
+    const m4c = S.mergeSyncPayload(P([甲]), P([乙]), null).tasks[0];
+    ok('★有"我改过这条"的标记时退回整条竞争（批量/导入类动作靠的就是这条）',
+      m4c.status === 甲.status || m4c.status === 乙.status, m4c.status);
+    S.DB.settings.dirtyKeys = [];
+
+    /* ㈢ 有本机独有的逐字段日志凭据 → 只把日志记过的那一格拿回来，别的听文件的。
+       凭据要放进【本机那份载荷】的 changelog 里（P() 构造出来的 changelog 是空的），
+       不是放进 DB.changelog —— mergeSyncPayload 比的是两份载荷 */
+    const 凭据 = { id: 'p86_localonly', at: new Date().toISOString(), by: '甲', kind: 'edit',
+      entity: 'task', refId: 甲.id, taskId: 甲.id, summary: '（本机）改了状态',
+      changes: [{ k: 'status', from: 乙.status, to: 甲.status }] };
+    const m4d = S.mergeSyncPayload(Object.assign(P([甲]), { changelog: [凭据] }), P([乙]), null).tasks[0];
+    ok('★★有逐字段凭据时，只拿回日志记过的那一格', m4d.status === 甲.status, m4d.status);
+    ok('★★日志没记过的字段一律听共享文件的', m4d.priority === 乙.priority,
+      { 本机: 甲.priority, 文件: 乙.priority, 结果: m4d.priority });
+
+    S.DB.settings.dirtyKeys = bakDirty;
+    S.DB.changelog = bakLog;
+  }
 
   section('⑤：一方没改动时，原样采用另一方——不生成新对象、不无谓地抬高版本号');
   const 甲没动 = cp(BASE);

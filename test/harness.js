@@ -202,6 +202,16 @@ const exportTail = `
   derivedFieldInfo, repairableIssues,
   // P103：第十三轮——导入只覆盖表里有的列 / 宽表保留交付状态 / 日志分等级裁剪 / 坏数字不留 NaN
   capChangelog, noteDerivedProgressOverride, noteCascadedMilestoneDrop,
+  // P105：任务标已完成时里程碑要一并勾完（批量改状态 / 双击实际完成时间两条路径漏了）
+  completeCheckpointsOf, incompleteCheckpointCount,
+  // P105：同一个 index.html 默默投产——检测到新版本自己静默重载一次
+  autoReloadForNewVersion, clearStaleReloadMark, STALE_RELOAD_KEY,
+  // P106：没有同步基线时不许拿本机内容去顶文件里的（旧缓存把数据退回旧状态的根）
+  buildLocalOnlyChangeMap, mergeWithoutBase, noteNoBaseOverrides,
+  markLocallyChanged, clearLocallyChanged, localKeyOf, LOCAL_DIRTY_LIMIT,
+  // P107：全面排查改数据的动作有没有留痕；编排类连续动作合并成一条
+  pushCoalescedAdminLog, COALESCE_LOG_WINDOW_MS, SHARE_CFG_LABEL,
+  get noBaseOverrides(){return _noBaseOverrides}, setNoBaseOverrides(v){ _noBaseOverrides = v; },
   get auditIssues(){return _auditIssues}, setAuditIssues(v){ _auditIssues = v; },
   get auditShown(){return _auditShown}, setAuditShown(v){ _auditShown = v; },
   checkClockSkew, CLOCK_SKEW_LIMIT_MS, noteOldWriter, oldWriterPanelHTML,
