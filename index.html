@@ -518,6 +518,9 @@ td.cell-center { text-align: center; }
 .cp-overdue-badge { flex-shrink: 0; font-size: 11px; font-weight: 700; color: #fff; background: var(--overdue); border-radius: 8px; padding: 2px 7px; white-space: nowrap; }
 .cp-done-lbl { display: flex; align-items: center; gap: 3px; font-size: 11.5px; color: var(--text2); white-space: nowrap; flex-shrink: 0; }
 .cp-done-lbl input { accent-color: var(--accent); }
+/* 实际交付日期：编辑态原来完全看不到这个值，可它决定了这条交付物算进哪一期的报表。
+   看不到就没法发现填错了，更没法发现它被「取消勾选再勾回来」抹成了今天。 */
+.cp-actual { flex-shrink: 0; font-size: 11px; color: var(--text3); white-space: nowrap; cursor: help; }
 .cp-drag-handle { flex-shrink: 0; cursor: grab; color: var(--text3); font-size: 14px; padding: 0 2px; user-select: none; }
 .cp-drag-handle:active { cursor: grabbing; }
 
@@ -756,7 +759,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260911044415';
+const APP_VERSION = 'v20260914034641';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -963,22 +966,110 @@ function assignableRoles() {
    网页永远拿不到系统里的完整路径，只能反解文件夹名字，在不同操作系统/挂载方式下太不可靠，
    这次改回姓名 + PIN。） */
 const PIN_ITERATIONS = 100000;
+/* ---- PIN 连续试错：限次 + 留痕 ----
+   实测过：坐在一台已经打开这个页面的机器前，选中同事的名字，连着试 12 次 PIN，
+   系统既不拦、也不记，日志里一个字都没有。整套系统别的动作——改一格进度、挂起一条任务、
+   删一个账号——全都留痕，唯独「有人在试别人的 PIN」这件最该让人知道的事是静默的。
+
+   要老实说清楚这道闸能挡什么、不能挡什么：
+   · 挡得住的是「顺手试试」——同事离开工位没锁屏，旁边的人想换个身份看看别人的数据。
+     这恰恰是这套系统在办公室里真正会遇到的那一种，5 次之后停 3 分钟足够劝退。
+   · 挡不住真要破解的人：这是一份 file:// 的单文件 html，谁都能开控制台，
+     清掉 localStorage 里的计数、甚至直接改 DB.settings.me，绕过它不费什么事。
+   所以这道闸真正的分量在【留痕】那一半：达到阈值时写一条告警日志，它随共享文件同步给所有人，
+   在日志页跟别的告警排在一起，谁都看得见——想瞒是瞒不住的。这跟 pushAlertLog 一贯的定位一致。
+
+   计数存在本机 localStorage（不进 DB）：它是「这台机器上的人在试」的事实，不该同步给别人，
+   也不该占共享文件的体积；真正需要所有人知道的那一条，已经由告警日志负责了。 */
+const PIN_FAIL_KEY = 'todo_v4_pin_fails';
+const PIN_FAIL_LIMIT = 5;                    // 连着错几次开始锁
+const PIN_FAIL_WINDOW_MS = 10 * 60 * 1000;   // 超过这么久没再错过，之前的次数就不算了
+const PIN_LOCK_MS = 3 * 60 * 1000;           // 锁多久
+function readPinFails() {
+  try { return JSON.parse(localStorage.getItem(PIN_FAIL_KEY) || '{}') || {}; }
+  catch (e) { return {}; }
+}
+function writePinFails(o) {
+  try { localStorage.setItem(PIN_FAIL_KEY, JSON.stringify(o || {})); } catch (e) {}
+}
+// 这个账号现在还要等多少毫秒才能再试（0 = 可以试）
+function pinLockRemainMs(name) {
+  const rec = readPinFails()[name];
+  if (!rec || !rec.until) return 0;
+  return Math.max(0, rec.until - Date.now());
+}
+function pinLockRemainText(name) {
+  const ms = pinLockRemainMs(name);
+  if (!ms) return '';
+  const sec = Math.ceil(ms / 1000);
+  return sec >= 60 ? `${Math.ceil(sec / 60)} 分钟` : `${sec} 秒`;
+}
+/* 记一次失败。返回 {n, locked, justLocked}：
+   justLocked = 这一次刚好把它锁上了——只有这一次才写告警日志并推出去，
+   锁定期间继续乱点不会再写（否则一串重复告警自己就把日志页淹了，
+   而 CHANGELOG_LIMIT 是有上限的，等于帮着攻击者把真正的历史挤掉）。 */
+function notePinFailure(name) {
+  const all = readPinFails();
+  const now = Date.now();
+  let rec = all[name];
+  if (!rec || !rec.last || now - rec.last > PIN_FAIL_WINDOW_MS) rec = { n: 0, first: now, last: now, until: 0 };
+  rec.n += 1; rec.last = now;
+  const wasLocked = rec.until > now;
+  let justLocked = false;
+  if (rec.n >= PIN_FAIL_LIMIT && !wasLocked) { rec.until = now + PIN_LOCK_MS; justLocked = true; }
+  all[name] = rec;
+  writePinFails(all);
+  return { n: rec.n, locked: rec.until > now, justLocked };
+}
+function clearPinFailures(name) {
+  const all = readPinFails();
+  if (!(name in all)) return;
+  delete all[name];
+  writePinFails(all);
+}
 function bytesToHex(bytes) { return [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, '0')).join(''); }
 function hexToBytes(hex) {
   const out = new Uint8Array(hex.length / 2);
   for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.substr(i * 2, 2), 16);
   return out;
 }
-async function hashPin(pin, saltHex) {
+/* ★ iters 这个参数不是可有可无的 ★
+   每个账号自己存着一份 iterations，记的是「当初算这个 hash 用了多少轮」。
+   以前 hashPin 写死用当前的 PIN_ITERATIONS 常量，verifyPin 也就跟着写死——
+   于是那个字段存了却从来没人读。只要哪天为了加固把 PIN_ITERATIONS 调大（这是迟早的事，
+   也是安全加固里最常见的一个动作），全处所有人的 PIN 会在换版本的那一瞬间同时失效：
+   算出来的 hash 跟账号里存的对不上，谁也登不进去，而且没有任何自助出路——
+   重置 PIN 本身要求先有人以管理员身份登录进来。
+   现在：算新 hash 时用当前常量（新设的 PIN 自然享受更高强度），验旧 hash 时用记录里那一份，
+   两边各按各的来，常量怎么调都不会把老账号锁在门外。 */
+async function hashPin(pin, saltHex, iters) {
   const salt = saltHex ? hexToBytes(saltHex) : crypto.getRandomValues(new Uint8Array(16));
+  /* 老数据可能压根没有这个字段（或者是 0 / 负数 / 脏字符串），那就按当前常量算——跟历史行为一致。
+     ★ 这里不能图省事写成 Math.max(1, Number(iters) || 0) || PIN_ITERATIONS ★
+       传 undefined 时它会算出 1：Math.max(1, 0) 是 1，而 1 是真值，后面的 || 就短路了。
+       结果是每一个【新设】的 PIN 都只跑 1 轮 PBKDF2——自洽（设和验用的是同一个数），
+       所以登录一切正常、测试全绿，强度却已经没了，还偏偏是最难看出来的那种坏法。
+       写成显式的「大于 0 才采信」，不给隐式真值判断留空子。 */
+  const want = Math.floor(Number(iters) || 0);
+  const iterations = want > 0 ? want : PIN_ITERATIONS;
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(pin), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations: PIN_ITERATIONS, hash: 'SHA-256' }, key, 256);
-  return { salt: bytesToHex(salt), hash: bytesToHex(bits), iterations: PIN_ITERATIONS };
+  const bits = await crypto.subtle.deriveBits({ name: 'PBKDF2', salt, iterations, hash: 'SHA-256' }, key, 256);
+  return { salt: bytesToHex(salt), hash: bytesToHex(bits), iterations };
+}
+/* 定长比较：逐字符异或累加，不在第一个不同的字符处提前返回。
+   file:// 单文件应用里计时攻击谈不上现实威胁（能开控制台的人有的是更省事的办法），
+   但这行代码的成本就是几个字符，没有理由留一个「一看就不对」的写法在最敏感的那一步上。 */
+function pinHashEqual(a, b) {
+  a = String(a || ''); b = String(b || '');
+  if (a.length !== b.length) return false;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  return diff === 0;
 }
 async function verifyPin(pin, user) {
   if (!user || !user.salt || !user.hash) return false;
-  const { hash } = await hashPin(pin, user.salt);
-  return hash === user.hash;
+  const { hash } = await hashPin(pin, user.salt, user.iterations);
+  return pinHashEqual(hash, user.hash);
 }
 
 /* ---- 版本门禁：共享文件是更新版本的 html 写的，这份太旧，只能停在这里等换新版 ----
@@ -1615,10 +1706,34 @@ function mergeWithoutBase(entity, local, remote, proven) {
   const ev = (proven && proven.fields) ? proven.fields.get(entity + ' ' + local[pk]) : undefined;
   const dirty = !!(proven && proven.dirty && proven.dirty.has(local[pk]));
   if (ev === null || (ev === undefined && dirty)) {
-    /* 确实动过这条记录，但说不清动了哪几个字段：退回整条竞争。
-       两种来源——老日志没有逐字段明细，或者凭据来自 stampMeta 留下的"我改过"标记
-       （批量/导入类动作只写汇总日志，定位不到具体记录，见 markLocallyChanged）。 */
-    return newerRecord(local, remote) ? local : remote;
+    /* ★ 只知道"这条是我动过的"、说不清动了哪几格 ★
+       两种来源：stampMeta 留下的整条标记（clearSyncBaseline 和"成功写进文件之后"都会清掉它，
+       所以它存在就意味着这台机器在上一次成功同步之后真的写过这条、还没推上去），
+       以及老日志那种只说"动过这条记录"、没有逐字段明细的凭据。
+       既然是真的本机改动，就以本机为准 —— 不能回头用 rev 定胜负：
+       "rev 高 ≠ 内容新"正是这一整段要摆脱的东西，用它只会把刚做完的活判给文件里的旧记录
+       （实测 probe-cross.js 场景 C 就是这么丢的）。
+       代价是同事在这条记录别的字段上的改动会被一起盖掉——没有基线时分不出来，只能选一个方向。
+
+       ★★ 但"删除"这一格必须单独拿出来，绝不能跟着本机走 ★★
+       实测（P49 那三条端到端用例）：同事把一条里程碑/任务删了并推上去，而我这台机器
+       手里那条恰好带着"我动过"的整条标记——整条以本机为准的话，这条记录在我这儿"活"过来了，
+       而且会被我推回共享文件，等于替所有人把同事的删除撤销掉。
+       别的字段被盖掉，人看见了再改回来就行；记录复活是另一个量级的问题，
+       而且它正是这套系统最早那批事故（"删了又自己回来"）的形态。
+       所以：文件里那条已经是删除状态、本机这条还活着时，删除照样生效；
+       反过来（本机删了、文件里还活着）本机的删除照常推出去，不受影响。 */
+    const out = Object.assign({}, local);
+    let revived = false;
+    if (remote.deleted_at && !local.deleted_at) {
+      out.deleted_at = remote.deleted_at;
+      // 版本号也要压得住，否则下一轮又被本机那条活的顶回来
+      out.rev = Math.max(Number(local.rev) || 0, Number(remote.rev) || 0) + 1;
+      revived = true;
+    }
+    const overridden = diff.filter(k => k !== 'deleted_at' || !revived);
+    if (overridden.length) _noBaseOverrides.push({ entity, id: local[pk], fields: overridden, tookLocal: true });
+    return out;
   }
   if (ev && ev.size) {
     // 有逐字段凭据：以文件为底，只把"日志记过的那几个字段"换成本机的值
@@ -2109,9 +2224,93 @@ function buildWriteIdRing(remote, writeId) {
 // 真正落到文件里的内容 = 业务数据 + 一层"文件自述"信息（谁、用哪个版本的 html、哪一次写的）。
 // 这几个字段刻意不进 syncPayload：它们不是业务数据，不该被合并、也不该被 Object.assign 灌回内存里的 DB。
 // writeId 是每次写入随机生成的一次性标记，用来在写完之后确认"文件里现在这份确实是我刚写的那一份"
+/* ★★★ 数据集指纹：这份文件到底是不是"我们这一套数据" ★★★
+   系统里一直没有这个判据 —— isValidShareData 只看"有没有 duties/tasks 两个数组"，
+   于是任何一份格式合法的本应用数据文件都会被当成自己人。实测（probe-attack.js ①）的后果：
+   共享文件夹被指到【另一个处室】的文件夹（选错了、或者网盘上正好有个同名文件）之后，
+   两个处室的数据被合并成一份，而且【我们的数据被写进了别人的文件】——双向污染，
+   而且越同步混得越深，事后基本分不开。
+
+   指纹就是一串随机 id：谁第一次把数据写进一个空文件，谁就在文件里落下这个 id；
+   之后所有设备从文件里读到它、记在本机。以后每次读文件都对一次：
+   两边都有 id 而且不一样 → 这不是我们那份数据，立刻停下来，只读不写，并把话说清楚。
+
+   几种边界都要照顾到，否则会把正常的人挡在外面：
+   · 文件是空的（新建的共享文件）→ 没有 id 很正常，我们写进去的时候顺手落一个；
+   · 文件有 id、本机没有（新同事第一次连、或者换了台机器）→ 认领文件里那个，不是冲突；
+   · 文件有数据但没有 id（上一版程序写的老文件）→ 没法用 id 判断，退回一个更粗但有效的判据：
+     两边的记录主键有没有任何交集。完全不沾边、而且两边都不是空的，八成就是两套数据；
+     只要有一条对得上，就认为是同一套（同一套数据的两台设备不可能一条都不重合）。 */
+function newDatasetId() { return 'ds_' + Math.random().toString(36).slice(2, 10) + Date.now().toString(36); }
+function payloadHasData(p) {
+  return !!p && (((p.duties || []).length) || ((p.works || []).length)
+    || ((p.tasks || []).length) || ((p.milestones || []).length));
+}
+// 两份数据的记录主键有没有交集（给"老文件没有指纹"那种情况兜底）
+function sharesAnyRecord(a, b) {
+  const keyset = p => {
+    const s = new Set();
+    (p.duties || []).forEach(r => r && r.code != null && s.add('d' + r.code));
+    (p.works || []).forEach(r => r && r.id && s.add('w' + r.id));
+    (p.tasks || []).forEach(r => r && r.id && s.add('t' + r.id));
+    (p.milestones || []).forEach(r => r && r.id && s.add('m' + r.id));
+    return s;
+  };
+  const sa = keyset(a), sb = keyset(b);
+  if (!sa.size || !sb.size) return true;   // 有一边是空的，谈不上"不沾边"
+  for (const k of sa) if (sb.has(k)) return true;
+  return false;
+}
+/* 返回 true = 可以正常往下走；false = 这份文件不是我们那套数据，调用方必须就此打住。 */
+function checkDatasetIdentity(remote) {
+  const mine = (DB.settings && DB.settings.datasetId) || '';
+  const theirs = (remote && remote.datasetId) || '';
+  let foreign = false;
+  if (mine && theirs) foreign = mine !== theirs;
+  else if (!theirs && payloadHasData(remote) && payloadHasData(syncPayload(DB))) {
+    // 老文件没有指纹：退回"记录主键有没有交集"这个更粗的判据
+    foreign = !sharesAnyRecord(remote, syncPayload(DB));
+  }
+  if (!foreign) {
+    // 文件里有指纹而本机还没有 → 认领它（新同事第一次连、或者换了台机器）
+    if (theirs && !mine && DB.settings) DB.settings.datasetId = theirs;
+    return true;
+  }
+  if (!_foreignFileBlocked) {
+    _foreignFileBlocked = true;
+    stopAutoReload();
+    showForeignFileGate(remote);
+  }
+  return false;
+}
+let _foreignFileBlocked = false;
+function showForeignFileGate(remote) {
+  $('#login-gate').classList.add('show');
+  $('#login-body').innerHTML = `<h3>这个共享文件里不是本处的数据，已暂停同步</h3>
+    <p class="hint" style="margin-bottom:10px">连上的这份文件，跟本机手里这套数据对不上号——
+      它多半是<b>别的处室（或者别的一套）的数据文件</b>。继续同步会把两套数据合成一份，
+      而且会把本处的数据写进对方的文件里，事后很难分开，所以先停在这里：
+      <b>本机数据一条都没动，只是不再往这个文件里写。</b></p>
+    <table class="dtable" style="margin-bottom:10px"><tbody>
+      <tr><td>本机这套数据</td><td>${esc((DB.settings && DB.settings.datasetId) || '（还没有标识）')}</td></tr>
+      <tr><td>文件里那套</td><td>${esc((remote && remote.datasetId) || '（没有标识，按记录对不上判定）')}</td></tr>
+      <tr><td>文件最后写入</td><td>${esc((remote && remote.lastWriteBy) || '未署名')}${
+        remote && remote.lastWriteAt ? '，' + esc(fmtLocalDateTime(remote.lastWriteAt)) : ''}</td></tr>
+    </tbody></table>
+    <p class="hint" style="margin-bottom:6px">该怎么办：</p>
+    <ol class="hint" style="margin:0 0 10px 18px;line-height:1.9">
+      <li><b>多半是共享文件夹选错了</b>——到「数据」页点「重新连接共享文件夹」，选回本处那个文件夹</li>
+      <li>如果确认这个文件夹没选错，那就是本机缓存跟它对不上（比如这台机器以前连的是另一套数据）：
+        先在「数据」页导出一份 JSON 留底，再用「以共享文件为准，重置本机缓存」</li>
+      <li>拿不准就先别动，找管理员确认——本机数据还在，不会因为停在这里而丢失</li>
+    </ol>
+    <button class="btn" data-act="force-reload">刷新页面重试</button>`;
+}
 function filePayload(businessPayload, db, writeId, remote) {
   return Object.assign({}, businessPayload, {
     schemaVersion: DATA_SCHEMA_VERSION,
+    // 指纹：本机有就用本机的；本机还没有（第一次把数据写进空文件）就现生成一个并记住
+    datasetId: (db.settings.datasetId = (db.settings.datasetId || (remote && remote.datasetId) || newDatasetId())),
     writeId,
     writeIds: buildWriteIdRing(remote, writeId),
     lastWriteBy: db.settings.me || '未署名',
@@ -2385,6 +2584,19 @@ function mergeSyncPayload(local, remote, base) {
      有基线的记录照常走逐字段三方合并，不需要凭据。 */
   const proven = { fields: buildLocalOnlyChangeMap(local.changelog, remote.changelog),
                    dirty: new Set(((DB.settings && DB.settings.dirtyKeys) || [])) };
+  /* 把"字段级本机标记"并进同一张凭据表（见 markLocallyChangedFields）。
+     日志凭据和字段标记是同一件事的两种来源，合起来用最准；主键不带实体前缀，
+     所以这里按四类实体各试一次 key，命中哪个算哪个（主键天然不会互相撞）。 */
+  const df = (DB.settings && DB.settings.dirtyFields) || {};
+  Object.keys(df).forEach(k => {
+    if (!Array.isArray(df[k]) || !df[k].length) return;
+    ['duty', 'work', 'milestone', 'task'].forEach(entity => {
+      const mapKey = entity + ' ' + k;
+      const cur = proven.fields.get(mapKey);
+      if (cur === null) return;                       // 已经有"说不清字段"的凭据，保持更保守的那个
+      proven.fields.set(mapKey, new Set((cur ? [...cur] : []).concat(df[k])));
+    });
+  });
   // 先把两边的墓碑并起来，再拿并集去筛每一类记录——
   // 只要有任何一台设备记得"这条被彻底删过"，它就不该在合并结果里重新出现
   const purged = mergePurged(local.purged, remote.purged);
@@ -2596,13 +2808,27 @@ function noteNoBaseOverrides() {
     const fs = c.fields.map(k => (fieldDef(c.entity, k) || {}).label || k).join('、');
     return `${label[c.entity] || c.entity}「${title}」的 ${fs}`;
   };
-  const shown = list.slice(0, 5).map(one).join('；');
-  pushAlertLog(`本机有 ${list.length} 处内容跟共享文件不一致，但找不到"是这台机器改的"的凭据`
+  /* 两个方向分开说：
+     · 没凭据 → 本机内容被丢弃（这是挡住旧缓存的主力）；
+     · 只有"整条"凭据 → 本机内容胜出、文件里那几格被盖掉（保住刚做完的活，代价是可能盖到同事）。
+     混成一句话会让管理员完全看不懂到底谁覆盖了谁。 */
+  const tookLocal = list.filter(c => c.tookLocal);
+  const dropped = list.filter(c => !c.tookLocal);
+  if (tookLocal.length) {
+    pushAlertLog(`本机有 ${tookLocal.length} 处改动还没推上去，但本机缺少同步基线、也说不清具体改了哪几格，`
+      + `本次整条以本机为准，共享文件里这些字段被覆盖了：`
+      + `${tookLocal.slice(0, 5).map(one).join('；')}${tookLocal.length > 5 ? ' 等' : ''}。`
+      + `如果同事刚好也在改这几条记录，请核对一下是不是你要的那一份。`);
+    showSnack(`⚠ 本机有 ${tookLocal.length} 处改动按"以本机为准"推了上去，详见「日志」页`, { priority: true });
+  }
+  if (!dropped.length) return 1;
+  const shown = dropped.slice(0, 5).map(one).join('；');
+  pushAlertLog(`本机有 ${dropped.length} 处内容跟共享文件不一致，但找不到"是这台机器改的"的凭据`
     + `（本机缓存缺少同步基线，常见于很久没打开过页面、从备份恢复过、或者重置过本机缓存），`
-    + `本次一律以共享文件为准，没有拿本机这份去覆盖：${shown}${list.length > 5 ? ' 等' : ''}。`
+    + `本次一律以共享文件为准，没有拿本机这份去覆盖：${shown}${dropped.length > 5 ? ' 等' : ''}。`
     + `这样做是为了避免一台旧缓存的机器把全处的数据顶回旧状态；`
     + `如果上面哪一处其实是你刚做、还没同步出去的改动，请重新改一次。`);
-  showSnack(`⚠ 本机有 ${list.length} 处说不清来路的内容，已按共享文件为准（详见「日志」页），`
+  showSnack(`⚠ 本机有 ${dropped.length} 处说不清来路的内容，已按共享文件为准（详见「日志」页），`
     + `如果是你刚改的请重新改一次`, { priority: true });
   return 1;
 }
@@ -2633,6 +2859,7 @@ let _needPermissionRestore = false;   // 连过、句柄也还在，只是刷新
 let _everConnected = false;
 let _lastUnsyncedWarnAt = 0;   // "改动没同步"的提示做节流，不然连着改十条就弹十次
 let _lastBackupAuthWarnAt = 0;   // 自动备份因为授权失效而跳过时的提示节流（见 runBackup）
+let _lastBackupFailWarnAt = 0;   // 自动备份【写失败】时的提示节流；备份成功会把它清零（见 runBackup 的 catch）
 let _backupPermLapsed = false;   // 备份文件夹的写入授权失效了，等下一次用户点一下页面就静默要回来（见 armBackupPermAutoRestore）
 let _backupPermRestoring = false;
 const IDB_NAME = 'todoapp_fsa', IDB_STORE = 'handles', IDB_KEY = 'sharedFile';
@@ -2878,12 +3105,26 @@ function noteClobberedWrite(remote, db) {
 }
 // 两次读到的是不是同一份文件内容。writeId 是新版本才有的，老文件退回比"最后写入时间"，
 // 再没有就比文件系统的修改时间（网盘上精度可能只到秒，所以它只是最后一道兜底）
+/* ★ 判据改成"所有拿得到的信号都一样才算同一份"，不再是"有 writeId 就只看 writeId" ★
+   原来是逐级 return：只要两边有 writeId，就只比 writeId，后面的时间戳和 mtime 根本不看。
+   漏洞在于【不是本程序写的那次改动】不会更新 writeId ——
+   最典型的就是有人直接用记事本改共享文件（这件事在别处的注释里已经承认过、也拦不住），
+   还有很老的版本写过这个文件。这种改动对"写之前再确认一次文件没被抢先"那道闸完全隐形：
+   writeId 没变 → 判定成"还是我合并时那一份" → 我们拿合并前的内容照写，把对方那次改动抹掉。
+   实测（scratchpad/probe-attack.js ④）确实抹掉了。
+
+   改成"逐项比对、有一项对不上就算变过"之后，mtime 变了也能发现。
+   代价只是偶尔多一次重新合并（continue 回去重来一轮，最多三轮），而多读一次文件本来就是
+   这个函数上面那段注释里已经认过的、划算的代价。 */
 function sameFileVersion(a, b) {
   if (!a || !b) return false;
   const ra = a.remote || {}, rb = b.remote || {};
-  if (ra.writeId || rb.writeId) return ra.writeId === rb.writeId;
-  if (ra.lastWriteAt || rb.lastWriteAt) return ra.lastWriteAt === rb.lastWriteAt;
-  return a.mtime === b.mtime;
+  if ((ra.writeId || '') !== (rb.writeId || '')) return false;
+  if ((ra.lastWriteAt || '') !== (rb.lastWriteAt || '')) return false;
+  // mtime 在网盘上精度可能只到秒，所以它只能用来"发现变化"，不能用来"证明没变"——
+  // 但既然前两项已经一致，这里再多一层发现能力是净收益
+  if (a.mtime != null && b.mtime != null && a.mtime !== b.mtime) return false;
+  return true;
 }
 
 /* 把当前数据同步进共享文件。
@@ -2956,6 +3197,8 @@ async function syncToFileInner(db) {
     if (!cur) { showSnack('共享文件内容不是本应用的数据格式，本次没有写入，请确认共享文件夹没选错'); return 'badfile'; }
     if (!checkDataVersion(cur.remote)) return 'blocked';
     if (!checkAppVersion(cur.remote)) return 'blocked';   // 刚发现自己是旧版：这次写入就地取消
+    // 这份文件是不是本处那套数据（见 checkDatasetIdentity）——不是就绝不能往里写
+    if (!checkDatasetIdentity(cur.remote)) return 'blocked';
     cacheRemoteWriteInfo(cur.remote);   // 记一下"我这次写之前，文件里是谁写的"，供排查同步问题用
     // ★ 必须赶在合并之前：发现上次写被盖掉时它会把基线回滚，而合并正是拿基线当参照
     noteClobberedWrite(cur.remote, db);
@@ -3087,6 +3330,8 @@ async function pullFromFileInner() {
   if (!checkDataVersion(cur.remote)) return false;
   // 拉取本身是只读的，就算判定成旧版也照样把数据读进来给人看——被拦掉的只有写入
   checkAppVersion(cur.remote);
+  // 只读拉取同样要认一次：认错了就会把别处的数据合进本机
+  if (!checkDatasetIdentity(cur.remote)) return;
   /* 只读拉取同样要先查"上次写有没有被盖掉"。不查的话下面那句"基线对齐到文件当前内容"
      会把被覆盖的结果坐实成基线，本机手里那份改动就再也推不出去了——
      定时软同步每 5 分钟就跑一次拉取，比保存频繁得多，漏在这里等于白修。 */
@@ -3248,9 +3493,30 @@ function markLocallyChanged(rec) {
   s.dirtyKeys.push(k);
   if (s.dirtyKeys.length > LOCAL_DIRTY_LIMIT) s.dirtyKeys.splice(0, s.dirtyKeys.length - LOCAL_DIRTY_LIMIT);
 }
+/* ★ 知道自己改了哪几个字段的入口，把字段也记下来（第十六轮补的） ★
+   上面那个"整条"粒度的标记只能说明"我动过这条记录"，说不清动了哪几格，合并时只能整条竞争。
+   实测（scratchpad/probe-cross.js 场景 C）这不够用：一台缓存很旧（没有基线）的机器
+   做了一次 CSV 导入，整条竞争仍然要靠 rev 定胜负——而"rev 高 ≠ 内容新"正是
+   mergeWithoutBase 那一整段要摆脱的东西，于是这次导入被文件里 rev 更高的旧记录顶掉了。
+
+   偏偏这几个入口是【确切知道自己写了哪些字段】的：CSV 导入知道表头里有哪几列、
+   宽表导入知道它只碰任务的哪几项、备份还原就是整条都算。把字段记下来，
+   合并时就能跟变更日志那种凭据一样走逐字段——我写过的那几格用我的，没写过的听文件的。
+   别的入口（单条编辑、批量修改、体检修复……）本来就逐条写了带明细的变更日志，
+   凭据更准，不需要在这里再记一遍。 */
+function markLocallyChangedFields(rec, fields) {
+  const k = localKeyOf(rec);
+  if (!k || !DB.settings || !fields || !fields.length) return;
+  const s = DB.settings;
+  if (!s.dirtyFields || typeof s.dirtyFields !== 'object') s.dirtyFields = {};
+  const cur = Array.isArray(s.dirtyFields[k]) ? s.dirtyFields[k] : [];
+  s.dirtyFields[k] = uniq(cur.concat(fields.filter(Boolean)));
+  const keys = Object.keys(s.dirtyFields);
+  if (keys.length > LOCAL_DIRTY_LIMIT) keys.slice(0, keys.length - LOCAL_DIRTY_LIMIT).forEach(x => delete s.dirtyFields[x]);
+}
 function clearLocallyChanged(db) {
   const s = (db || DB).settings;
-  if (s) s.dirtyKeys = [];
+  if (s) { s.dirtyKeys = []; s.dirtyFields = {}; }
 }
 function stampMeta(rec) {
   const now = new Date().toISOString();
@@ -3271,9 +3537,32 @@ function stampMeta(rec) {
    不追踪谁读过、不做冲突历史，只覆盖任务和里程碑这两类编辑，外加登录事件。
 
    条数上限从 300 提到 800 是为了日志页：300 条在十来个人同时用的时候撑不住几天，
-   管理员翻"上周谁改了什么"会直接翻空。每条约 150 字节，800 条也就 120KB 上下，
-   相对共享文件本身的体量可以接受。 */
-const CHANGELOG_LIMIT = 800;
+   管理员翻"上周谁改了什么"会直接翻空。
+
+   ★ 800 → 2000：补了里程碑日志之后，可回溯的天数被自己腰斩了 ★
+   上一轮（P111）给里程碑补上逐字段变更记录，解决了"按日志核对数据对里程碑完全是瞎的"，
+   但顺带把日志的产生速度提高了一倍多：以前一次任务详情保存只写 1 条，现在是
+   1 条任务日志 + 每条被改动的里程碑各 1 条，实测平均约 2.5 条。
+   按每天全处 30 次保存估算，800 条只够回溯 11 天左右——而补日志之前是 27 天。
+   等于为了"查得到里程碑"，把"查得到多久以前"砍掉了一半多，这个交换不划算：
+   数据被人悄悄改回去这类事，往往过了两三周才被发现，11 天的窗口太短。
+
+   为什么定 2000 而不是更大——按处室实际规模实测过（15 项职责 / 40 项工作 / 300 条任务 /
+   600 条里程碑，单条日志平均 318 字节）：
+     业务数据本身      253 KB
+     +  800 条日志  →  共享文件  501 KB
+     + 1600 条日志  →            750 KB
+     + 2400 条日志  →            999 KB
+   2000 条时日志占约 620KB、整份文件约 875KB，仍在 1MB 以内——局域网共享文件夹上
+   这个量级的读写是毫秒级的，SMB 也完全扛得住。回溯天数回到 27 天左右，跟补日志之前持平。
+   再往上就会越过 1MB，而每一次同步都要整份读写，不值得为更长的历史付这个代价——
+   要长期留存本来就该走数据页的导出备份（日志页底下那句提示也是这么写的）。
+
+   还有一件要说清楚的事：这个上限是【本机常量】。手上还是旧 html 的同事读到 2000 条日志后，
+   会按他那份 800 的上限裁一遍再写回去，于是日志被砍短。这不是数据损坏（日志本来就是
+   会被裁的），而且"陈旧 html 门禁"（checkAppVersion）本来就会把旧版客户端挡成只读，
+   但升级期间可能出现"日志时长忽长忽短"的现象，属于预期内的过渡。 */
+const CHANGELOG_LIMIT = 2000;
 /* ★★★ 超上限时丢哪些，必须分等级 ★★★
    原来是一刀切 splice(0, over)：按时间从最旧的开始丢，不管那条是什么。
    实测（第十三轮探针4）的后果：十几个人每天登录，登录记录和变更记录共用这 800 条额度，
@@ -3447,6 +3736,54 @@ function logRecordChange(entity, id, before, after, keys, extra) {
   pushChangeLog(entity, id, summary, diffRecordChanges(entity, before, after, keys));
 }
 
+/* ---- 里程碑的独立变更记录 ----
+
+   ★ 为什么非补不可 ★
+   在这之前，改里程碑只会在【任务】那条记录上留一句附带的描述，比如「检查点数：2→3」
+   「新增「调研报告」；移除「会议纪要」」。那句话是给人看的，程序没法从里面还原出
+   「M1 这条的交付日期从 9-20 挪到了 9-25」——而「按日志核对数据」（auditByChangelog）
+   要的正是这种逐字段的结构化明细。结果是：这套系统花了很大力气建起来的最后一道防线，
+   对里程碑完全是瞎的。
+
+   而里程碑恰恰是最不该瞎的那一块：
+   · 报表里「本期交付了什么」整个模块，唯一的数据来源就是里程碑的交付日期和完成标记；
+   · 同事最常抱怨的「我那条交付物怎么没了 / 日期怎么变回去了」，说的多半就是它；
+   · 任务的字段改动一直都有逐字段记录，里程碑没有，两边一对照就显得像是漏了。
+
+   ★ 为什么要限条数 ★
+   一次保存可能同时动好几条里程碑，每条都记一条日志的话，一个批量调整就能往
+   changelog 里塞十几条。CHANGELOG_LIMIT 是有上限的（capChangelog 到点就开始丢旧的），
+   让一次普通编辑冲掉十几条历史不划算。所以超过 MS_LOG_MAX 条就退回一句汇总——
+   真要一次改十几条里程碑的场景（宽表导入），本来就不适合逐条核对。 */
+const MS_LOG_MAX = 8;
+function msLogTitle(m) { return (m && m.deliverable) || (m && m.plan_date) || '未填写交付物'; }
+/* changed/added/removed 三份清单，一次记完。
+   · changed: [{before, after}]  —— 记逐字段明细，核对/修复要用
+   · added / removed: [记录]      —— 只记一句话：新增和删除没有「改前的值」可以核对，
+                                     硬塞一份 changes 进去，核对时会把它当成「这个字段现在应该是 X」，
+                                     而一条刚被删掉的记录本来就不该参与核对（auditByChangelog 会跳过），
+                                     记了也是白记，反而让人以为查得到。 */
+function logMilestoneChanges(changed, added, removed) {
+  const total = changed.length + added.length + removed.length;
+  if (!total) return;
+  if (total > MS_LOG_MAX) {
+    // 太多了，退回一句汇总挂在任务上，不逐条刷屏（见上面「为什么要限条数」）
+    const parts = [];
+    if (changed.length) parts.push(`改了 ${changed.length} 条`);
+    if (added.length) parts.push(`新增 ${added.length} 条`);
+    if (removed.length) parts.push(`删除 ${removed.length} 条`);
+    const anyTask = (changed[0] && changed[0].after.task) || (added[0] && added[0].task)
+      || (removed[0] && removed[0].task) || '';
+    pushChangeLog('task', anyTask, `一次调整了 ${total} 条里程碑（${parts.join('、')}），条数太多，未逐条记录明细`);
+    return;
+  }
+  changed.forEach(c => logRecordChange('milestone', c.after.id, c.before, c.after));
+  added.forEach(m => pushChangeLog('milestone', m.id, `新增里程碑「${msLogTitle(m)}」`
+    + (m.plan_date ? `，计划 ${m.plan_date}` : '')));
+  removed.forEach(m => pushChangeLog('milestone', m.id, `删除里程碑「${msLogTitle(m)}」`
+    + (m.plan_date ? `（原计划 ${m.plan_date}）` : '')));
+}
+
 /* ★ 可迁移性设计 4：软删除保留墓碑，合并多人数据时不会"复活"已删记录 */
 /* ★ 删除/恢复必须 stampMeta，否则这次操作根本传不到别人那里 ★
    合并是按"版本号(rev)更高的赢，版本号一样再比修改时间"来的（见 newerRecord）。
@@ -3605,7 +3942,15 @@ function nextTaskCode(workId) {
   if (!w || !w.code) return '';
   const yy = String((w.year || new Date().getFullYear()) % 100).padStart(2, '0');
   const prefix = w.code + yy;
-  const used = DB.tasks.filter(t => t.code && t.code.startsWith(prefix) && t.code.length === 8)
+  /* ★ 不能按"编号一定是 8 位"来筛已用编号 ★
+     编号 = 工作编号(4) + 年份后两位(2) + 流水号。流水号平时补到 2 位，
+     但一项工作下超过 99 条任务之后自然变成 3 位（010126100），长度就成了 9。
+     原来这里写死 length === 8，第 100 条起的编号全被筛掉、算不进"已用"里，
+     最大值永远停在 99 → 之后每一条都生成 010126100，一路重复下去。
+     实测连着建 120 条，只得到 100 个不同编号，后 20 条全撞号。
+     而重复的任务编号是体检里的 error 级问题，还会让宽表导入的覆盖模式认领到错的那一条任务。
+     改成"前缀之后全是数字就算数"，位数多少都认。 */
+  const used = DB.tasks.filter(t => t.code && t.code.startsWith(prefix) && /^[0-9]+$/.test(t.code.slice(6)))
     .map(t => parseInt(t.code.slice(6), 10) || 0);
   return prefix + String((used.length ? Math.max(...used) : 0) + 1).padStart(2, '0');
 }
@@ -3902,7 +4247,11 @@ function reconcileStatusAndProgress(t, before) {
       t.actual_date = t.actual_date || todayStr();
       if (!hasCheckpoints(t)) t.progress = 100;
     } else if (before.status === 'done') {
-      t.actual_date = '';
+      // 从「已完成」改回别的状态：状态改了，但实际完成日期留着——理由跟里程碑那边完全一样，
+      // 见任务详情保存里 cur.actual_date 那段长注释。留着它不会让任何统计把这条当成已完成，
+      // 报表/图表判「完成」一律先看 status === 'done'；它只是一份「上次是哪天完成的」的记忆，
+      // 好让改回「已完成」时能恢复成真实那一天，而不是一律变成今天。
+      void 0;
     }
     return;
   }
@@ -3910,7 +4259,7 @@ function reconcileStatusAndProgress(t, before) {
   if (p >= 100) {
     if (t.status !== 'done') { t.status = 'done'; t.actual_date = t.actual_date || todayStr(); }
   } else if (t.status === 'done') {
-    t.status = 'doing'; t.actual_date = '';
+    t.status = 'doing';   // 同上：不清 actual_date。进度从 100 往回调一格是最容易手滑的一种操作
   } else if (p > 0 && t.status === 'todo') {
     t.status = 'doing';
   }
@@ -5374,11 +5723,24 @@ function taskFieldBars(fieldKey, tasks) {
 // 大于 1 说明整体比计划快，小于 1 说明落后于计划。图表页"按任务/按工作"总览用。
 // 单条任务的"计划进度"按 创建时间→计划完成时间 这段时间里、今天已经走过的比例估算；
 // 今天已经过了计划完成时间就按 100% 算；没有计划完成时间的任务没法估算"计划进度"，不参与统计。
+// 已挂起、已删除的任务同样不参与（理由见函数体里的两段注释）。
 function computeSPI(tasks) {
   const today = todayStr();
   let sumActual = 0, sumPlanned = 0;
   tasks.forEach(t => {
     if (!t.plan_date) return;
+    /* 已删除的不算。调用点传进来的一般已经滤过（visibleTasks），但这个函数算的是一个
+       会被摆到处领导面前的指标，不该把「有没有滤干净」这件事完全托付给每一个调用点——
+       将来多一个调用点忘了滤，指标会悄悄失真，而失真的指标看上去跟正常的一模一样。 */
+    if (t.deleted_at) return;
+    /* ★ 挂起的任务不参与 SPI ★
+       挂起是使用者主动做的决定——等外部条件、等上级批复、等对方单位回函，
+       期间进度本来就不该动。可"计划进度"是按日历一天天往上爬的，于是一条挂起的任务
+       每多挂一天，SPI 就被往下拽一点，挂三个月能把整个处的指标拖垮。
+       结果是逼着大家不敢用「挂起」这个状态，宁可挂在「进行中」装作还在推进——
+       那反而让看板失去了真实性。挂起既不进分子也不进分母，跟 isOpen()/backlogAsOf
+       "挂起不计入待办"的口径保持一致。 */
+    if (t.status === 'hold') return;
     const actual = Math.max(0, Math.min(100, Number(t.progress) || 0));
     const created = localDay(t.created_at);
     let planned;
@@ -6186,7 +6548,7 @@ function renderCharts() {
              <div class="chart-flex-pie" style="margin:0">${pieChart(overallPie, 140, '全部任务状态占比')}${pieLegend(overallPie)}</div>
              <div class="cards" style="flex:1;min-width:160px;margin-bottom:0">${statCard('SPI', spi === null ? '—' : spi.toFixed(2), spi === null ? '' : (spi >= 1 ? 'ok' : 'warn'))}</div>
            </div>` : '<div class="empty-mini">暂无数据</div>')}
-        <div class="chart-note">当前筛选下的全部任务，不分人也不分职责；SPI = 实际进度 ÷ 计划进度（按创建时间到计划完成时间之间"今天应该走到哪"估算），是围绕 1 的比值，不是百分比——大于 1 说明整体比计划快，小于 1 说明落后于计划；没有计划完成时间的任务不参与这项统计。</div></div></div>
+        <div class="chart-note">当前筛选下的全部任务，不分人也不分职责；SPI = 实际进度 ÷ 计划进度（按创建时间到计划完成时间之间"今天应该走到哪"估算），是围绕 1 的比值，不是百分比——大于 1 说明整体比计划快，小于 1 说明落后于计划；没有计划完成时间的任务不参与这项统计，已挂起的任务也不参与（挂起是主动决定暂不推进，不该按日历一天天扣分）。</div></div></div>
       <div class="panel">
       ${panelHead('▤ 计划完成时间分布', 'taskDue')}
       <div class="panel-b">${chartTableView.taskDue
@@ -9307,13 +9669,30 @@ function renderLogs() {
   const rowsHTML = rows.length ? rows.map(e => {
     const kind = logKind(e);
     const ent = logEntity(e), ref = logRefId(e);
-    // 变更条目挂着一条具体记录。任务能直接跳过去看；工作/职责跳到各自的页面并定位到那一条
+    /* 变更条目挂着一条具体记录。任务能直接跳过去看；工作/职责跳到各自的页面并定位到那一条；
+       里程碑没有自己的页面（它挂在任务下、在任务详情里编辑），跳到它所属的那条任务。
+
+       ★ 上一轮（P111）给里程碑补了整套逐字段变更记录，却没有回头改这三行 ★
+         后果是：日志页——管理员核对数据的主战场——上，里程碑那些记录的「类型」和
+         「改的是哪一条」两列全是【空白】。ent 是 'milestone'，下面那个 label 表里没有它；
+         name 只认 rec.title（任务）和 rec.code/rec.name（工作、职责），
+         而里程碑这三个字段一个都没有（它的标题字段是 deliverable）。
+         管理员看到的是一行：时间、谁、空类型、空名称，后面跟一句摘要——
+         跟没记差不了多少。补日志这件事只做了一半。 */
     const rec = (kind === 'edit' && ref) ? byId(ent, ref) : null;
-    const jump = rec ? (ent === 'task'
-      ? ` class="log-row" data-act="focus-task" data-id="${esc(ref)}"`
+    const jump = rec ? ((ent === 'task' || ent === 'milestone')
+      ? ` class="log-row" data-act="focus-task" data-id="${esc(ent === 'milestone' ? (rec.task || '') : ref)}"`
       : ` class="log-row" data-act="focus-record" data-entity="${ent}" data-id="${esc(ref)}"`) : '';
-    const name = rec ? (ent === 'task' ? rec.title : `${rec.code || ''} ${rec.name || ''}`.trim()) : '';
-    const label = { task: '任务', work: '工作', duty: '职责' }[ent] || '';
+    // 里程碑光有交付物名还看不出是哪个任务下的，把所属任务一起带上
+    const msTask = (ent === 'milestone' && rec) ? byId('task', rec.task) : null;
+    // 任务标题可能是空的——"标题不能为空"只在新建时校验，编辑已有任务时清空是允许的。
+    // 不判一下就会显示成「调研报告（终稿）（）」这么个空括号，难看且没有任何信息。
+    const msTaskName = (msTask && msTask.title) ? `（${msTask.title}）` : '';
+    const name = rec ? (ent === 'task' ? rec.title
+      : ent === 'milestone'
+        ? (rec.deliverable || rec.plan_date || '（未填写交付物）') + msTaskName
+        : `${rec.code || ''} ${rec.name || ''}`.trim()) : '';
+    const label = { task: '任务', work: '工作', duty: '职责', milestone: '里程碑' }[ent] || '';
     return `<tr${jump}>
       <td class="log-time">${esc(fmtLocalDateTime(e.at))}<span class="hint"> ${esc(relTime(e.at))}</span></td>
       <td>${esc(e.by || '未署名')}</td>
@@ -10359,9 +10738,26 @@ const ACTIONS = {
   },
   'login-back': () => renderLoginGate(),
   'login-verify-pin': async d => {
+    // 还在锁定期里就不给试了——连 PBKDF2 都不用算，直接把还要等多久告诉他（见 notePinFailure 上面那段）
+    const waitTxt = pinLockRemainText(d.name);
+    if (waitTxt) { renderLoginVerify(d.name, `连续输错太多次了，请等 ${waitTxt} 后再试`); return; }
     const user = DB.users.find(u => u.name === d.name && !u.deleted_at);
     const pin = $('#login-pin').value;
-    if (!user || !(await verifyPin(pin, user))) { renderLoginVerify(d.name, 'PIN 不对，请重试'); return; }
+    if (!user || !(await verifyPin(pin, user))) {
+      const r = notePinFailure(d.name);
+      if (r.justLocked) {
+        /* 这一次刚好锁上：写一条告警，它随共享文件同步给所有人。
+           刻意不写 DB.settings.me——试错的人是谁本来就不知道，by 留「未署名」才是实话。 */
+        pushAlertLog(`有人在这台机器上连续 ${r.n} 次输错「${d.name}」的 PIN，已暂停 ${Math.round(PIN_LOCK_MS / 60000)} 分钟`,
+          { target: d.name });
+        try { await Repo.persist(DB); } catch (e) {}   // 推不出去（没连共享文件/授权失效）也不能挡住登录界面
+      }
+      renderLoginVerify(d.name, r.locked
+        ? `连续输错太多次了，请等 ${pinLockRemainText(d.name) || '几分钟'}后再试`
+        : `PIN 不对，请重试（再错 ${Math.max(1, PIN_FAIL_LIMIT - r.n)} 次会暂停一会儿）`);
+      return;
+    }
+    clearPinFailures(d.name);   // 验过了，之前的失败次数一笔勾销
     DB.settings.me = d.name;
     pushLoginLog(d.name, '输入 PIN 登录');
     await Repo.persist(DB);
@@ -10378,6 +10774,34 @@ const ACTIONS = {
     const pin2 = $('#login-new-pin2').value;
     if (pin.length < 4) { renderLoginSetPin(d.name, 'PIN 至少 4 位'); return; }
     if (pin !== pin2) { renderLoginSetPin(d.name, '两次 PIN 不一致'); return; }
+    /* ★★ 上面那句 if (user.hash) 问的是【本机内存里这份用户记录】，而它可能是陈旧的 ★★
+       实测过一次完整的账号劫持：共享文件里张三早就设好了 PIN，但这台机器上的缓存还停在
+       「张三没设过」那一版（管理员在这台机器上给张三改过几次角色，本机那条 rev 反而更高）。
+       于是任何人选中张三 → 走到这一屏 → 自己设一个 PIN → 不但当场以张三的身份登录进去，
+       保存时本机那条 rev 更高，还把张三真正的 hash 顶掉了：真张三从此用自己的 PIN 登不进来。
+
+       「首次设置 PIN」是整套系统里唯一一个【不需要出示任何凭据就能获得一个身份】的入口，
+       它成立的前提只有一个——这个账号确实还没有主人。这个前提绝不能拿本机缓存来判断，
+       必须回共享文件看一眼当下的事实。多花一次文件读是值得的：这一步一辈子只走一次。
+
+       读不到共享文件（没连上/授权失效/离线单机）时不硬拦：那种情况下本来就没有「别人」，
+       拦死会把真正的首次搭建和纯单机使用一起堵住。 */
+    if (_fileHandle) {
+      let cur = null;
+      try { cur = await readSharedFile(); } catch (e) { cur = null; }
+      const remoteUser = cur && cur.remote && (cur.remote.users || []).find(u => u.name === d.name && !u.deleted_at);
+      if (remoteUser && remoteUser.hash) {
+        // 共享文件里他已经有 PIN 了：本机这份缓存是旧的。把本机那条同步过来，改走验证
+        Object.assign(user, { salt: remoteUser.salt, hash: remoteUser.hash, iterations: remoteUser.iterations,
+          rev: Math.max(Number(user.rev) || 0, Number(remoteUser.rev) || 0),
+          updated_at: remoteUser.updated_at || user.updated_at, updated_by: remoteUser.updated_by || user.updated_by });
+        pushAlertLog(`有人在这台机器上试图给已经设过 PIN 的账号「${d.name}」重设 PIN（本机缓存是旧的），已拦下`,
+          { target: d.name });
+        try { await Repo.persist(DB); } catch (e) {}
+        renderLoginVerify(d.name, '这个账号已经设过 PIN 了（本机数据刚才是旧的），请输入 PIN');
+        return;
+      }
+    }
     const { salt, hash, iterations } = await hashPin(pin);
     DB.settings.me = d.name;   // 先设好，stampMeta 记 updated_by 才准
     Object.assign(user, { salt, hash, iterations });
@@ -10464,6 +10888,12 @@ const ACTIONS = {
   // 日志里点一条工作/职责的记录，跳到对应页面并把它搜出来（任务走 focus-task，那边还要处理视图切换）
   'focus-record': d => {
     const rec = byId(d.entity, d.id); if (!rec) return;
+    /* 里程碑没有自己的页面，它挂在任务下、在任务详情里编辑——跳到它所属的那条任务。
+       漏了这一条的后果实测过：点一条里程碑的变更记录，会落到下面那句
+       `d.entity === 'work' ? 'works' : 'duties'` 的 else 分支上，
+       【莫名其妙跳到职责页】，还顺手把职责页的搜索框清成空的
+       （rec.code / rec.name 里程碑都没有），等于把管理员正在看的筛选条件一起弄丢。 */
+    if (d.entity === 'milestone') { if (rec.task) ACTIONS['focus-task']({ id: rec.task }); return; }
     const page = d.entity === 'work' ? 'works' : 'duties';
     UI[page].filters = {};
     UI[page].search = rec.code || rec.name || '';
@@ -10545,7 +10975,7 @@ const ACTIONS = {
     renderShell(); renderPage();
     showSnack('已消掉这条告警，本机留底也一并清除');
   },
-  export: d => exportCSV(d.entity),
+  export: d => exportCSV(d.entity),   // 权限闸在 exportCSV 里，所有调用点统一走那一道
   'export-all': () => exportJSON(),
   // 换粒度（周/月/季/年）时把翻期归零：从"上3月"切到"按年"还停在偏移 3 上没有意义，
   // 每次换粒度都应该先落回当前这一期，想再往前翻用户自己点 ‹ 就行
@@ -11458,6 +11888,15 @@ async function spCommitSingle(val) {
   if (!_sp) return;
   const { entity, id, field } = _sp;
   const r = byId(entity, id);
+  /* ★ 提交这一步再查一次"这条记录轮不轮得到我改" ★
+     界面入口（openEditor）已经查过一次，这里是第二层：弹层一旦打开，
+     提交时就不该再假设入口查过了——同一条规则只写在入口，哪天多一个入口就漏一个。 */
+  if (!r) return;
+  if ((entity === 'task' || entity === 'work') && !canEditRecord(entity, r)) {
+    closeSelectPopup();
+    showSnack(`为了防止误操作，只能编辑自己负责或参与的${entity === 'task' ? '任务' : '工作'}`);
+    return;
+  }
   if (entity === 'task' && field === 'owner' && ownerChangeNeedsWarning(r, val)) {
     closeSelectPopup();
     confirmOwnerChange(() => finishSpCommitSingle(entity, id, field, val));
@@ -11481,6 +11920,11 @@ async function spCommitSingle(val) {
 }
 async function finishSpCommitSingle(entity, id, field, val) {
   const r = byId(entity, id); if (!r) return;
+  // 真正落库的这一步再兜一次，理由同 spCommitSingle 上面那段
+  if ((entity === 'task' || entity === 'work') && !canEditRecord(entity, r)) {
+    showSnack(`为了防止误操作，只能编辑自己负责或参与的${entity === 'task' ? '任务' : '工作'}`);
+    return;
+  }
   snapshot();
   const before = clone(r);   // 工作/职责的下拉选择同样要留痕
   r[field] = val;
@@ -11532,9 +11976,9 @@ async function commitTaskStatus(t, newStatus, alsoCompleteCheckpoints) {
     t.plan_date = t.plan_date || todayStr();
     t.actual_date = t.actual_date || todayStr();
     if (hasCheckpoints(t)) recalcProgress(t); else t.progress = 100;
-  } else {
-    t.actual_date = '';
   }
+  // 从「已完成」改成别的状态时不再清 actual_date：留着它当「上次是哪天完成的」的记忆，
+  // 改回已完成时就能恢复真实那一天，而不是一律记成今天（见 reconcileStatusAndProgress 那段）
   // 勾了里程碑就要在日志里说出来：里程碑自己不单独写变更记录，不在这句里带上，
   // 事后就查不出这批交付物是谁、什么时候一次性勾完的
   logRecordChange('task', t.id, before, t, ['status', 'plan_date', 'actual_date', 'progress'],
@@ -11921,6 +12365,9 @@ function cpRowHTML(m) {
       ${REPORT_LEVELS.map(o => `<option value="${o.v}"${reportLevel === o.v ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}
     </select>
     <label class="cp-done-lbl"><input type="checkbox" class="cp-chk"${m && m.done === '1' ? ' checked' : ''}> 已完成</label>
+    ${m && m.actual_date ? `<span class="cp-actual" title="${m.done === '1'
+      ? `实际交付日期。报表里「本期已交付」就是按这一天归期的`
+      : `上一次是这天完成的。现在是未完成状态，如果再勾上「已完成」会沿用这个日期，不会改成今天`}">${m.done === '1' ? '交付于 ' : '上次完成 '}${esc(m.actual_date)}</span>` : ''}
     <button type="button" class="action-btn" data-act="cp-insert-after" title="在这条下面插入一条">＋</button>
     <button type="button" class="action-btn copy" data-act="cp-copy-row" title="复制这条里程碑">⧉</button>
     <button type="button" class="action-btn del" data-act="cp-remove-row" title="删除这条">×</button>
@@ -12020,7 +12467,8 @@ function openBatchEdit(fieldKey) {
                 t.actual_date = t.actual_date || todayStr();
                 // 勾完里程碑之后进度才算得对；没有里程碑的任务直接 100
                 if (hasCheckpoints(t)) recalcProgress(t); else t.progress = 100;
-              } else t.actual_date = '';
+              }
+              // 改成非「已完成」时不再清 actual_date，同 reconcileStatusAndProgress 里的理由
             }
             if (fieldKey === 'work') t.code = val ? nextTaskCode(val) : '';  // 编号跟着新工作重新生成；里程碑挂在任务下，换工作不受影响
             cpTotal += cpDone;
@@ -12305,25 +12753,45 @@ function openTaskDetail(id, draft, copyFrom) {
              真出过事故——保存要等一次共享文件读写，用户以为没反应就多点了几下，
              一条任务下就凭空多出好几套一模一样的里程碑（详见 cpRowHTML 里 data-ms-id 那段注释）。
              现在：界面上还在的按 id 更新，界面上被删掉的才软删除，只有真正新加的行才建新记录。 */
+          /* 这三份清单是给 logMilestoneChanges 用的：里程碑的增/改/删从这一轮起要留下
+             自己的逐字段变更记录，不能再只在任务那条记录上附一句「检查点数：2→3」——
+             那句话给人看没问题，但「按日志核对数据」没法从中还原出该写回什么值。 */
+          const msChanged = [], msAdded = [], msRemoved = [];
           const keepIds = new Set(cpData.map(c => c.id).filter(Boolean));
-          existingCps.forEach(m => { if (!keepIds.has(m.id)) softDelete('milestone', m.id); });
+          existingCps.forEach(m => {
+            if (keepIds.has(m.id)) return;
+            msRemoved.push(clone(m));
+            softDelete('milestone', m.id);
+          });
           cpData.forEach(cd => {
             const cur = cd.id ? byId('milestone', cd.id) : null;
             if (cur) {
+              const msBefore = clone(cur);
               cur.task = t.id;   // 新建任务时草稿 id 才最终确定，老里程碑要跟着认领过去
               cur.plan_date = cd.plan_date;
               cur.deliverable = cd.deliverable;
               cur.report_level = cd.report_level;
               cur.done = cd.done;
-              // 已完成的保留原来的实际完成日期（别把历史抹成今天），从完成改回未完成就清掉
-              cur.actual_date = cd.done === '1' ? (cur.actual_date || todayStr()) : '';
+              /* ★ 从「已完成」改回「未完成」时，绝对不能把实际完成日期抹掉 ★
+                 以前这里是 : '' —— 手滑点掉一下勾再勾回来，8 月 5 日交付的东西就永久变成了今天。
+                 而检查点行上根本没有实际完成日这个输入框，用户发现了也改不回去。
+                 这条日期是报表里「本期已交付」那张清单唯一的归期依据，错一次同时错两期：
+                 该算进 8 月的少了一条，本期凭空多出一条。
+                 留着它没有副作用——所有把里程碑当成「已交付」的地方都先看 done === '1'
+                 （报表的 deliveredInRange、图表的 msCompletionPie 都是），
+                 done 是 0 的时候这个日期只是一份「上次是哪天完成的」的记忆，
+                 恰好让「勾回来」能原样恢复。 */
+              cur.actual_date = cd.done === '1' ? (cur.actual_date || todayStr()) : cur.actual_date;
               if (cur.deleted_at) delete cur.deleted_at;   // 上一次误删的又被提交回来，等于撤销删除
               stampMeta(cur);
+              msChanged.push({ before: msBefore, after: cur });
             } else {
-              DB.milestones.push(stampMeta(blank('milestone', {
+              const fresh = stampMeta(blank('milestone', {
                 task: t.id, plan_date: cd.plan_date, deliverable: cd.deliverable, report_level: cd.report_level, done: cd.done,
                 actual_date: cd.done === '1' ? todayStr() : '',
-              })));
+              }));
+              DB.milestones.push(fresh);
+              msAdded.push(fresh);
             }
           });
           recalcProgress(t);
@@ -12346,6 +12814,9 @@ function openTaskDetail(id, draft, copyFrom) {
           // 会显得比实际情况更让人摸不着头脑
           if (isNew) pushChangeLog('task', t.id, `新建任务「${t.title}」`);
           else logRecordChange('task', t.id, before, t, null, cpParts.join('；'));
+          // 任务那条记的是「这次保存整体动了什么」；里程碑各自的逐字段明细单独记，
+          // 「按日志核对数据」才查得到某条交付物的日期/层级被谁改成了什么（见 logMilestoneChanges）
+          logMilestoneChanges(msChanged, msAdded, msRemoved);
         });
         closeModal();
         if (isNew && UI.tasks.view === 'deleted') UI.tasks.view = 'all';   // 新建完却停在"已删除"视图里会看不见刚建的任务
@@ -13314,6 +13785,18 @@ function importBackup(text) {
          对齐到 remote 之后两者各归其位：旧缓存仍然被挡住，而还原是有依据的正当改动。 */
       clearSyncBaseline(DB);
       if (remote) DB.syncBase = buildSyncBase(remote);
+      /* ★ 还原也要留下"这是我改的"凭据，而且必须放在 clearSyncBaseline 之后 ★
+         还原刻意不盖 stampMeta（要保住"最后是谁改的"那条线索），所以拿不到那个标记；
+         它又不会为每条记录写逐字段日志。离线做还原时这一点尤其要命：那时读不到共享文件，
+         上面那句 buildSyncBase 走不到，基线只能留空；等联网一同步，没有基线又没有凭据，
+         这次还原就会被 mergeWithoutBase 当成说不清来路的内容整批丢掉——实测
+         probe-cross.js 场景 A 就是这么丢的，表象跟最早那个"点了确认恢复、数据一个字没变"一模一样。
+         还原的语义就是"以备份为准"，所以整条的字段都算我改的。
+         顺序不能反：clearSyncBaseline 会把这些标记一起清掉（它清的就是"对文件的全部记忆"）。 */
+      SYNC_BASE_ENTITIES.forEach(([entity, listKey]) => {
+        const keys = mergeableKeys(entity);
+        (restored[listKey] || []).forEach(r => markLocallyChangedFields(r, keys));
+      });
       // ② 墓碑取三方并集（备份 + 本机现有 + 文件里），再把备份里还活着的那些记录的墓碑作废
       const tomb = new Map();
       [...(Array.isArray(d.purged) ? d.purged : []), ...prevPurged, ...(((remote && remote.purged) || []))]
@@ -13553,8 +14036,30 @@ function splitMulti(raw) {
   out.push(cur);
   return out.map(s => s.trim()).filter(Boolean);
 }
+/* ★★★ 导出的 CSV 一定会被 Excel / WPS 打开，而以 = + - @ 开头的单元格会被当成【公式】执行 ★★★
+   这不是纸上谈兵：任务标题、备注、交付物都是人随手填的，而共享 JSON 还是网盘上的明文文件、
+   谁都能用记事本改。只要有一格是 =HYPERLINK("http://…"&A1,"点我") 或者 =cmd|'/c …'!A1，
+   任何人把导出的表在 Excel 里一打开，就可能外泄数据甚至执行命令。
+   加引号包起来救不了——Excel 会先剥掉引号再当公式算。
+
+   通行的处理是在前面补一个单引号：Excel 认它是"这一格是文本"的标记，界面上不显示。
+   为了让导出的表还能原样导回来，applyCSVImport / applyWideImport 读进来时会把它去掉（见 csvUnguard）。
+   ★ 纯数字不加 ★ 负数（-5）在 Excel 里本来就是数字、不是公式，给它补引号会让整列变成文本、
+   连求和都做不了，这个代价没必要付；真正危险的是 -1+1 这种"以减号开头但不是数字"的式子。 */
+const CSV_RISKY_HEAD = /^[=+\-@\t\r]/;
+const CSV_PLAIN_NUMBER = /^-?\d+(\.\d+)?$/;
+function csvGuard(s) {
+  if (!CSV_RISKY_HEAD.test(s)) return s;
+  if (CSV_PLAIN_NUMBER.test(s)) return s;   // 纯数字（含负数）本来就不是公式
+  return "'" + s;
+}
+// 导回来时把上面补的那个单引号去掉，保证"导出—在 Excel 里改—再导回"是原样往返的
+function csvUnguard(s) {
+  if (typeof s !== 'string' || s.length < 2 || s[0] !== "'") return s;
+  return CSV_RISKY_HEAD.test(s.slice(1)) ? s.slice(1) : s;
+}
 function toCSVField(v) {
-  const s = String(v == null ? '' : v);
+  const s = csvGuard(String(v == null ? '' : v));
   return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
 }
 function parseCSV(text) {
@@ -13594,6 +14099,11 @@ function download(name, content, mime) {
 function stamp() { return new Date().toISOString().replace(/[-:.TZ]/g, '').slice(0, 15); }
 
 function exportCSV(entity) {
+  /* 导出按钮摆在「数据」页上，那一页本身要 view_data 才看得见。但这套代码自己定的原则是
+     "点进去之后每个具体操作各自还要再过一遍自己的权限检查"（见权限矩阵那段注释）——
+     不靠"看不见就点不到"。闸放在函数里而不是放在 ACTIONS 那一行，
+     是为了让所有调用点都自动过这一道，以后多一个入口也不会漏。 */
+  if (!requirePermission('view_data')) return;
   const h = csvHeaders(entity);
   const rows = [h.join(',')];
   coll(entity).forEach(r => rows.push(h.map(k => toCSVField(csvCell(entity, r, k))).join(',')));
@@ -13601,7 +14111,14 @@ function exportCSV(entity) {
   showSnack(`已导出 ${coll(entity).length} 条${schema(entity).label}`);
 }
 async function exportJSON() {
-  download(`工作管理备份_${stamp()}.json`, JSON.stringify(DB, null, 1), 'application/json');
+  /* ★ 导出全量备份必须过权限闸 ★
+     这一份里装着全处的业务数据、全部账号，以及账号的 PIN 校验信息（salt/hash/iterations）——
+     不是明文口令，但足以离线暴力猜弱 PIN，账号导出那边的注释里已经写明过这一点。
+     导入备份一直要求 bulk_ops，而导出比导入更容易造成外泄，却一直是敞开的。 */
+  if (!requirePermission('bulk_ops')) return;
+  // 跟定期备份写出去的是同一份内容（不含本机私有的同步基线，见 backupSnapshot）——
+  // 两个入口产出的备份文件必须长得一模一样，否则"从备份恢复"要分情况处理，迟早出岔子
+  download(`工作管理备份_${stamp()}.json`, JSON.stringify(backupSnapshot(), null, 1), 'application/json');
   DB.settings.lastBackupAt = new Date().toISOString();
   await Repo.persist(DB);
   if (currentPage === 'data') renderPage();
@@ -13780,6 +14297,22 @@ function claimBackupSlot(hours) {
   } catch (e) {
     return true;   // localStorage 不可用（隐私模式等）时退回旧行为：宁可多备一份，也不能不备
   }
+}
+/* ★ 抢到了锁不等于备份写成功了 ★
+   claimBackupSlot 是在调 runBackup【之前】就把锁写进 localStorage 的，而 runBackup 可能失败——
+   备份盘是网络盘，掉线、断电、磁盘满、目录被改名，哪一样都会让它写不进去。
+   以前失败之后谁也不把锁还回去，于是接下来整整一个备份周期（默认 24 小时）里，
+   maybeAutoBackup 每一轮都卡在 claimBackupSlot 这一步直接返回，连再试一次都不会——
+   网络盘抖一下，就等于一整天没有备份，而备份是这套系统最后一条退路。
+   现在：抢锁前先把原来的值记下来，失败就原样放回去，下一轮定时器照常再试。 */
+function peekBackupSlot() {
+  try { return localStorage.getItem(BACKUP_LOCK_KEY); } catch (e) { return null; }
+}
+function restoreBackupSlot(prev) {
+  try {
+    if (prev == null) localStorage.removeItem(BACKUP_LOCK_KEY);
+    else localStorage.setItem(BACKUP_LOCK_KEY, prev);
+  } catch (e) {}
 }
 // 手动备份成功后也要占掉这个周期，否则紧跟着的定时器会再自动写一份
 function markBackupSlotUsed() {
@@ -14016,6 +14549,14 @@ async function connectSharedFile() {
     // 污染大家的真实数据。shareConfig/permissionMatrix 是管理员在本机配置、可能还没来得及连接就
     // 已经存在的设置，继续用原来"谁的版本更新听谁的"规则，不能被一个全新空文件的 null 值冲掉
     const firstEverConnect = !(await hasEverConnectedShare());
+    /* ★ 这份文件是不是本处那套数据（见 checkDatasetIdentity）★
+       必须放在 firstEverConnect 算出来【之后】，而且首次连接一律跳过这道闸：
+       首次连接本来就是"本机那份不要了、整份采用共享文件里那一份"——本机这时候手里
+       常常是演示数据、或者有人趁着还没连上时自己建的账号，跟共享文件当然一条都对不上。
+       在这里套"记录有没有交集"那条启发式判据，等于把每一台新设备的首次连接都拦下来
+       （实测 P25 那一整节当场全红）。首次连接之后下面会把指纹一并认领过来，
+       从第二次起这道闸才真正开始起作用。 */
+    if (!firstEverConnect && !checkDatasetIdentity(remote)) return;
     if (firstEverConnect) {
       /* 这条路是"本机数据整批换成共享文件里那一份"，跟从备份恢复/以共享文件为准重置是同一类动作，
          所以写入链标记也必须清掉：本机可能连过【别的】共享文件夹（断开之后重新连另一个走的就是这里），
@@ -14033,6 +14574,8 @@ async function connectSharedFile() {
       DB.changelog = (remote.changelog || []).slice();
       DB.users = (remote.users || []).slice();
       DB.purged = (remote.purged || []).slice();   // 墓碑也整体听共享文件的，本机那些只针对演示数据的墓碑没有意义
+      // 数据集指纹也一并认领：从这一刻起这台设备就属于这套数据了，之后换成别处的文件就会被拦下
+      DB.settings.datasetId = remote.datasetId || '';
       DB.permissionMatrix = mergePermissionMatrix(DB.permissionMatrix, remote.permissionMatrix);
       DB.shareConfig = mergePermissionMatrix(DB.shareConfig, remote.shareConfig);
       DB.reportConfig = mergePermissionMatrix(DB.reportConfig, remote.reportConfig);
@@ -14183,26 +14726,60 @@ async function runBackup(manual) {
     const name = `工作管理备份_${stamp()}.json`;
     const fh = await dir.getFileHandle(name, { create: true });
     const w = await fh.createWritable();
-    await w.write(JSON.stringify(DB, null, 1));
+    await w.write(JSON.stringify(backupSnapshot(), null, 1));
     await w.close();
     DB.settings.autoBackupAt = new Date().toISOString();
     DB.settings.lastBackupAt = DB.settings.autoBackupAt;   // 顺便消掉"很久没备份了"的提醒
     markBackupSlotUsed();   // 占掉这个备份周期，别的标签页的定时器就不会再写一份
+    _lastBackupFailWarnAt = 0;   // 这一次成功了，下次真出问题时该立刻说话，不受上次的节流影响
     await Repo.persist(DB);
     if (manual) { renderPage(); showSnack('已备份：' + name); }
     return true;
   } catch (e) {
-    if (manual) showSnack('备份失败：' + (e && e.message ? e.message : e));
+    const why = (e && e.message ? e.message : String(e));
+    if (manual) { showSnack('备份失败：' + why); return false; }
+    /* ★ 自动备份写失败不能再是静默的 ★
+       以前这里只有 if (manual) showSnack(...)：定时器触发的那一路，写不进去就悄悄返回 false，
+       一个字都不说、也不进日志。备份盘掉线一个月，管理员完全不知道，
+       直到真需要「从备份恢复」的那天，才发现最后一份备份是一个月前的。
+       备份是最后一条退路，它坏掉这件事本身必须是响的。
+       节流 20 分钟只是为了不刷屏（跟上面授权失效那条一个道理）；
+       告警日志不节流地只在【状态翻转】时写一次，靠的是 _lastBackupFailWarnAt 归零的时机。 */
+    const now = Date.now();
+    if (now - _lastBackupFailWarnAt > 1200000) {
+      const first = !_lastBackupFailWarnAt;
+      _lastBackupFailWarnAt = now;
+      showSnack('⚠ 定期备份失败了：' + why + '（请检查备份文件夹还在不在、网络盘连没连上）', { priority: true });
+      // 第一次失败时留一条随共享文件同步的告警——「备份坏了」不该只有恰好开着页面的那个人知道
+      if (first) {
+        pushAlertLog(`定期备份写入失败：${why}`);
+        try { await Repo.persist(DB); } catch (e2) {}
+      }
+    }
     return false;
   }
+}
+/* 写进备份文件的那一份。刻意不是整个 DB：
+   DB.syncBase 是【本机私有的同步基线】——每条记录在上次对完账时的一份快照，
+   纯粹是这台机器用来做三方合并的草稿纸。它对「从备份恢复」毫无用处（恢复流程本来就会重算基线），
+   却让备份文件体积接近翻倍（实测 50 条任务：32KB → 18KB）。备份是每天写一份、常年累积的，
+   一半的体积都在存草稿纸没有道理。
+   其余字段一律原样带上——少带一个字段就可能让某天的恢复缺一块，这个险不值得冒。 */
+function backupSnapshot() {
+  const snap = Object.assign({}, DB);
+  delete snap.syncBase;
+  return snap;
 }
 // 开机和每轮定时同步时都问一句：到点了就顺手备份一次
 async function maybeAutoBackup() {
   if (!backupDue()) return;
   // 再问一句"这个备份周期是不是已经有别的标签页做过了"——backupDue 看的是本标签页
   // 内存里的 DB，看不到隔壁标签页刚写完的那一份（见 claimBackupSlot 的注释）
+  const prevSlot = peekBackupSlot();
   if (!claimBackupSlot(backupCfg().hours)) return;
-  await runBackup(false);
+  const written = await runBackup(false);
+  // 没写成（授权失效 / 网络盘掉线 / 磁盘满）就把锁还回去，别占着一整个周期不让下一轮再试
+  if (!written) restoreBackupSlot(prevSlot);
 }
 /* 开机时就先把备份文件夹的授权状态摸一遍底，不用等到备份真正到期那一刻才发现授权早就失效了——
    到期时定时器没有用户手势、只能干跳过，之前反反复复出问题就是这个：管理员开着页面一整天，
@@ -14396,12 +14973,17 @@ function openImportModal(entity) {
 }
 // 解析并写入一份 CSV 文本；entity/mode 见 openImportModal 的说明。返回实际写入的行数。
 async function applyCSVImport(entity, mode, text) {
+  /* 界面入口（ACTIONS.import）已经查过 bulk_ops，这里再查一次：
+     真正动手是在"选完文件"之后的 change 事件里，离那次检查隔了一段时间和好几层回调，
+     而这是能一次改掉几百条记录的路径，值得多一层。 */
+  if (!requirePermission('bulk_ops')) return 0;
   if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
   const sc = schema(entity);
   const rows = parseCSV(text);
   if (rows.length < 2) { showSnack('CSV 内容为空'); return 0; }
   const head = rows[0].map(s => s.trim());
-  const get = (cols, k) => { const i = head.indexOf(k); return i >= 0 ? (cols[i] || '') : ''; };
+  // csvUnguard：把导出时为了防 Excel 公式注入补的那个单引号去掉，保证原样往返（见 csvGuard）
+  const get = (cols, k) => { const i = head.indexOf(k); return i >= 0 ? csvUnguard(cols[i] || '') : ''; };
   /* ★★★ 覆盖模式只覆盖"表里真的有这一列"的字段 ★★★
      原来是把整条记录按 schema 的全部字段重建一遍：表头里没有的列，get() 返回空串，
      于是那个字段就被写成空 —— 再整条替换掉原记录。实测（第十三轮探针1）：
@@ -14497,6 +15079,10 @@ async function applyCSVImport(entity, mode, text) {
         rec = merged;
       }
       stampMeta(rec);
+      /* 导入只写一条汇总日志（refId 是空的，定位不到具体记录），所以这里把"这次写了哪几列"
+         单独记一笔——没有基线时，合并要靠它才能只拿回我导入的那几格、别的听文件的
+         （见 markLocallyChangedFields） */
+      markLocallyChangedFields(rec, writeCols);
       if (j === -1) { list.push(rec); nAdd++; } else { list[j] = rec; nOver++; }
       n++;
     }
@@ -14554,11 +15140,12 @@ function downloadWideTemplate() {
 }
 // 返回 { taskN, msN, skipped }
 async function applyWideImport(mode, text) {
+  if (!requirePermission('bulk_ops')) return null;   // 同 applyCSVImport
   if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
   const rows = parseCSV(text);
   if (rows.length < 2) { showSnack('CSV 内容为空'); return null; }
   const head = rows[0].map(s => s.trim());
-  const get = (cols, k) => { const i = head.indexOf(k); return i >= 0 ? (cols[i] || '').trim() : ''; };
+  const get = (cols, k) => { const i = head.indexOf(k); return i >= 0 ? csvUnguard((cols[i] || '').trim()) : ''; };
   let taskN = 0, msN = 0, skipped = 0, badDate = 0;
   const msDropped = [];   // 覆盖模式下"表里没出现、被移进回收站"的现有里程碑，要在结果和日志里点名
   snapshot();
@@ -14592,6 +15179,8 @@ async function applyWideImport(mode, text) {
         if (owner) task.owner = owner;
         if (assignees.length) task.assignees = assignees;
         stampMeta(task);
+        // 同 CSV 导入：宽表也只写一条汇总日志，把"只碰了这几项"单独记一笔
+        markLocallyChangedFields(task, ['work', 'title', 'owner', 'assignees', 'progress']);
       } else {
         task = blank('task', { work: work.id, title: title || '未命名任务', owner, assignees, status: 'todo', priority: '2', progress: 0 });
         task.code = (code && mode === 'merge') ? code : nextTaskCode(work.id);

@@ -77,8 +77,12 @@ async function main() {
   {
     const fs = require('fs'), path = require('path');
     const src = fs.readFileSync(process.argv[2] || path.join(__dirname, '..', 'index.html'), 'utf8');
+    /* 窗口从 6000 放宽到 9000：P109 给这个函数加了"这份文件是不是本处那套数据"的
+       数据集指纹检查（连着一大段说明为什么首次连接必须跳过这道闸），函数体变长了，
+       原来那个固定窗口把后面的基线对齐那一行挤出去了。
+       这几条断言要守的是"接线有没有接上"，不该被注释长度绑住。 */
     const fn = src.slice(src.indexOf('async function connectSharedFile'),
-      src.indexOf('async function connectSharedFile') + 6000);
+      src.indexOf('async function connectSharedFile') + 9000);
     ok('★合并结果过了类型规整', /const merged = normalizeMergedRecords\(mergeSyncPayload\(localPayload, remote, DB\.syncBase\)\)/.test(fn));
     ok('★合并之后重算了派生字段', /reconcileDerivedAfterMerge\(merged\);/.test(fn));
     ok('★这条路径也查"上次写有没有被人盖掉"', /noteClobberedWrite\(remote, DB\);/.test(fn));

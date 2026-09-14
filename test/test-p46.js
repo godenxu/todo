@@ -115,7 +115,15 @@ async function main() {
   t.progress = 60;
   S.reconcileStatusAndProgress(t, before);
   ok('★状态从已完成退回进行中', t.status === 'doing', t.status);
-  ok('实际完成时间被清掉（不再是真的完成了）', t.actual_date === '');
+  /* P111 起契约改了：状态退回去，但实际完成时间【留着】。
+     原来一律清空，于是「进度从 100 往回调一格」这种最容易手滑的操作，
+     会把真实的完成日期永久抹掉；再调回 100 时只能记成今天，报表就同时错两期
+     （该算进原来那一期的少一条，本期凭空多一条）。
+     留着它没有副作用：所有把任务当成「已完成」的地方都先看 status === 'done'
+     （报表的 doneInRange、趋势图的 backlogAsOf 都是），
+     status 不是 done 的时候这个日期只是一份「上次是哪天完成的」的记忆。 */
+  ok('★★实际完成时间留着，没被抹掉（手滑调一下进度不该丢掉真实完成日期）', t.actual_date === '2026-01-01', t.actual_date);
+  ok('★但它不会让这条任务被当成已完成——归期统计一律先看 status', t.status !== 'done');
 
   section('★②：进度为0时，不强行把"进行中"打回"未开始"（不做没把握的反向猜测）');
   t = { status: 'doing', progress: 30, actual_date: '' };
@@ -142,7 +150,9 @@ async function main() {
   before = Object.assign({}, t);
   t.status = 'doing';   // 用户自己把状态从已完成改回进行中
   S.reconcileStatusAndProgress(t, before);
-  ok('用户显式改回进行中，实际完成时间清掉', t.actual_date === '');
+  // 同上：P111 起不再清空（理由见 ★② 那一节的注释）。显式改状态和自动纠正两条路走同一个规则，
+  // 不能一条留一条清——那样「怎么改回去的」会决定日期还在不在，用户根本预料不到
+  ok('★★用户显式改回进行中，实际完成时间同样留着', t.actual_date === '2026-01-01', t.actual_date);
   ok('进度这里不强行清零，交给用户自己去调', t.progress === 100);
 
   section('★②：任务详情弹窗保存时，进度和状态要统一对账');
@@ -182,7 +192,11 @@ async function main() {
   await S.fixHealth('progressMismatch');
   ok('矛盾任务一：状态自动纠正为进行中', S.byId('task', 'p46_bad1').status === 'doing', S.byId('task', 'p46_bad1'));
   ok('矛盾任务二：状态从已完成退回进行中', S.byId('task', 'p46_bad2').status === 'doing', S.byId('task', 'p46_bad2'));
-  ok('矛盾任务二的实际完成时间也清掉了', S.byId('task', 'p46_bad2').actual_date === '');
+  /* P111：体检的一键修复走的也是 reconcileStatusAndProgress，所以跟着改成"留着"。
+     这里尤其不能清——一键修复是批量动别人的数据，悄悄抹掉几十条任务的真实完成日期，
+     事后谁也说不清原来是哪天，而这正是报表归期唯一的依据。 */
+  ok('★★矛盾任务二的实际完成时间留着（批量修复更不该抹历史）',
+    S.byId('task', 'p46_bad2').actual_date !== '', S.byId('task', 'p46_bad2').actual_date);
   ok('挂起的任务没被动过', S.byId('task', 'p46_hold').status === 'hold' && S.byId('task', 'p46_hold').progress === 0);
   hc = S.healthCheck();
   ok('修完之后，我们特意造的这两条都不再出现在问题列表里',

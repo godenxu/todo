@@ -157,7 +157,7 @@ const exportTail = `
   openBatchEdit, openColConfig, openTaskDetail, persistUI, restoreUI,
   openModal, closeModal, confirmModal, get modalBusy(){return _modalBusy},
   undoLast, snapshot, seedAll, isOverdue, isOpen, isMine, hasOverdueMilestone, Repo, blank, uid,
-  splitMulti, joinMulti, parseCSV, csvHeaders, csvCell, padCode, normalize,
+  splitMulti, joinMulti, parseCSV, csvHeaders, csvCell, padCode, normalize, exportCSV, toCSVField, downloadWideTemplate,
   openYearCopy, openOrphanAssign, healthCheck, fixHealth, backupState, lastChangeAt,
   importBackup, shiftYear, migrateWorkIds, nextWorkCode, exportJSON, defaultTaskOwner, openNewTask, worksOfDuty, workOptionsHTML, bindDutyWorkCascade,
   renderData, optionsOf, stampMeta, softDelete, undelete, removeHard,
@@ -184,6 +184,16 @@ const exportTail = `
   HEALTH_META, HEALTH_LEVELS, healthMeta, fixHealthPreview, HEALTH_PREVIEW_LIMIT,
   // P65：备份跨标签页锁 / 输入法合成 / 撤销按钮 / 换版本首次同步不误报
   claimBackupSlot, markBackupSlotUsed, BACKUP_LOCK_KEY, maybeAutoBackup, backupDue,
+  // P111：备份失败要还锁、要说话、不再把本机私有的同步基线写进备份文件
+  peekBackupSlot, restoreBackupSlot, backupSnapshot, runBackup, backupCfg,
+  get lastBackupFailWarnAt(){return _lastBackupFailWarnAt}, setLastBackupFailWarnAt(v){ _lastBackupFailWarnAt = v; },
+  // P111：PIN 认账号自己存的 iterations、连续试错限次 + 留痕
+  hashPin, verifyPin, pinHashEqual, PIN_ITERATIONS,
+  PIN_FAIL_KEY, PIN_FAIL_LIMIT, PIN_FAIL_WINDOW_MS, PIN_LOCK_MS,
+  readPinFails, writePinFails, pinLockRemainMs, pinLockRemainText, notePinFailure, clearPinFailures,
+  // P111：里程碑的独立变更记录
+  logMilestoneChanges, msLogTitle, MS_LOG_MAX,
+  readSharedFile,
   // 备份锁存在 localStorage 里；用例要模拟"上次备份是很久以前"就得能改它，所以把存储本身放出来
   get storage(){return localStorage},
   bindComposableSearch, bindLogsTextSearch, bindToolbarInputs, SNACK_UNDO_WINDOW_MS,
@@ -209,6 +219,11 @@ const exportTail = `
   // P106：没有同步基线时不许拿本机内容去顶文件里的（旧缓存把数据退回旧状态的根）
   buildLocalOnlyChangeMap, mergeWithoutBase, noteNoBaseOverrides,
   markLocallyChanged, clearLocallyChanged, localKeyOf, LOCAL_DIRTY_LIMIT,
+  // P108：第十六轮——字段级本机凭据（导入/宽表/备份还原这些只写汇总日志的入口）
+  markLocallyChangedFields,
+  // P109：第十七轮——数据集指纹（防止连到别处的文件把两套数据合成一份）
+  checkDatasetIdentity, newDatasetId, sharesAnyRecord, payloadHasData, showForeignFileGate,
+  get foreignFileBlocked(){return _foreignFileBlocked}, setForeignFileBlocked(v){ _foreignFileBlocked = v; },
   // P107：全面排查改数据的动作有没有留痕；编排类连续动作合并成一条
   pushCoalescedAdminLog, COALESCE_LOG_WINDOW_MS, SHARE_CFG_LABEL,
   get noBaseOverrides(){return _noBaseOverrides}, setNoBaseOverrides(v){ _noBaseOverrides = v; },
@@ -233,7 +248,7 @@ const exportTail = `
   setLocalCacheStale(v, ver){ _localCacheStale = v; _localCacheAppVersion = ver || ''; },
   openDatePicker, openDatePickerForInput, dpCurrentValue, renderDpCalendar, dpNav, dpClose, openDpPopup,
   get dp(){return _dp},
-  parseLines, stripLineNumber, applyCSVImport, openImportModal,
+  parseLines, stripLineNumber, applyCSVImport, openImportModal, openLinesEditor,
   get importEntity(){return _importEntity}, get importMode(){return _importMode},
   spCommitMulti, spAddFromInput, spFlushManualInput, splitNames, matchFilters,
   facetBlock, personFacet, personFacetBlock, personUnion, renderToolbar,
@@ -276,7 +291,7 @@ const exportTail = `
   get loginPending(){return !!_loginResolve},
   fmtLocalDateTime,
   canManageAccount, assignableRoles, accountsPanelHTML,
-  exportAccounts, importAccounts, parseAccountsFile, accountsExportPayload, ACCOUNTS_EXPORT_KIND,
+  exportAccounts, importAccounts, parseAccountsFile, accountsExportPayload, ACCOUNTS_EXPORT_KIND, exportJSON, csvGuard, csvUnguard,
   applyWideImport, wideImportHeaders, reportLevelFromLabel, openWideImportModal, REPORT_LEVELS,
   get wideImportMode(){return _wideImportMode},
   spCommitSingle, ownerChangeNeedsWarning, renderPermissions, goto,

@@ -164,7 +164,14 @@ async function main() {
   }
 
   section('四、写之前再确认一次文件没被抢先');
-  ok('两次读到同一个 writeId → 同一份', S.sameFileVersion({ remote: { writeId: 'a' }, mtime: 1 }, { remote: { writeId: 'a' }, mtime: 2 }));
+  /* P109 起口径收紧了：不再"有 writeId 就只比 writeId"，而是所有拿得到的信号都要一致。
+     原因是【不是本程序写的那次改动】不会更新 writeId（最典型的就是有人直接用记事本改共享文件），
+     那种改动对这道闸完全隐形，我们会拿合并前的内容照写、把它抹掉（实测过）。
+     mtime 变了就重新合并一轮，代价只是多读一次文件。 */
+  ok('writeId 一样、mtime 也一样 → 同一份',
+    S.sameFileVersion({ remote: { writeId: 'a' }, mtime: 1 }, { remote: { writeId: 'a' }, mtime: 1 }));
+  ok('★writeId 一样但 mtime 变了 → 算变过（有人绕开本程序改了文件）',
+    !S.sameFileVersion({ remote: { writeId: 'a' }, mtime: 1 }, { remote: { writeId: 'a' }, mtime: 2 }));
   ok('writeId 变了 → 不是同一份', !S.sameFileVersion({ remote: { writeId: 'a' } }, { remote: { writeId: 'b' } }));
   ok('★老文件没有 writeId → 退回比"最后写入时间"',
     S.sameFileVersion({ remote: { lastWriteAt: 't1' } }, { remote: { lastWriteAt: 't1' } })
