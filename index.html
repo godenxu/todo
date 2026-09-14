@@ -759,7 +759,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260914034641';
+const APP_VERSION = 'v20260914094606';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -1106,12 +1106,50 @@ function checkDataVersion(remote) {
    之所以要"记在本机且只升不降"：这样旧版客户端没有任何办法把这个判断抹掉——
    哪怕它自己写文件时把 lastWriteApp 又写回成旧版本号，本机水位也已经抬上去了，它照样被拦住。 */
 let _staleAppBlocked = false;
+/* ---- 本机缓存写入的唯一出口 ----
+
+   localStorage 写失败最常见的原因是容量满。这不是杞人忧天：按处室实际规模实测
+   （15 项职责 / 40 项工作 / 300 条任务 / 600 条里程碑 / 2000 条日志），
+   整份 DB 序列化后约 117 万字符——localStorage 按 UTF-16 存，实际占用约 2.2MB，
+   而浏览器给每个来源的限额通常是 5MB。也就是说现在已经用掉四成多，
+   数据再长一倍就会开始逼近上限。其次是隐私模式、磁盘满。
+
+   ★ 以前这件事是静默的 ★
+   除了 Repo.persist 那一处，其余几个写入点都是 try { setItem } catch (e) {} ——
+   吞掉异常，什么都不说。最要命的是 pullFromFile 结尾那一处：
+   刚把同事的改动合并进内存、基线（DB.syncBase）也重算好了，这一步写不进去，
+   内存里是新的、本机缓存还是旧的。用户刷新页面就回到旧数据，
+   表现出来正是「我明明看到同步过来了，刷新一下又没了」——
+   而这恰恰是这套系统被抱怨最多的那个症状。基线没存下来还有第二层后果：
+   下次三方合并没有基线可用，只能退回按 rev 定胜负，"旧缓存把数据顶回去"那一类问题会跟着回来。
+
+   所以收口成一个函数：写失败一定要说话（节流 10 分钟，不刷屏），
+   并记一个标志供数据页显示。调用方拿到 false 时按各自的场景决定还要不要往下走。 */
+let _localSaveFailedAt = 0;
+function localCacheBroken() { return _localSaveFailedAt > 0; }
+function saveLocalCache(db) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(db || DB));
+    _localSaveFailedAt = 0;
+    return true;
+  } catch (e) {
+    const now = Date.now();
+    if (now - _localSaveFailedAt > 600000) {
+      _localSaveFailedAt = now;
+      showSnack('⚠ 本机缓存写不进去了（多半是浏览器存储满了）：这次的改动只在内存里，'
+        + '刷新页面就会回到旧数据。请先到「数据」页导出一份备份', { priority: true });
+    } else {
+      _localSaveFailedAt = _localSaveFailedAt || now;
+    }
+    return false;
+  }
+}
 function noteRemoteAppVersion(remote) {
   const seen = (remote && remote.lastWriteApp) || '';
   // 版本号是 v+年月日时分秒，定长且纯数字，直接字符串比大小就是时间先后
   if (seen && seen > (DB.settings.maxSeenAppVersion || '')) {
     DB.settings.maxSeenAppVersion = seen;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); } catch (e) {}
+    saveLocalCache(DB);   // 水位只升不降，写不进去要让人知道（见 saveLocalCache）
   }
 }
 // 本机这份 html 是不是已经落后于"见过的最高版本"
@@ -1170,8 +1208,26 @@ function checkAppVersion(remote) {
   return false;
 }
 function showStaleAppGate() {
+  /* ★ 手上压着没推上去的改动时，必须先把这件事说清楚 ★
+     这一屏会走到的人分两种，风险完全不同：
+       · 没有积压改动的：照着下面三步升级就行，怎么折腾都不会丢东西；
+       · 有积压改动的（离线改过、或者刚被停写拦下的那一次保存）：
+         那些改动此刻【只在这台机器的浏览器存储里】，共享文件里一个字都没有。
+     原来这一屏对两种人说同样的话，而第三步明明白白写着"重新复制一份 html 覆盖本机这份"——
+     有积压的人照做时如果换了个目录打开，浏览器存储是按来源隔离的，那些改动就再也找不回来了；
+     退一步说，就算没换目录，他也完全不知道自己正压着东西，可能顺手就清了浏览器数据。
+     所以：有积压时把提示顶到最前面，讲清"会自动补推"和"在那之前别做什么"，
+     并且就地给一个导出备份的按钮——这是他此刻唯一能自己抓住数据的办法。 */
+  const pending = !!(DB.settings && DB.settings.pendingSync);
   $('#login-gate').classList.add('show');
   $('#login-body').innerHTML = `<h3>你打开的是旧版本，已暂停写入</h3>
+    ${pending ? `<div class="err" style="margin-bottom:10px;line-height:1.8">
+      <b>⚠ 你还有改动没有推到共享文件</b>——它们现在只存在这台电脑的浏览器里，同事那边看不到。<br>
+      升级到新版本之后，这些改动会自动补推上去，不用你重新输一遍。在那之前请注意：<br>
+      · <b>不要清理浏览器缓存/站点数据</b>，也不要用无痕窗口打开；<br>
+      · 换 html 时<b>覆盖原来那个文件</b>，不要复制到别的文件夹再打开（换了地方就读不到这些改动了）；<br>
+      · 不放心的话，先点下面的<b>「先导出一份备份」</b>存到本地。
+    </div>` : ''}
     <p class="hint" style="margin-bottom:10px">共享文件里出现过比你这份更新的程序版本。旧版本可能带着已经修好的问题
       （比如把里程碑存成好几份重复的），继续用会把大家的数据改坏，所以先停在这里——
       <b>你仍然可以查看数据，只是不会再往共享文件里写。</b></p>
@@ -1188,6 +1244,7 @@ function showStaleAppGate() {
     </ol>
     <div id="stale-app-actions" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
       <button class="btn primary" data-act="force-reload">强制刷新试试</button>
+      ${pending ? `<button class="btn" data-act="stale-export-backup">先导出一份备份</button>` : ''}
       <button class="btn" data-act="ignore-stale-app">我确认要继续用这一份</button>
     </div>
     <p class="hint" style="margin-top:8px">最后那个按钮只在"管理员有意退回旧版本"时才用，平时请不要点。</p>`;
@@ -2397,7 +2454,33 @@ function mergePermissionMatrix(local, remote, label) {
       at: (takeRemote ? local : remote).updated_at || '',
     });
   }
-  return takeRemote ? remote : local;
+  return mergePresetLists(takeRemote ? remote : local, takeRemote ? local : remote);
+}
+/* ★ 编排预案（presets）必须按 id 取并集，不能跟着整份配置一起被覆盖 ★
+
+   实测过一次真实的成果丢失：管理员在自己机器上攒了三套报告编排（月度版 / 季度版 / 我自己排的），
+   同事在另一台机器上改了一次编排、rev 更高先推了上去，整份覆盖之后本机那三套【全部消失】，
+   而且再也找不回来——共享文件里已经没有它们了，别人的机器上本来就没有。
+   上面那条提醒只能告诉他"你那份被覆盖了"，攒了半天的东西回不来。
+
+   而 presets 是一个每项都带 id 的数组，跟任务 / 工作 / 里程碑是同一种东西，本来就该按 id 合并。
+   所以拆成两半：
+     · activeId 和其余标量字段仍然整份听赢家的（当前用哪套编排，谁后改听谁的——这条行为不变）；
+     · presets 取并集：同一个 id 用赢家那份，只有一方有的一律保留下来。
+
+   代价要说清楚：预案没有墓碑机制，所以对方【删掉】一套两边都有的预案时，
+   我这边还留着它，并集会把它捡回来，表现为"删掉的预案又冒出来了"。
+   两害相权：删预案是要专门去点"删除存档"的极低频动作，最坏结果不过是下拉框里多一个选项；
+   而"自己攒的预案因为同事改了一次编排就全没了"是每一次并发修改都会发生的成果丢失。
+   权限矩阵和共享文件夹配置没有 presets 字段，走到这里原样返回，不受影响。 */
+function mergePresetLists(win, lose) {
+  if (!win || !Array.isArray(win.presets)) return win;
+  if (!lose || !Array.isArray(lose.presets)) return win;
+  const seen = new Set(win.presets.map(p => p && p.id).filter(Boolean));
+  const extra = lose.presets.filter(p => p && p.id && !seen.has(p.id));
+  if (!extra.length) return win;
+  // 不就地改 win：它可能就是从文件里读出来的那个对象，改了会让基线跟文件对不上
+  return Object.assign({}, win, { presets: win.presets.concat(extra) });
 }
 /* 「最近连接」时间（users[].lastSeenAt）必须单独按"取较晚的那个"合并，不能跟着整条记录走。
    它是 markUserSeen 直接写上去的心跳，刻意不走 stampMeta——否则每台设备每同步一次
@@ -3357,7 +3440,10 @@ async function pullFromFileInner() {
   // lastSyncAt 的含义是"最后一次跟共享文件对上账的时间"，只读拉取同样对上了账，
   // 所以这里也要更新——否则顶栏那个新鲜度会一直显示成上一次写入的时间，比实际情况悲观
   DB.settings.lastPullAt = DB.settings.lastSyncAt = new Date().toISOString();
-  try { localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); } catch (e) {}
+  /* ★ 这一处最要紧 ★ 刚把同事的改动合并进内存、基线也重算好了，写不进本机缓存的话，
+     刷新页面就回到旧数据（而且基线丢了，下次合并要退回按 rev 定胜负）。
+     以前这里是静默 catch，用户只会看到「同步过来的东西刷新一下又没了」。 */
+  saveLocalCache(DB);
   return true;
 }
 
@@ -3392,8 +3478,8 @@ const Repo = {
        "本机独有的新内容"重新推上去。有了这个戳，开机时就能发现"缓存不是这一版写的"，
        进而在数据页给管理员一个明确的提示和"以共享文件为准"的入口。 */
     db.settings.localAppVersion = APP_VERSION;
-    const flush = () => { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(db)); return true; } catch (e) { return false; } };
-    if (!flush()) { showSnack('保存失败：本地存储可能已满，请到「数据」页导出备份', { priority: true }); return false; }
+    // 走统一出口（见 saveLocalCache）：它自己会弹提示并记下标志，这里只管走不走得下去
+    if (!saveLocalCache(db)) return false;
     if (_fileHandle) {
       try {
         // 心跳（markUserSeen）已经挪进 syncToFile 里、只在真的要写文件时才记——
@@ -3408,9 +3494,9 @@ const Repo = {
            只是漏了这几条路。现在只有真写进去了、或者确认过"本机没有文件里还没有的东西"，才算同步过账。 */
         const res = await syncToFile(db);
         if (res === 'written' || res === 'nochange') {
-          if (db.settings.pendingSync) { db.settings.pendingSync = false; flush(); }   // 积压的改动这次一起推上去了
+          if (db.settings.pendingSync) { db.settings.pendingSync = false; saveLocalCache(db); }   // 积压的改动这次一起推上去了
         } else {
-          db.settings.pendingSync = true; flush();
+          db.settings.pendingSync = true; saveLocalCache(db);
           // 'blocked' 的那两种情况（版本门禁/旧版停写）界面上已经有整屏的门禁在说话了，
           // 这里再弹一次纯属刷屏；'failed' 是真出了岔子，得说一声
           /* ★ 这条必须用 priority ★ 曾经把它降成普通提示（为了不抢占别处的提示），那是错的：
@@ -3425,12 +3511,12 @@ const Repo = {
           }
         }
       } catch (e) {
-        db.settings.pendingSync = true; flush();
+        db.settings.pendingSync = true; saveLocalCache(db);
         showSnack('共享文件同步失败：' + (e && e.message ? e.message : e) + '（本机已存，恢复连接后会自动补推）', { priority: true });
       }
     } else if (_everConnected) {
       // 连过共享文件夹、但这会儿没连上：这次改动只在本机，别人看不到——必须说出来，不能装作存好了
-      db.settings.pendingSync = true; flush();
+      db.settings.pendingSync = true; saveLocalCache(db);
       const now = Date.now();
       if (now - _lastUnsyncedWarnAt > 20000) {
         _lastUnsyncedWarnAt = now;
@@ -3612,11 +3698,26 @@ function pushLog(taskId, summary) { pushChangeLog('task', taskId, summary); }
    taskId 只在实体确实是任务时才填——工作台「最近动态」按 taskId 过滤，
    如果工作/职责的记录也占着这个字段，那个面板会去 byId('task', 工作id) 查，
    查不到就显示成"（任务已不存在）"，等于把最近动态污染成一堆无效条目。 */
+/* 「最近动态」是按 taskId 过滤的，所以这个字段决定一条变更记录进不进那个面板。
+   · 任务：就是它自己。
+   · 里程碑：填它所属的那条任务。里程碑是任务的从属物，改它正是"这条任务有人在动"的信号。
+     补这一条是因为实测出一个真实缺口：只改一条里程碑的呈报层级（日期和交付物都不动）时，
+     任务那条日志因为没有任何可说的内容根本不会写（logRecordChange 开头 if (!summary) return），
+     而里程碑那条又因为 taskId 为空进不了面板——于是这次改动在最近动态里【完全隐形】。
+     管理员正是靠这个面板看"同事今天动了什么"，隐形等于没发生。
+     软删除的里程碑照样查得到（索引不剔除已删记录），所以"删掉一条交付物"也进得了面板。
+   · 工作 / 职责：必须留空。它们没有所属任务，填什么都会让面板拿着这个 id 去 byId('task', ...) 查，
+     查不到就显示成"（任务已不存在）"，等于把最近动态污染成一堆无效条目——这正是当初留空的原因。 */
+function logTaskIdFor(entity, refId) {
+  if (entity === 'task') return refId || '';
+  if (entity === 'milestone') return (byId('milestone', refId) || {}).task || '';
+  return '';
+}
 function pushChangeLog(entity, refId, summary, changes) {
   if (!summary) return;
   const e = {
     id: uid('log'), at: new Date().toISOString(), by: DB.settings.me || '未署名',
-    kind: 'edit', entity, refId, taskId: entity === 'task' ? refId : '', summary,
+    kind: 'edit', entity, refId, taskId: logTaskIdFor(entity, refId), summary,
   };
   /* changes：给机器看的那一份「字段 / 改前 / 改后」。summary 是给人看的一句话，
      程序没法从"状态：未开始→进行中"这句话里可靠地还原出该写回什么值——
@@ -11288,6 +11389,23 @@ const ACTIONS = {
     const base = location.href.split('#')[0].split('?')[0];
     location.href = base + '?_=' + Date.now();
   },
+  /* 旧版门禁里那个「先导出一份备份」。只在手上压着没推出去的改动时才出现。
+
+     为什么不直接复用「导出全量备份」（exportJSON）：那一条要 bulk_ops 权限，
+     而走到这一屏的多半是普通同事，根本没有这个权限——按钮点下去只会被自己的权限闸拦住，
+     等于给了一个按不动的救命稻草。而它要 bulk_ops 是有道理的：那份文件里带着
+     全部账号的 PIN 校验信息（salt/hash/iterations），不该谁都能导。
+
+     所以这里单独导一份【剥掉账号】的应急备份：业务数据一条不少（这才是他怕丢的东西），
+     账号整个不带，于是不需要任何权限，也不泄露任何校验信息。
+     这份文件仍然能被「从备份恢复」读进去——恢复流程对 users 是可选处理的。 */
+  'stale-export-backup': () => {
+    const snap = backupSnapshot();
+    delete snap.users;                       // 账号连同 PIN 校验信息一起剥掉
+    snap._staleEmergency = true;             // 标一下来路，管理员拿到时知道这是应急导出的
+    download(`工作管理应急备份_${stamp()}.json`, JSON.stringify(snap, null, 1), 'application/json');
+    showSnack('已导出（不含账号信息）。升级到新版本后，这些改动也会自动补推上去', { priority: true });
+  },
   /* "我确认要继续用这一份"：把本机记的版本水位压回当前版本，解除旧版封锁。
      只有"管理员有意退回旧版本"才该用到，所以要二次确认。
      二次确认刻意做在门禁自己的界面里换一个按钮，而不是用 confirmModal——
@@ -11301,7 +11419,7 @@ const ACTIONS = {
   'ignore-stale-app-confirm': () => {
     DB.settings.maxSeenAppVersion = APP_VERSION;
     _staleAppBlocked = false;
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(DB)); } catch (e) {}
+    saveLocalCache(DB);
     $('#login-gate').classList.remove('show');
     startAutoReload();
     renderShell(); renderPage();
@@ -11966,6 +12084,17 @@ function completeCheckpointsOf(t) {
 // 真正落地"改状态"这个动作：跟原来单击循环切换时的副作用保持一致——变成已完成要顺带填计划/实际完成时间、
 // 没有里程碑时进度直接设 100，有里程碑时按里程碑完成比例重算；alsoCompleteCheckpoints 为真时连里程碑一起标完成
 async function commitTaskStatus(t, newStatus, alsoCompleteCheckpoints) {
+  /* ★ 按 id 重新取一次 ★
+     这个函数有一条路是【隔着一个确认框】被调用的：改状态为"已完成"时如果缺日期、
+     或者名下里程碑还没勾完，会先弹 openDoneAutoFillModal，等用户点了确认才回到这里。
+     那期间后台定时同步照常在跑，一旦跑过，DB.tasks 就被换成了合并结果那个新数组，
+     调用方闭包里捏着的这个 t 当场变成孤儿（见 openTaskDetail 开头那段）。
+
+     它的后果比"改动丢了"更糟：下面那句 Repo.upsert('task', t) 会把这个【陈旧的整条记录】
+     按 id 塞回 DB——于是状态确实改成功了，可同事在这期间改的其它字段被整条覆盖掉了，
+     实测就是这样丢的（探针：确认框开着时同事改了"来源"，点完确认那一格变回空）。
+     换句话说，它不是丢自己的改动，而是拿一份过期的整条记录去盖别人的。 */
+  t = byId('task', t.id) || t;
   snapshot();
   const before = clone(t);
   const cpDone = alsoCompleteCheckpoints ? completeCheckpointsOf(t) : 0;
@@ -12565,7 +12694,18 @@ function openNewTask() {
 // 这样保存时 cpData 才会把这些复制来的行当成全新记录来建，不会误认成"这就是原来那条"）
 function openTaskDetail(id, draft, copyFrom) {
   const isNew = !!draft;
-  const t = isNew ? draft : byId('task', id);
+  /* ★ 这里必须是 let：保存那一刻要按 id 重新取一次 ★
+     详情弹窗开着的几分钟里，后台定时同步照常在跑。同步的最后一步是
+     Object.assign(DB, merged)——DB.tasks 被整个换成合并结果那个新数组，
+     里面的记录也是新对象。于是这个闭包里捏着的 t 当场变成【孤儿】：
+     它不在 DB.tasks 里了，谁也看不见它。
+     用户点保存时 Object.assign(t, collected) 改的就是这个被丢弃的对象，
+     改动根本进不了 DB，也就同步不出去——而界面上照样提示"已保存"。
+
+     这是「我明明改了、也保存了，回头一看没了」最直接的一条来路，
+     而且触发条件一点不苛刻：开着详情弹窗的时间里发生过一次同步就中招。
+     见下面 doSave 开头那段重新取值。 */
+  let t = isNew ? draft : byId('task', id);
   if (!t) return;
   // 不是自己负责/参与的任务：得有 view_others_detail 权限才能打开详情弹窗（表格行本身仍然看得到，这条只管详情弹窗）
   if (!isNew && !isRecordOwnerOrParticipant('task', t) && !hasPermission('view_others_detail')) {
@@ -12573,6 +12713,20 @@ function openTaskDetail(id, draft, copyFrom) {
     return;
   }
   const canEdit = isNew || canEditRecord('task', t);   // 查看谁都能看，只有负责人/参与人或组长以上能改
+  /* ★ 打开这一刻的快照，保存时用来分辨"哪些字段是我真的改了" ★
+     详情弹窗是这套系统里开得最久的一个界面——填一条任务、翻翻里程碑，几分钟很正常。
+     这期间后台的定时同步照常在跑，同事改了同一条任务的话，内存里那条记录当场就被更新了，
+     可弹窗里的输入框还停在打开那一刻的旧值上。用户点保存，readControl 把每一格原样读回来，
+     同事刚改的那一格就被这个旧值顶掉了。
+
+     这正是「同事修改完的数据被莫名其妙退回之前状态」最直接的一条来路，
+     而且三方合并救不了：从数据上看，这台机器"确实"把标题改成了那个旧值
+     （rev 更高、时间更新），合并只能认它。
+
+     解法跟整套系统处理并发的思路一致——只提交我真正动过的字段：
+     保存时拿 collected 跟这份打开快照逐格比，一模一样就说明我没碰过这一格，
+     那就不写它，让同步进来的值留着。 */
+  const openSnap = isNew ? null : clone(t);
   const fs = schema('task').fields.filter(f => !f.internal);
   // "work" 字段自己有专门的分支（下面 cell() 里），不走这条通用判断，这里只管其它走通用渲染的字段
   const wide = k => k === 'title';
@@ -12581,6 +12735,21 @@ function openTaskDetail(id, draft, copyFrom) {
   const w = byId('work', t.work);
   const existingCps = DB.milestones.filter(m => m.task === t.id && !m.deleted_at)
     .sort((a, b) => (a.plan_date || '9999-99-99').localeCompare(b.plan_date || '9999-99-99'));
+  /* ★ 每条里程碑在打开这一刻的样子，保存时用来分辨"这一行我到底动没动" ★
+     跟上面 openSnap 是同一件事，只是这一层更要紧：里程碑那几行里既有值、又有"在不在"，
+     实测出来两种后果——
+       · 同事改了某条的计划日期，我没碰它，保存时弹窗里那一行的旧值会把他改的顶回去；
+       · 同事把某条删了，我没碰它，保存时下面那句 delete cur.deleted_at 会把它【复活】，
+         而复活的记录还会被推回共享文件，替所有人抹掉那次删除——
+         记录自己回来正是这套系统最早那批事故的形态（见 mergeWithoutBase 里那段）。
+     ★ 为什么存 clone 而不是引用 ★
+       实测过当前的合并行为：同步是把 DB.milestones 整个换成新数组、记录也是新对象，
+       原来那批对象内容不动。所以此刻存引用其实恰好等价于 clone——这一条别误会成"必须"。
+       留 clone 的理由是防御：合并策略只要哪天改成就地更新记录（这是很自然的一种优化），
+       存引用的快照就会跟着一起变，"这一格我动过没有"的比对当场失效，
+       而且是【完全静默】地失效——每一格都会被判成"我没碰过"，于是我的改动一个都写不进去。
+       这种坏法没有任何报错，只会表现成"保存了但没存上"。一个 clone 换掉这个隐患，值。 */
+  const cpOpenSnap = new Map(existingCps.map(m => [m.id, clone(m)]));
   // 复制任务带过来的里程碑只用来决定"一开始显示哪几行"，不能替换 existingCps——
   // existingCps 要保持"这条草稿 id 目前真实存在的里程碑"（新草稿永远是空的），保存时的
   // 新增/删除判断才不会走样（见下面保存回调里 beforeKeys/keepIds 那段）
@@ -12683,13 +12852,38 @@ function openTaskDetail(id, draft, copyFrom) {
      </div>`,
     isNew ? '创建' : (canEdit ? '保存' : '关闭'), async () => {
       if (!canEdit) { closeModal(); return; }
+      /* ★ 按 id 重新取一次这条记录 ★
+         弹窗开着期间只要发生过一次后台同步，上面那个 t 就已经是孤儿了
+         （DB.tasks 被换成了新数组，见 openTaskDetail 开头那段注释）。
+         不重新取的话，下面所有 Object.assign(t,…)、stampMeta(t) 改的都是
+         一个没人看得见的对象，改完还提示"已保存"。 */
+      if (!isNew) {
+        const fresh = byId('task', id);
+        if (!fresh) {
+          closeModal();
+          showSnack('这条任务已经被删掉了（可能是同事刚删的），这次的修改没有保存', { priority: true });
+          renderShell(); renderPage();
+          return;
+        }
+        t = fresh;
+      }
       // 弹确认框会顶掉这个弹窗自己的 DOM（modal 只有一个槽位），所以要先把所有字段/里程碑的待存值读出来，
       // 而不是等确认完了再回来读——那时候 td-* 这些输入框已经不在了
       const collected = {};
+      const _keptByOthers = [];   // 我没碰、但同事在这期间改过的那些字段
       fs.forEach(f => {
         if (f.type === 'checkpoints' || f.readonly || lockProgress(f)) return;
         const v = readControl(f, 'td-');
-        if (v !== undefined) collected[f.key] = v;
+        if (v === undefined) return;
+        /* 这一格我到底改没改：跟打开那一刻的快照比。
+           没改（读回来的值 === 打开时的值），而记录上这一格现在又跟打开时不一样了，
+           说明是同事在我开着弹窗这段时间改的——那就别用我手里的旧值去盖他。
+           见上面 openSnap 那段注释。 */
+        if (openSnap && sameFieldValue(v, openSnap[f.key]) && !sameFieldValue(t[f.key], openSnap[f.key])) {
+          _keptByOthers.push(f.label || f.key);
+          return;
+        }
+        collected[f.key] = v;
       });
       const cpRows = $$('#cp-list [data-cp-row]');
       const cpData = cpRows.map(r => ({
@@ -12728,6 +12922,9 @@ function openTaskDetail(id, draft, copyFrom) {
         if (added.length) cpParts.push(`新增「${added.join('、')}」`);
         if (removed.length) cpParts.push(`移除「${removed.join('、')}」`);
         let dateAdjustedMsg = '';
+        /* 「替同事保住的」两份清单。必须声明在 Repo.bulk 回调【外面】：
+           保存完之后要拿它们拼提示，声明在回调里的话外面根本看不见。 */
+        const _msKeptDeleted = [], _msKeptFields = [];
         await Repo.bulk(() => {
           Object.assign(t, collected);
           if (isNew) {
@@ -12763,15 +12960,34 @@ function openTaskDetail(id, draft, copyFrom) {
             msRemoved.push(clone(m));
             softDelete('milestone', m.id);
           });
+          const CP_FIELDS = ['plan_date', 'deliverable', 'report_level', 'done'];
           cpData.forEach(cd => {
             const cur = cd.id ? byId('milestone', cd.id) : null;
             if (cur) {
+              const snap = cpOpenSnap.get(cd.id);
+              // 这一格我动过没有：跟打开那一刻的样子比（见 cpOpenSnap 那段注释）
+              const untouched = k => !!snap && sameFieldValue(cd[k], snap[k]);
+              const rowUntouched = !!snap && CP_FIELDS.every(untouched);
+              /* ★ 同事在这期间把这条删了，而我这一行一个字都没动 → 尊重他的删除 ★
+                 不跳过的话，下面那句 delete cur.deleted_at 会把它复活，
+                 复活的记录再被推回共享文件，等于替所有人把那次删除抹掉。
+                 反过来，只要我在这一行上真改了点什么，就按"我要留下它"处理（照旧撤销删除）——
+                 那是用户明确的意思表示。 */
+              if (cur.deleted_at && !(snap && snap.deleted_at) && rowUntouched) {
+                _msKeptDeleted.push(msLogTitle(cur));
+                return;
+              }
               const msBefore = clone(cur);
               cur.task = t.id;   // 新建任务时草稿 id 才最终确定，老里程碑要跟着认领过去
-              cur.plan_date = cd.plan_date;
-              cur.deliverable = cd.deliverable;
-              cur.report_level = cd.report_level;
-              cur.done = cd.done;
+              CP_FIELDS.forEach(k => {
+                /* 我没碰这一格，而记录上它现在跟打开时不一样了 → 是同事在这期间改的，留着他的。
+                   跟任务字段那一层同一个规矩（见 collected 里那段）。 */
+                if (untouched(k) && !sameFieldValue(cur[k], snap[k])) {
+                  _msKeptFields.push(msLogTitle(cur));
+                  return;
+                }
+                cur[k] = cd[k];
+              });
               /* ★ 从「已完成」改回「未完成」时，绝对不能把实际完成日期抹掉 ★
                  以前这里是 : '' —— 手滑点掉一下勾再勾回来，8 月 5 日交付的东西就永久变成了今天。
                  而检查点行上根本没有实际完成日这个输入框，用户发现了也改不回去。
@@ -12781,7 +12997,10 @@ function openTaskDetail(id, draft, copyFrom) {
                  （报表的 deliveredInRange、图表的 msCompletionPie 都是），
                  done 是 0 的时候这个日期只是一份「上次是哪天完成的」的记忆，
                  恰好让「勾回来」能原样恢复。 */
-              cur.actual_date = cd.done === '1' ? (cur.actual_date || todayStr()) : cur.actual_date;
+              /* 这里必须看 cur.done 而不是 cd.done：上面那轮逐格比对可能把 done 这一格
+                 判给了同事（我没碰、他改了），这时候 cd.done 还是我打开时那个旧值，
+                 拿它决定要不要填交付日期就会跟实际的完成状态对不上。 */
+              cur.actual_date = cur.done === '1' ? (cur.actual_date || todayStr()) : cur.actual_date;
               if (cur.deleted_at) delete cur.deleted_at;   // 上一次误删的又被提交回来，等于撤销删除
               stampMeta(cur);
               msChanged.push({ before: msBefore, after: cur });
@@ -12821,7 +13040,24 @@ function openTaskDetail(id, draft, copyFrom) {
         closeModal();
         if (isNew && UI.tasks.view === 'deleted') UI.tasks.view = 'all';   // 新建完却停在"已删除"视图里会看不见刚建的任务
         renderShell(); renderPage();
-        showSnack([isNew ? `已创建：${t.title}` : '已保存', dateAdjustedMsg].filter(Boolean).join('，'));
+        /* 替同事保住的那几格要说出来。静默保住同样会让人意外——
+           用户明明看着弹窗里写着旧值点的保存，回头发现不是那个值，
+           不解释的话，这本身就成了新的一桩"数据莫名其妙变了"。 */
+        const keptParts = [];
+        if (_keptByOthers.length) {
+          keptParts.push(`「${_keptByOthers.slice(0, 3).join('、')}」${_keptByOthers.length > 3 ? ' 等' : ''}`
+            + `在你打开这个窗口之后被同事改过，已保留他的改动（你没有动过这几格）`);
+        }
+        if (_msKeptFields.length) {
+          keptParts.push(`里程碑「${uniq(_msKeptFields).slice(0, 2).join('、')}」也被同事改过，同样保留了他的`);
+        }
+        if (_msKeptDeleted.length) {
+          keptParts.push(`里程碑「${uniq(_msKeptDeleted).slice(0, 2).join('、')}」已被同事删除，`
+            + `没有替你恢复（你没有动过它；要找回请到回收站）`);
+        }
+        const keptMsg = keptParts.join('；');
+        showSnack([isNew ? `已创建：${t.title}` : '已保存', dateAdjustedMsg, keptMsg].filter(Boolean).join('；'),
+          keptMsg ? { priority: true } : undefined);
       };
       const proceedAfterOrderCheck = async () => {
         // 新建时不存在"把任务从别人手里转走"这回事，跳过转移确认
@@ -12904,17 +13140,47 @@ function openYearCopy() {
     工作内容、牵头人、参与人会一并复制；<b>只带工作本身，任务和里程碑都不复制，新年度从头梳理</b>。</div>`,
     '复制', async () => {
       const dst = Number($('#yc-dst').value);
-      const srcY = Number($('#yc-src').value);
+      // 读不到下拉框的值时退回默认源年度，别让日志里留下一句"从 0 年度复制了…"
+      const srcY = Number($('#yc-src').value) || src;
       if (!dst || dst === srcY) { showSnack('目标年度不能为空或与源年度相同'); return; }
       const ids = [...document.querySelectorAll('.yc-cb:checked')].map(cb => cb.value);
       if (!ids.length) { showSnack('请至少选择一项工作'); return; }
       const arch = $('#yc-arch').value;
+      /* ★ 目标年度已经有同编号的工作，就不能再建一份 ★
+
+         这不是假设出来的风险——生产数据里实打实留下了一批：
+         2026 年初管理员已经把当年的工作建好了，后来又有人做了一次「2025 → 2026」的复制，
+         这段代码闷头把整批又建了一遍，于是 12 个工作编号撞车（其中 6 组是同年度真撞），
+         再顺着「任务编号 = 工作编号 + 年份 + 序号」往下传，112 条任务的编号也跟着撞，
+         数据体检里 dupTaskCode 报到了 57 条、还是 error 级。
+
+         为什么定成 error：宽表导入的「覆盖模式」是按任务编号认领记录的，
+         编号一撞就会认领到错的那一条，把这个人的数据改到另一个人头上——
+         错误会继续放大，而且很难发现。
+
+         判重只看「同年度 + 同编号」，不看名字：编号是业务上的主键，
+         名字可能被人改过。已经软删除的那些不算数（目标年度那条被删掉了，理应允许重建）。
+         跳过的不是静默跳过：结果提示、变更日志里都要如实说清楚跳了哪些、为什么跳。 */
+      const existing = new Set(DB.works.filter(w => !w.deleted_at && Number(w.year) === dst)
+        .map(w => String(w.code || '')));
+      const _ycSkipped = [];
+      const todo = ids.filter(id => {
+        const w = byId('work', id);
+        if (!w) return false;
+        if (existing.has(String(w.code || ''))) { _ycSkipped.push(`${w.code} ${w.name}`); return false; }
+        return true;
+      });
+      if (!todo.length) {
+        showSnack(`${dst} 年度已经有这些工作了（编号 ${_ycSkipped.slice(0, 3).map(x => x.split(' ')[0]).join('、')}`
+          + `${_ycSkipped.length > 3 ? ' 等' : ''}），没有需要复制的`, { priority: true });
+        return;
+      }
       closeModal();
       snapshot();
       let nw = 0;
       const _ycCopied = [];
       await Repo.bulk(() => {
-        ids.forEach(id => {
+        todo.forEach(id => {
           const w = byId('work', id);
           if (!w) return;
           const copy = blank('work', {
@@ -12933,12 +13199,18 @@ function openYearCopy() {
         pushChangeLog('work', '', `从 ${srcY} 年度复制了 ${nw} 项工作到 ${dst} 年度`
           + (arch === 'done' ? `，并把源年度这 ${nw} 项标记为已完成` : '')
           + `：` + _ycCopied.slice(0, 8).map(x => `「${x}」`).join('、')
-          + (_ycCopied.length > 8 ? ` 等 ${_ycCopied.length} 项` : ''));
+          + (_ycCopied.length > 8 ? ` 等 ${_ycCopied.length} 项` : '')
+          // 跳过了哪些也要记进去：事后有人问"我勾了 20 项怎么只来了 14 项"，日志里查得到
+          + (_ycSkipped.length ? `；另有 ${_ycSkipped.length} 项因为 ${dst} 年度已经有同编号的工作而跳过：`
+            + _ycSkipped.slice(0, 5).map(x => `「${x}」`).join('、')
+            + (_ycSkipped.length > 5 ? ` 等 ${_ycSkipped.length} 项` : '') : ''));
       });
       DB.settings.year = dst;
       await Repo.persist(DB);
       renderShell(); renderPage();
-      showSnack(`已复制 ${nw} 项工作到 ${dst} 年度（Ctrl+Z 可撤销）`);
+      showSnack(`已复制 ${nw} 项工作到 ${dst} 年度`
+        + (_ycSkipped.length ? `；跳过 ${_ycSkipped.length} 项（该年度已有同编号的工作）` : '')
+        + `（Ctrl+Z 可撤销）`, _ycSkipped.length ? { priority: true } : undefined);
     });
   setTimeout(() => {
     const all = $('#yc-all');
@@ -13201,13 +13473,52 @@ function healthCheck() {
   if (badDuty.length) issues.push({ k: 'badDuty', n: badDuty.length, msg: `${badDuty.length} 项工作指向了不存在的职责`, fix: null,
     items: badDuty.map(w => ({ label: `${w.code} ${w.name || ''}` })) });
 
+  /* ★ 必须先按创建时间排序再分组 ★
+     不排序的话，seen 里留下的只是"数组里恰好靠前的那条"，跟谁先建的没关系。
+     下面的明细要标"先建 / 后建"（管理员靠这个判断哪条是误操作建出来的），
+     标反了比不标更糟——实测生产数据里就标反过：把 7 月 20 日建的那条说成"先建"、
+     2 月 17 日建的说成"后建"。上面 dupWork 那一项一直是排了序的，这里漏了。 */
   const seen = new Map(), dup = [];
-  DB.works.filter(w => !w.deleted_at).forEach(w => {
-    const k = w.year + '/' + w.code;
-    if (seen.has(k)) dup.push(w); else seen.set(k, w);
-  });
-  if (dup.length) issues.push({ k: 'dupCode', n: dup.length, msg: `${dup.length} 项工作在同一年度内编号重复`, fix: null,
-    items: dup.map(w => ({ label: `${w.code} ${w.name || ''}（${w.year || '无年度'}）` })) });
+  DB.works.filter(w => !w.deleted_at)
+    .sort((a, b) => (a.created_at || '').localeCompare(b.created_at || ''))
+    .forEach(w => {
+      const k = w.year + '/' + w.code;
+      if (seen.has(k)) dup.push(w); else seen.set(k, w);
+    });
+  /* ★ 这一项是 error 级、又【没有一键修复】，所以明细必须够管理员自己做决定 ★
+     为什么不能一键修：同一年度撞了编号的两项工作，系统不知道该留哪个——
+     实测生产数据里这种撞车两边【都在用】（0101 那一组，一条名下 9 条任务、另一条 8 条），
+     因为重复创建之后同事们分别在两条下面建了任务。删掉任何一条都会连带端掉一批任务，
+     只能由人来决定"把谁的任务挪到谁名下、再删哪一条"。
+
+     原来的明细只有一行 `0101 IDC基础设施专项规划（2026）`：
+     看不出撞车的是哪两条、各自什么时候建的、谁建的、名下有多少任务——
+     管理员对着这一行根本无从下手，这一项等于报了白报。
+     现在把同编号的那一组整个摆出来，并且标出"后建的那一条"（多半就是误操作建出来的那个）。 */
+  if (dup.length) {
+    const dupItems = [];
+    dup.forEach(w => {
+      const first = seen.get(w.year + '/' + w.code);
+      const cnt = x => DB.tasks.filter(t => !t.deleted_at && t.work === x.id).length;
+      if (first && !dupItems.some(it => it.id === first.id)) {
+        dupItems.push({ id: first.id, act: 'focus-record', entity: 'work',
+          label: `${first.code} ${first.name || ''}（${first.year || '无年度'}）`
+            + ` · 先建于 ${localDay(first.created_at) || '未知'}`
+            + `${first.updated_by ? ' by ' + first.updated_by : ''} · 名下 ${cnt(first)} 条任务` });
+      }
+      dupItems.push({ id: w.id, act: 'focus-record', entity: 'work',
+        label: `↳ 同编号：${w.code} ${w.name || ''}（${w.year || '无年度'}）`
+          + ` · 后建于 ${localDay(w.created_at) || '未知'}`
+          + `${w.updated_by ? ' by ' + w.updated_by : ''} · 名下 ${cnt(w)} 条任务` });
+    });
+    issues.push({ k: 'dupCode', n: dup.length,
+      msg: `${dup.length} 项工作在同一年度内编号重复。`
+        + `任务编号是"工作编号 + 年份 + 序号"，工作编号一撞，它名下的任务编号会跟着撞，`
+        + `而宽表导入的"覆盖模式"是按任务编号认领记录的——认错了就会把这个人的数据改到另一个人头上。`
+        + `这里不提供一键修复：两边可能都有人在用（看下面各自名下的任务数），`
+        + `得由你决定把谁的任务挪到谁名下，再删掉多余的那一项`,
+      fix: null, items: dupItems });
+  }
 
   const noDate = DB.tasks.filter(t => !t.deleted_at && isOpen(t) && !t.plan_date);
   if (noDate.length) issues.push({ k: 'noDate', n: noDate.length, msg: `${noDate.length} 条未完成任务没有计划完成时间`, fix: null,

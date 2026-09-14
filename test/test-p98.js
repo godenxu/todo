@@ -313,7 +313,14 @@ async function main() {
       && /const theirPurgedFull = \(remote\.purged \|\| \[\]\)\.length >= PURGED_LIMIT;/.test(src));
     ok('★persist 看的是同步结果，不是"没抛异常"',
       /const res = await syncToFile\(db\);\s*\n\s*if \(res === 'written' \|\| res === 'nochange'\)/.test(src));
-    ok('★没同步上就把积压标记置回去', /\} else \{\s*\n\s*db\.settings\.pendingSync = true; flush\(\);/.test(src));
+    /* P113 把本机缓存的四条写入路径收口成 saveLocalCache（写失败不能再静默，
+       否则"同步过来的东西刷新一下又没了"），这里的 flush() 跟着改名。
+       要守的仍然是同一件事：没同步上就必须把积压标记落到本机缓存，
+       不能只改内存——刷新一下标记就没了，顶栏那个红色提醒也跟着消失。 */
+    ok('★没同步上就把积压标记置回去（并且落到本机缓存，不是只改内存）',
+      /\} else \{\s*\n\s*db\.settings\.pendingSync = true; saveLocalCache\(db\);/.test(src));
+    ok('★同步成功那一路也要把标记落盘',
+      /db\.settings\.pendingSync = false; saveLocalCache\(db\); \}/.test(src));
     ok('★"重新连接共享文件夹"那条路也治结构损坏（它自己解析文件，不走 readSharedFile）',
       (src.match(/noteBrokenSharedFile\(sanitizeRemotePayload\(parsed\)\);/g) || []).length === 2);
     ok('★连接那条路的空载荷跟同步路径共用同一份定义，不再各抄一份',

@@ -16,6 +16,7 @@
 | `sim12.js` | 随机点几百轮界面动作 + 离线分叉 + 写入竞争，验不变量和"改动不许丢" | `ROUNDS=300 SEED=1 node sim/sim12.js`<br>加真实数据：`PROD=科技规划处工作管理.json ROUNDS=250 node sim/sim12.js` |
 | `sim13.js` | 把合并当成数学对象，验它必须满足的代数性质：串行写入不丢、任意交错收敛、不凭空造值、幂等 | `ROUNDS=200 SEED=1 node sim/sim13.js` |
 | `sim14.js` | 把 sim13 那套性质搬到**里程碑**上重跑（sim13 从头到尾不碰里程碑），另加两条：交付日期不许被合并弄丢、done 与 actual_date 不许合并成"标着已交付却没有交付日期" | `ROUNDS=200 SEED=1 node sim/sim14.js` |
+| `sim15.js` | 详情弹窗 × 后台同步的随机交错：在"打开弹窗"和"点保存"之间主动构造冲突，压 P115/P116 那四个并发问题（孤儿对象、旧值顶回、删除复活、过期整条覆盖）。已知 `SEED=99` 会红一条，见文件头说明 | `ROUNDS=300 SEED=1 node sim/sim15.js`<br>诊断某一格：`TRACE='M5|done' ROUNDS=300 SEED=99 node sim/sim15.js` |
 
 几点说明：
 

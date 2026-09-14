@@ -194,6 +194,11 @@ const exportTail = `
   // P111：里程碑的独立变更记录
   logMilestoneChanges, msLogTitle, MS_LOG_MAX,
   readSharedFile,
+  // P113：本机缓存写入收口（写不进去不能再静默）
+  saveLocalCache, localCacheBroken, STORAGE_KEY,
+  get localSaveFailedAt(){return _localSaveFailedAt}, setLocalSaveFailedAt(v){ _localSaveFailedAt = v; },
+  pullFromFile, mergeChangelog, filterLogs, recycleCutoff, purgeRecycleBin,
+  mergePermissionMatrix, mergeUserPresence, mergeByPk,
   // 备份锁存在 localStorage 里；用例要模拟"上次备份是很久以前"就得能改它，所以把存储本身放出来
   get storage(){return localStorage},
   bindComposableSearch, bindLogsTextSearch, bindToolbarInputs, SNACK_UNDO_WINDOW_MS,

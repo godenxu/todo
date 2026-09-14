@@ -365,7 +365,12 @@ async function main() {
     const msg = q('#snack-msg').textContent;
     S.storage.setItem = origSet;
     ok('★本机存储写满时不抛异常到界面', !threw);
-    ok('★而且告诉了用户该怎么办', /本地存储|导出备份/.test(msg), msg);
+    /* P113 把提示换成了更具体的一句（四条写入路径收口到 saveLocalCache）：
+       除了"存储满"，还要讲清后果——"这次的改动只在内存里，刷新页面就会回到旧数据"。
+       光说一句存储满，用户不知道这条提示有多要紧，多半顺手关掉了。 */
+    ok('★而且告诉了用户该怎么办', /本地存储|导出备份|存储满|导出一份备份/.test(msg), msg);
+    ok('★★还讲清了后果（不说后果，用户不会当回事）',
+      /刷新页面就会回到旧数据|只在内存里/.test(msg), msg);
   }
 
   raw.Blob = origBlob;
