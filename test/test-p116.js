@@ -26,6 +26,10 @@
    把 16 个 Repo.upsert 调用点逐个追了对象来源：13 处是 byId 就地取的、
    1 处传的是 id（cascadeRestoreTask）、1 处是 blank() 新建、剩下 1 处正是 commitTaskStatus。
    也就是说这类风险已经排干净，不是修了一个还剩一片。
+   ★ P118 更正：上面这个结论是错的 ★ 判据只看了"对象是不是 byId 取的"，没看"是什么时候取的"——
+   在确认框/编辑框打开【之前】取的，跟闭包捏着的旧引用没区别。按正确判据重扫又挖出十几处
+   （单元格内联编辑、删除任务/职责、重置 PIN、删除账号、彻底删除……），下面"行内编辑不受影响"那句同样不成立。
+   详见 test-p118.js，那里还把正确判据写成了全文扫描护栏。
 
    ── 查过没问题的，钉成护栏 ──
    同事在我开着弹窗时【新加】的里程碑不会被我的保存误删（它不在 existingCps 里，
@@ -255,8 +259,11 @@ async function main() {
     ok('★★记了打开那一刻每条里程碑的样子（存 clone，不是引用——引用会变成孤儿）',
       /const cpOpenSnap = new Map\(existingCps\.map\(m => \[m\.id, clone\(m\)\]\)\);/.test(SRC));
     ok('★★同事删了、我没动过的整行跳过', /if \(cur\.deleted_at && !\(snap && snap\.deleted_at\) && rowUntouched\)/.test(SRC));
+    // P126：结构改成"我没碰的格子一律不写，同事改了的顺带记下来"，且"没碰"按界面呈现的样子比；
+    // P127：换算规则提成了公共函数 cpRowView（补上交付物中间的换行、呈报层级不在选项里两种情况）
     ok('★★逐格比对：我没碰、他改了的那一格留着他的',
-      /if \(untouched\(k\) && !sameFieldValue\(cur\[k\], snap\[k\]\)\)/.test(SRC));
+      /if \(untouched\(k\)\) \{[\s\S]{0,160}if \(!sameFieldValue\(cur\[k\], snap\[k\]\)\) _msKeptFields\.push[\s\S]{0,40}return;/.test(SRC)
+      && /const untouched = k => !!snap && sameFieldValue\(cd\[k\], cpRowView\(snap, k\)\);/.test(SRC));
     ok('★交付日期看的是 cur.done', /cur\.actual_date = cur\.done === '1' \?/.test(SRC));
   }
 

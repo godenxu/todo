@@ -29,6 +29,11 @@ const ok = (name, cond, extra) => {
 const section = t => console.log('\n■ ' + t);
 const tick = (ms = 5) => new Promise(r => setTimeout(r, ms));
 const clone = o => JSON.parse(JSON.stringify(o));
+/* P121：这组用例在同一个沙箱里模拟两台机器，而合并会读 DB.settings 里的'本机改动凭据'。
+   在'对方机器'上合并时必须把这台机器（甲）留下的凭据摘掉——对方根本没碰过这些记录。
+   原来能过，是因为软删除只留整条标记、恰好走了'文件里已删除就以删除为准'的分支；
+   P121 给软删除补上字段凭据后，这个共用凭据的漏洞才暴露出来。 */
+const asOtherMachine = fn => { const st = S.DB.settings, k = st.dirtyKeys, f = st.dirtyFields; st.dirtyKeys = []; st.dirtyFields = {}; try { return fn(); } finally { st.dirtyKeys = k; st.dirtyFields = f; } };
 
 async function main() {
   await tick(60);
@@ -65,7 +70,7 @@ async function main() {
   const 乙本地 = clone(S.syncPayload(S.DB));      // 乙手上是删除之前那份
   S.softDelete('milestone', m2.id);              // 甲删掉
   const 甲推上去的 = clone(S.syncPayload(S.DB));
-  const 乙合并后 = S.mergeSyncPayload(乙本地, 甲推上去的);
+  const 乙合并后 = asOtherMachine(() => S.mergeSyncPayload(乙本地, 甲推上去的));
   const 乙看到的 = 乙合并后.milestones.find(x => x.id === m2.id);
   ok('★乙合并之后，这条里程碑确实是已删除状态（这就是原来失败的那一步）',
     !!(乙看到的 && 乙看到的.deleted_at), 乙看到的);
@@ -110,7 +115,7 @@ async function main() {
   const ms2 = S.byId('milestone', 'p49_ms2');
   ok('本机上第二条确实被软删除了', !!ms2.deleted_at);
   ok('★版本号也顶高了（原来这里不会，删除因此传不出去）', (ms2.rev || 0) > ms2RevBefore, { before: ms2RevBefore, after: ms2.rev });
-  const 同事合并后 = S.mergeSyncPayload(删之前, clone(S.syncPayload(S.DB)));
+  const 同事合并后 = asOtherMachine(() => S.mergeSyncPayload(删之前, clone(S.syncPayload(S.DB))));
   ok('★同事那边合并之后也看不到第二条了（本次事故的直接验证）',
     !!(同事合并后.milestones.find(x => x.id === 'p49_ms2') || {}).deleted_at);
   ok('没被删的第一条不受影响，还在', !(同事合并后.milestones.find(x => x.id === 'p49_ms1') || {}).deleted_at);
@@ -120,7 +125,7 @@ async function main() {
   const bt = S.DB.tasks.filter(t => !t.deleted_at).slice(0, 2);
   const 批量删之前 = clone(S.syncPayload(S.DB));
   await S.Repo.bulk(() => { bt.forEach(t => S.softDelete('task', t.id)); });
-  const 批量合并后 = S.mergeSyncPayload(批量删之前, clone(S.syncPayload(S.DB)));
+  const 批量合并后 = asOtherMachine(() => S.mergeSyncPayload(批量删之前, clone(S.syncPayload(S.DB))));
   ok('★批量删掉的任务，同事那边合并后也都是已删除',
     bt.every(t => !!(批量合并后.tasks.find(x => x.id === t.id) || {}).deleted_at));
 

@@ -31,21 +31,19 @@
    最终状态，被复活的那条在后续几十轮里很可能又被别的动作覆盖，检查会假绿——
    实测把修复弄坏之后，收敛检查照样全绿，就地检查才抓得到。
 
-   ★★ 已知未解：SEED=99 时不变量 ⑤ 会红一条，我没能完全归因 ★★
-   现象：`M5|done 应为我写的「1」，实际「0」`。用 TRACE='M5|done' 跑一遍能看到全过程，
-   出事的是第 295 轮——那时任务名下只剩 M5 一条里程碑，弹窗行和 DB 里那条三格全不一样：
-       弹窗行 {plan_date:2026-11-02, report_level:bank, done:1}
-       DB 那条 {plan_date:2026-11-05, report_level:department, done:0}
-   我确认过的：
-     · 产品侧这个组合是对的——probe-done3 把"同时改 done+日期+层级"（含触发顺序确认框那条路）
-       三种情形都确定性地跑过，全绿；test-p116 的 42 条断言也全绿；
-     · 其余 12 个种子（1/2/3/5/7/11/23/42/123/777/2024/31337）这一条都通过；
-     · 已经排掉的几个假红来源：确认框没点完、随机值撞出重复里程碑被硬拦、
-       剧本改了格子却没记账、真冲突格拿"我必须赢"去断言。
-   还没排掉的怀疑：这一轮的保存把任务状态带成了 done（下一轮诊断显示状态确实变了），
-   说明保存执行过；但 done 最终是 0。可能是模拟器的真值表跟三方合并的胜负语义
-   在某个边角上对不齐，也可能是产品在"只剩一行 + 同事同轮改同一行"下真有问题。
-   下次接手请从这里查起：TRACE='M5|done' ROUNDS=300 SEED=99 node sim/sim15.js
+   ★★ SEED=99 那条红（P117 没归因）——P118 查实是【产品的真 bug】，已修 ★★
+   上一轮我倾向于认为是模拟器的问题，这个倾向是错的。用 DUMP_AT=295 把保存前后的完整状态落盘一看就清楚了：
+     · 第 295 轮我的保存确实把 M5 的 done 写成了 1（日志里有"已完成：未完成→已完成"，任务也被推成已完成）；
+     · 紧接着那次持久化发现"我上次的写入被人用过期内容盖掉了"，走了 rollbackBaseForClobber；
+     · 它把基线回滚到"最后一次写入之前"——那是剧本里"勾上"那一版（done=1），恰好等于我本机刚勾上的值，
+       三方合并于是判定"这一格我没动过"，文件里的 0 胜出，我最新的勾选被吃掉，
+       留下"任务已完成、唯一的里程碑没交付、进度 0%"的矛盾记录。
+   触发条件：覆盖方的副本比我【连续两次】写入都旧，而我之后又把同一格改回了中间那个值。
+   这里 colleagueWrite 把写入链整个重置（writeIds = [新 id]），效果上正好等于"覆盖方的副本很旧"。
+   修法见 index.html rollbackBaseForClobber 上面"第二道护栏"那段；确定性复现在 test-p118。
+   教训：探针"确定性场景全绿"只能证明【那几个场景】没问题，证明不了长跑撞到的那个组合不是产品问题——
+   当时应该先把出事那一轮的完整状态落盘，而不是去排除模拟器的可能性。
+   诊断工具留着：TRACE='M5|done' 看某一格的全过程，DUMP_AT=轮次 把那一轮保存前后的状态写到系统临时目录。
 
    不变量（每一条都对应一个真出过的问题）：
    ① 收敛 —— 折腾完之后本机和共享文件必须完全一致。
@@ -174,10 +172,9 @@ async function saveThrough() {
   /* 只在【回调换了人】时才再点一次——那说明保存过程中弹出了一个新的确认框
      （"里程碑顺序看起来不对"就是这样，它把 modalCallback 换成了确认框的 onConfirm）。
      不能无脑重试：回调没换人时再调一次，等于把同一次保存又跑一遍；
-     而如果此刻残留的是上一个弹窗的回调，重试还会把状态搅乱——
-     实测种子 99 就是这么假红的（弹窗只剩一行时，重试调到了别的回调，
-     那一次编辑看起来"没写进去"，其实产品侧一切正常，
-     确定性场景 probe-done3 三种情形全绿）。 */
+     而如果此刻残留的是上一个弹窗的回调，重试还会把状态搅乱。
+     （P117 这里曾写"种子 99 就是这么假红的、产品侧一切正常"——那个归因是错的，
+       种子 99 是产品真 bug，见文件头。这条"只在回调换人时重试"的规则本身仍然成立。） */
   let guard = 0;
   while (q('#modal-overlay').classList.contains('show')
          && typeof S.modalCallback === 'function'
@@ -192,8 +189,8 @@ async function saveThrough() {
 const deadMs = new Set();         // 同事删掉、且我没碰过的里程碑（不许复活）
 /* 真冲突的格子：同一轮里我和同事都动了它。
    这种格子谁赢取决于合并规则（rev / 时间），不保证是我——所以不能拿它去断言
-   "我写的必须存下来"。原来那版把它算进去了，种子 99 因此假红：
-   那一轮我改了某条里程碑的三格，同事在窗口期也改了其中两格。 */
+   "我写的必须存下来"。原来那版把它算进去了，会报假红（真冲突格本来就不保证我赢）。
+   注意别把这条推广过头：种子 99 最后剩下的那条红就不是这一类，而是产品真 bug（见文件头）。 */
 const contested = new Set();
 const everHadDate = new Map();    // 里程碑 id -> 它曾经有过的交付日期（P111：不许被抹成空）
 
@@ -422,11 +419,27 @@ async function main() {
       DB 那条    = ${live ? JSON.stringify({done: live.done, plan_date: live.plan_date,
               deliverable: live.deliverable, report_level: live.report_level, del: !!live.deleted_at}) : 'null'}`
           + `
-      任务状态   = ${(S.byId('task','T1')||{}).status}`);
+      任务状态   = ${(S.byId('task','T1')||{}).status}`
+          // 合并是纯三方逐字段：这一格最后落成什么，取决于基线和文件里这一格各是什么，一并打出来
+          + `
+      同步基线   = ${(() => { const b = S.DB.syncBase && S.DB.syncBase.milestone; const x = b && b[tid]; return x ? JSON.stringify({ done: x.done, plan_date: x.plan_date, report_level: x.report_level, actual_date: x.actual_date, del: !!x.deleted_at }) : '（基线里没有）'; })()}`
+          + `
+      DB 交付日期 = ${live ? JSON.stringify(live.actual_date) : '-'}`);
       }
       stubCp(rowsOpen.map(r => cpRow(r.id, r.plan_date, r.deliverable, r.report_level, r.done)));
+      // 诊断用：DUMP_AT=轮次 时把这一轮保存前后的完整状态落盘，方便离线对着数据查
+      const dumpThis = Number(process.env.DUMP_AT || 0) === n;
+      const dump = dumpThis ? { before: cp({ tasks: S.DB.tasks, milestones: S.DB.milestones, syncBase: S.DB.syncBase }), rowsOpen, form } : null;
+      const snacks = [];
+      const _snack = dumpThis ? S.showSnack : null;
       await saveThrough();
       unstubCp();
+      if (dumpThis) {
+        dump.after = cp({ tasks: S.DB.tasks, milestones: S.DB.milestones, syncBase: S.DB.syncBase });
+        dump.snack = String(q('#snack').textContent || q('#snack-msg').textContent || '');
+        dump.lastLogs = cp(S.DB.changelog.slice(-4));
+        require('fs').writeFileSync(require('path').join(require('os').tmpdir(), `sim15-dump-${SEED}-${n}.json`), JSON.stringify(dump, null, 1));
+      }
       traceActual('随机轮保存后');
       if (TRACE_KEY) {
         const [tid2] = TRACE_KEY.split('|');

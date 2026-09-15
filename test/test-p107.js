@@ -253,7 +253,8 @@ async function main() {
         await tick(10); await S.spCommitSingle('1');
       }, '优先级'],
       ['删除任务', async () => { await S.ACTIONS['task-del']({ id: 'T1' }); }, '删除了任务'],
-      ['彻底删除任务', async () => { await S.ACTIONS['task-purge']({ id: 'T1' }); }, '彻底删除了任务'],
+      // 彻底删除只对已删除的任务出现（P118 起确认时会核对），跟真实操作一样先删
+      ['彻底删除任务', async () => { S.softDelete('task', 'T1'); S.rebuildIndex(); await S.ACTIONS['task-purge']({ id: 'T1' }); }, '彻底删除了任务'],
       ['停用工作', async () => { await S.ACTIONS['work-del']({ id: 'w1' }); }, '停用了工作'],
       ['删除职责', async () => { await S.ACTIONS['duty-del']({ code: '01' }); }, '删除了职责'],
       ['批量删除', async () => {

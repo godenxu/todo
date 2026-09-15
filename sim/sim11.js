@@ -162,6 +162,8 @@ async function main() {
     await tick(10);
     const el = q('#td-title'); if (el) el.value = '任务2（详情弹窗改过）';
   });
+  // 彻底删除只在「已删除」视图出现；P118 起确认时会核对"它此刻仍是已删除状态"，所以跟真实操作一样先删
+  await step(h, 'task-del 先删 T3（为下一步彻底删除做准备）', () => S.ACTIONS['task-del']({ id: 'T3' }));
   await step(h, 'task-purge 彻底删除任务', () => S.ACTIONS['task-purge']({ id: 'T3' }));
   await step(h, 'undo 撤销上一步', () => S.ACTIONS['undo']());
   await step(h, 'work-del 停用工作', () => S.ACTIONS['work-del']({ id: 'w_0201' }));
@@ -183,7 +185,10 @@ async function main() {
   await step(h, 'sp-commit 多选改参与人', async () => {
     S.ACTIONS['edit']({ entity: 'task', id: 'T1', field: 'assignees' }, q('#x'));
     await tick(10);
-    if (S.sp) S.sp.sel = ['同事乙'];
+    /* ★ 原来这里写的是 S.sp.sel = [...]——_sp 上根本没有 sel 这个字段（选中列表叫 order），
+       这个用例其实一直没改到参与人，只是提交时整条写了一遍、rev 变了，才被当成"改到了数据"。
+       P118 起一个没改就点确定不再写入，它的失效才暴露出来。改成真的往选中列表里加一个人。 */
+    if (S.sp) S.sp.order.push('同事乙');
     await S.spCommitMulti();
   });
   await step(h, 'health-fix 体检一键修复（进度与状态对不上）', async () => {

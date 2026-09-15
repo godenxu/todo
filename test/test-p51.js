@@ -117,9 +117,10 @@ async function main() {
   t2.title = '改坏了'; S.stampMeta(t2);
   await S.undoLast();
   ok('★没有第三方介入时，撤销完整回退', S.DB.tasks.find(x => x.id === t2.id).title === '干净的原始标题');
-  // 干净撤销走的是 hideSnack()：它只摘掉 show 这个 class，不清空里面的文字，
-  // 所以这里查的是"提示条有没有露出来"，不是查文字内容（上一段留下的文案还在 DOM 里）
-  ok('这种情况下不弹任何提示条（没有需要额外交代的事）', !q('#snackbar').classList.contains('show'));
+  // P127：原来干净撤销走 hideSnack()、一个字都不说——误按一下 Ctrl+Z 把刚删掉的里程碑撤回来，界面毫无动静，
+  // 处里报上来的"删掉的东西自己回来了"就有这条来路。现在撤销成功一律当场点名改回了什么
+  ok('★撤销成功要当场说清楚改回了什么（原来一声不响）',
+    q('#snackbar').classList.contains('show') && /已撤销：改回了「干净的原始标题」/.test(q('#snack-msg').textContent), q('#snack-msg').textContent);
 
   section('①-8 变更日志/墓碑不再被整体拨回，同事那部分要留着');
   S.undoStack.length = 0;

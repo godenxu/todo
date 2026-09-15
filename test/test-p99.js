@@ -88,7 +88,9 @@ async function main() {
   const RULES = {
     duties: /mergeEntityListWithBase\('duty'/, works: /mergeEntityListWithBase\('work'/,
     milestones: /mergeEntityListWithBase\('milestone'/, tasks: /mergeEntityListWithBase\('task'/,
-    changelog: /mergeChangelog\(/, users: /mergeByPk\('name'/,
+    changelog: /mergeChangelog\(/,
+    // P119 起账号改成有基线就逐字段三方合并（mergeUsersWithBase），没基线时它内部再退回 mergeByPk
+    users: /mergeUsersWithBase\(local\.users, remote\.users, b\.user\)/,
     permissionMatrix: /mergePermissionMatrix\(local\.permissionMatrix/,
     shareConfig: /mergePermissionMatrix\(local\.shareConfig/,
     reportConfig: /mergePermissionMatrix\(local\.reportConfig/,
@@ -105,7 +107,9 @@ async function main() {
   ok('★四个整体配置对象合并时都带了名字（不带名字就不记冲突，等于悄悄覆盖）',
     (merge.match(/mergePermissionMatrix\(local\.\w+, remote\.\w+, '[^']+'\)/g) || []).length === 4);
   ok('★账号的并发覆盖也记（它跟整体对象一样是整条丢弃，一直没人管）',
-    /noteUserConflicts\(local\.users, remote\.users\)/.test(merge));
+    /noteUserConflicts\(local\.users, remote\.users, b\.user\)/.test(merge)
+      // 有基线的账号，真冲突改在逐字段合并里记（P119）
+      && /function mergeUserThreeWay[\s\S]{0,1500}_objConflicts\.push/.test(SRC));
 
   /* ================== 矩阵 G ================== */
   section('矩阵 G：ACTIONS 里改了数据的动作，必须真的落盘');

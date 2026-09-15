@@ -16,7 +16,8 @@
 | `sim12.js` | 随机点几百轮界面动作 + 离线分叉 + 写入竞争，验不变量和"改动不许丢" | `ROUNDS=300 SEED=1 node sim/sim12.js`<br>加真实数据：`PROD=科技规划处工作管理.json ROUNDS=250 node sim/sim12.js` |
 | `sim13.js` | 把合并当成数学对象，验它必须满足的代数性质：串行写入不丢、任意交错收敛、不凭空造值、幂等 | `ROUNDS=200 SEED=1 node sim/sim13.js` |
 | `sim14.js` | 把 sim13 那套性质搬到**里程碑**上重跑（sim13 从头到尾不碰里程碑），另加两条：交付日期不许被合并弄丢、done 与 actual_date 不许合并成"标着已交付却没有交付日期" | `ROUNDS=200 SEED=1 node sim/sim14.js` |
-| `sim15.js` | 详情弹窗 × 后台同步的随机交错：在"打开弹窗"和"点保存"之间主动构造冲突，压 P115/P116 那四个并发问题（孤儿对象、旧值顶回、删除复活、过期整条覆盖）。已知 `SEED=99` 会红一条，见文件头说明 | `ROUNDS=300 SEED=1 node sim/sim15.js`<br>诊断某一格：`TRACE='M5|done' ROUNDS=300 SEED=99 node sim/sim15.js` |
+| `sim15.js` | 详情弹窗 × 后台同步的随机交错：在"打开弹窗"和"点保存"之间主动构造冲突，压 P115/P116 那四个并发问题（孤儿对象、旧值顶回、删除复活、过期整条覆盖）。`SEED=99` 曾经红过一条，P118 查实是写入覆盖恢复逻辑的真 bug 并已修复，见文件头 | `ROUNDS=300 SEED=1 node sim/sim15.js`<br>诊断某一格：`TRACE='M5\|done' ROUNDS=300 SEED=99 node sim/sim15.js`<br>把某一轮保存前后状态落盘：`DUMP_AT=295 ROUNDS=296 SEED=99 node sim/sim15.js` |
+| `sim16.js` | **多台电脑 × 真程序**（P127）：每台电脑、每个标签页都是一份完整的 index.html（加载器见 `multi-app.js`），各自的内存/本机缓存/时钟，连同一份共享文件真实并发；随机走任务详情删行/勾选/改字、删除/恢复任务、Ctrl+Z、定时同步、刷新页面待授权、断网、同机两个标签页。每写一次文件就查"删掉的里程碑没留恢复日志就活了"。生产事故拿不到现场时用它自己撞；还能整体或给某台电脑换成旧版本 html，对照事故当时的版本 | `ROUNDS=500 SEED=1 node sim/sim16.js`<br>很久没开的电脑拿旧缓存重连：`DORMANT=1`<br>混版本：`git show HEAD:index.html > old.html` 后 `HTML2=old.html`（整体用旧版：`HTML=old.html`）<br>排除 Ctrl+Z：`NO_UNDO=1`；打印全过程：`VERBOSE=1` |
 
 几点说明：
 

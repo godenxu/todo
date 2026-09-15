@@ -94,7 +94,10 @@ const sandbox = {
       return el;
     },
     get _lastCanvas() { return lastCreatedCanvas; },
-    addEventListener() {}, removeEventListener() {},
+    // P124：document 上的监听器也记下来（原来是空实现，全局快捷键在沙盒里根本测不到）；只记录，不改变任何行为
+    _on: {},
+    addEventListener(type, fn) { (this._on[type] = this._on[type] || []).push(fn); },
+    removeEventListener(type, fn) { this._on[type] = (this._on[type] || []).filter(f => f !== fn); },
     documentElement: { scrollWidth: 1280 },
     activeElement: { tagName: 'BODY', blur() {} },
     body: mkEl('body'),
@@ -298,6 +301,13 @@ const exportTail = `
   canManageAccount, assignableRoles, accountsPanelHTML,
   exportAccounts, importAccounts, parseAccountsFile, accountsExportPayload, ACCOUNTS_EXPORT_KIND, exportJSON, csvGuard, csvUnguard,
   applyWideImport, wideImportHeaders, reportLevelFromLabel, openWideImportModal, REPORT_LEVELS,
+  // P119：账号逐字段三方合并、落库前权限复核、CSV 导入提示
+  mergeUserThreeWay, mergeUsersWithBase, userMergeGroups, commitEditAllowed, csvImportNoteText,
+  // P120：共享文件被旧内容整份替换的检测
+  noteReplacedFile,
+  // P126/P127：同步撤回删除的告警、撤销留痕；详情保存"动没动"按控件显示的样子比；数据集指纹按内容算
+  noteMergeRevivals, logUndoTrail, detailControlView, cpRowView, deriveDatasetId,
+  get csvImportNote(){return _csvImportNote},
   get wideImportMode(){return _wideImportMode},
   spCommitSingle, ownerChangeNeedsWarning, renderPermissions, goto,
   hasIncompleteCheckpoints, commitTaskStatus, doneAutoFillNeeded, openDoneAutoFillModal,

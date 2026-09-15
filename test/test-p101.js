@@ -115,6 +115,8 @@ async function main() {
     reset();
     await S.Repo.persist(S.DB); await tick(15);
     const n0 = S.DB.changelog.length;
+    // 批量彻底删除只在「已删除」视图里出现，P118 起确认时只动此刻仍是已删除状态的——跟真实操作一样先删
+    ['T4', 'T5'].forEach(id => S.softDelete('task', id)); S.rebuildIndex();
     S.setPage('tasks');
     ['T4', 'T5'].forEach(id => S.ACTIONS['sel-row']({ id }, { checked: true }));
     await tick(8);
@@ -250,9 +252,9 @@ async function main() {
     ok('批量彻底删除里有 pushChangeLog', /pushChangeLog\('task', '', `批量彻底删除了/.test(slice("'batch-purge'", 1600)));
     ok('批量指派里有 pushChangeLog', /pushChangeLog\('task', '', `批量把/.test(slice('function openOrphanAssign', 3000)));
     ok('年度复制里有 pushChangeLog', /pushChangeLog\('work', '', `从 \$\{srcY\} 年度复制了/.test(slice('function openYearCopy', 4200)));
-    // 窗口从 5000 放宽到 9000：P103 给这个函数加了"覆盖模式只覆盖表里有的列"那一大段注释和实现，
+    // 窗口从 5000 放宽到 9000、P121 再放宽到 16000（加了撞号处理和旧导出保护）：P103 给这个函数加了"覆盖模式只覆盖表里有的列"那一大段注释和实现，
     // pushChangeLog 被推到 5000 字之后了。断言要查的是"有没有留痕"，不该被注释长度绑住
-    ok('CSV 导入里有 pushChangeLog', /pushChangeLog\(entity, '', `\$\{schema\(entity\)\.label\} CSV 导入/.test(slice('async function applyCSVImport', 9000)));
+    ok('CSV 导入里有 pushChangeLog', /pushChangeLog\(entity, '', `\$\{schema\(entity\)\.label\} CSV 导入/.test(slice('async function applyCSVImport', 16000)));
     ok('宽表导入里有 pushChangeLog', /pushChangeLog\('task', '', `任务\+里程碑宽表导入/.test(slice('async function applyWideImport', 12000)));
     ok('多行文本编辑器里有 logRecordChange', /logRecordChange\(entity, id, before, r, \[fieldKey\]\);/.test(slice('function openLinesEditor', 1800)));
     /* 自检的自检：上面几条是"源码里有没有这句"，函数被改名/挪走之后很容易变成永远为真的空断言，

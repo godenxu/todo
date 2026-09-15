@@ -222,6 +222,11 @@ async function main() {
   section('二之三、回归：批量改状态仍然跳过"不是我负责/参与"的任务');
   {
     reset();
+    /* P119：这一段结束要把账号恢复回来。原来没恢复，后面「三」实际是以【员工】身份去改张三的任务，
+       只是因为测试直接调 openDatePicker 绕过了入口检查才一直通过；
+       P119 给日期格加上落库前的权限复核之后才暴露出来。 */
+    const usersBak = JSON.parse(JSON.stringify(S.DB.users));
+    S.__restoreUsersP105 = () => { S.DB.users = usersBak; S.rebuildIndex(); };
     S.DB.users = [{ name: '测试管理员', role: 'staff', salt: '', hash: '', iterations: 0,
       created_at: new Date().toISOString(), updated_at: new Date().toISOString(), updated_by: '测试管理员', rev: 1 }];
     S.DB.permissionMatrix = null;
@@ -237,6 +242,7 @@ async function main() {
     ok('★不是自己的那条被跳过了，里程碑也没被动', doneN('T1') === 1 && S.byId('task', 'T1').status !== 'done',
       { done: doneN('T1'), status: S.byId('task', 'T1').status });
     ok('★自己那条正常处理', doneN('T2') === 3 && S.byId('task', 'T2').status === 'done');
+    S.__restoreUsersP105();
   }
 
   section('三、★双击「实际完成时间」填日期（会顺手把状态改成已完成）');

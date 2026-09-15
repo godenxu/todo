@@ -105,7 +105,9 @@ async function main() {
   restore();
   const dutyCode = 'P47D'; await S.Repo.upsert('duty', { code: dutyCode, name: 'P47测试职责' });
   // nextTaskCode 需要工作自己有 code（+年度）才能算出前缀，测试夹具必须带上，否则永远算出空编号
-  const wid = 'p47_w'; await S.Repo.upsert('work', { id: wid, duty: dutyCode, code: '01', year: 2027, name: 'P47测试工作', owner: '测试管理员' });
+  // P127：工作的年度必须是当前年度——别的年度的工作不在任务详情的下拉清单里，真实界面上根本选不到它，
+  // 保存时"所属工作"按控件显示的样子（未归属）判定为没动过（见 detailControlView）
+  const wid = 'p47_w'; await S.Repo.upsert('work', { id: wid, duty: dutyCode, code: '01', year: S.DB.settings.year, name: 'P47测试工作', owner: '测试管理员' });
   S.openNewTask ? S.openNewTask() : S.openTaskDetail('');   // 走通用的新建入口
   q('#td-title').value = 'P47没选工作的新任务';
   q('#td-owner').value = '测试管理员';
@@ -130,7 +132,7 @@ async function main() {
   ok('编号前缀确实对应这个工作', afterFix.code.startsWith(S.DB.works.find(w => w.id === wid).code));
 
   section('★②：换成另一个工作，编号要跟着重新生成（不是死板地保留第一次的编号）');
-  const wid2 = 'p47_w2'; await S.Repo.upsert('work', { id: wid2, duty: dutyCode, code: '02', year: 2027, name: 'P47测试工作二', owner: '测试管理员' });
+  const wid2 = 'p47_w2'; await S.Repo.upsert('work', { id: wid2, duty: dutyCode, code: '02', year: S.DB.settings.year, name: 'P47测试工作二', owner: '测试管理员' });
   const oldCode = afterFix.code;
   S.openTaskDetail(created.id);
   q('#td-title').value = created.title;

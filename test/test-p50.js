@@ -76,6 +76,9 @@ async function main() {
   S.DB.settings.me = '测试管理员';
   const t2 = S.DB.tasks.find(x => !x.deleted_at && aliveMsOf(x.id) > 0);
   const msIds = S.DB.milestones.filter(m => m.task === t2.id).map(m => m.id);
+  /* 界面上"彻底删除"只出现在「已删除」视图里；P118 起确认时还会核对"它此刻仍是已删除状态"
+     （防止确认期间同事刚把它恢复就被抹掉），所以这里要跟真实操作一样先删、再彻底删 */
+  S.softDelete('task', t2.id); S.rebuildIndex();
   S.ACTIONS['task-purge']({ id: t2.id });
   await S.modalCallback(); await tick();
   ok('任务记录整条没了', !S.DB.tasks.some(x => x.id === t2.id));

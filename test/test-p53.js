@@ -83,10 +83,13 @@ async function main() {
   S.DB.tasks = []; S.DB.works = []; S.rebuildIndex();
   const w1 = S.stampMeta(S.blank('work', { code: '0101', duty: '01', name: '正本', year: 2026, status: 'doing' }));
   w1.created_at = iso(Date.now() - 100000);
-  const w2 = S.stampMeta(S.blank('work', { code: '0101', duty: '01', name: '重复导入的副本', year: 2026, status: 'doing' }));
+  // P121：真正导入两次产生的副本名字跟正本一样（原来这里名字不同，那恰恰是两位管理员撞号建的两项不同工作，不该被删）
+  const w2 = S.stampMeta(S.blank('work', { code: '0101', duty: '01', name: '正本', year: 2026, status: 'doing' }));
   w2.created_at = iso(Date.now());
   const w3 = S.stampMeta(S.blank('work', { code: '0101', duty: '01', name: '另一个年度，不算重复', year: 2027, status: 'doing' }));
-  S.DB.works = [w1, w2, w3];
+  // P121：同年度同编号、但名称不同——两项不同的真实工作撞了号，不能判成复制品
+  const w4 = S.stampMeta(S.blank('work', { code: '0101', duty: '01', name: '乙同时新建的另一项工作', year: 2026, status: 'doing' }));
+  S.DB.works = [w1, w2, w3, w4];
   const mk = (title, ago) => {
     const t = S.stampMeta(S.blank('task', { work: w1.id, title, status: 'todo', priority: '2', progress: 0 }));
     t.created_at = iso(Date.now() - ago);
@@ -99,7 +102,8 @@ async function main() {
   const dupT = hc.issues.find(i => i.k === 'dupTask');
   const dupW = hc.issues.find(i => i.k === 'dupWork');
   ok('★查出了 1 条重复任务（同一项工作下同名）', dupT && dupT.n === 1, dupT);
-  ok('★查出了 1 项重复工作（同年度同编号）', dupW && dupW.n === 1, dupW);
+  ok('★查出了 1 项重复工作（同年度同编号同名）', dupW && dupW.n === 1, dupW);
+  ok('★同编号但名称不同的（撞号建的另一项工作）不算复制品', !hc.dupWorkIds.includes(w4.id));
   ok('不同年度的同编号工作不算重复（年度复制出来的是正常数据）', hc.dupWorkIds.length === 1);
   ok('保留的是最早创建的那条，清掉后建的那条',
     hc.dupTaskIds.length === 1 && S.byId('task', hc.dupTaskIds[0]).created_at === S.DB.tasks[1].created_at);
@@ -111,7 +115,8 @@ async function main() {
   ok('清理这件事也记进了日志',
     S.DB.changelog.some(e => (e.summary || '').includes('重复任务')));
   await S.fixHealth('dupWork');
-  ok('★重复工作也清掉了', S.DB.works.filter(w => !w.deleted_at && w.code === '0101' && w.year === 2026).length === 1);
+  ok('★重复工作也清掉了', S.DB.works.filter(w => !w.deleted_at && w.code === '0101' && w.year === 2026 && w.name === '正本').length === 1);
+  ok('★撞号的另一项工作没被一起删', !S.byId('work', w4.id).deleted_at);
   ok('清完之后体检不再报这两项', (() => {
     const h = S.healthCheck();
     return !h.issues.some(i => i.k === 'dupTask') && !h.issues.some(i => i.k === 'dupWork');

@@ -119,8 +119,10 @@ async function main() {
   ok('★超出时间窗口就不显示', q('#undo-btn').classList.contains('hidden'));
 
   section('③：源码层面——两处彻底删除都传了 undo:false');
-  ok('★清空回收站传了', /已彻底删除 \$\{purgeable\} 条`, \{ undo: false \}/.test(html));
-  ok('★体检彻底删除传了', /已彻底删除 \$\{ids\.length\} 个\$\{cfg\.label\}`, \{ undo: false \}/.test(html));
+  /* P118 起这两处的提示条多了"确认期间有几条被恢复/不再符合条件、没有删"的分支，
+     文案和条数变量都变了，但两个分支都必须照样压掉撤销按钮——正则改成两个分支一起查 */
+  ok('★清空回收站传了', /showSnack\(`已彻底删除 \$\{n\} 条`[\s\S]{0,120}\?\s*\{ undo: false, priority: true \}\s*:\s*\{ undo: false \}\)/.test(html));
+  ok('★体检彻底删除传了', /showSnack\(`已彻底删除 \$\{live\.length\} 个\$\{cfg\.label\}`[\s\S]{0,140}\?\s*\{ undo: false, priority: true \}\s*:\s*\{ undo: false \}\)/.test(html));
 
   /* ================= ④：换版本后首次同步不误报 ================= */
   section('④：换版本后的第一次合并放行一次熔断告警');

@@ -485,8 +485,13 @@ async function main() {
     /* 增删刻意不带 changes：它们没有"改前的值"可供核对，硬塞一份进去，
        核对时会把它当成"这个字段现在应该是 X"，而一条刚被删掉的记录本来就不参与核对，
        记了也是白记，反而让人以为查得到。 */
-    ok('★★增删不带结构化明细（没有"改前的值"可核对，硬塞进去只会让人误以为查得到）',
-      ms.every(e => !e.changes));
+    /* P126 改了：删除要带"删除状态"这一格的明细。原来的理由是"被删的记录不参与核对，记了也白记"——
+       真实事故正是"删掉的里程碑自己回来了、日志里核对不出来也改不回去"。核对现在认删除状态了，
+       删除明细恰恰是修复的依据。新增仍然不带（没有改前的值可核对）。 */
+    ok('★★删除带上了删除状态的明细，新增仍不带',
+      ms.filter(e => /删除/.test(e.summary)).every(e => Array.isArray(e.changes) && e.changes.some(c => c.k === 'deleted_at' && c.to))
+      && ms.filter(e => /新增/.test(e.summary)).every(e => !e.changes),
+      ms.map(e => [e.summary, e.changes]));
   }
 
   section('④-3 一次改太多条就退回一句汇总，不把日志页冲掉');

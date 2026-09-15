@@ -273,10 +273,13 @@ async function main() {
       lastWriteApp: S.APP_VERSION, lastWriteAt: new Date().toISOString(),
     });   // 刻意不带 writeIds：旧版 html 不认识这个字段
     h._text = JSON.stringify(旧版写的); h._mtime += 1;
-    const a2 = S.DB.changelog.filter(e => e.kind === S.ALERT_LOG_KIND).length;
+    /* P120：只数"保存被覆盖"那一类告警。这份模拟的旧版写入把优先级带回了甲改之前的值（rev 也更低），
+       P120 新增的"共享文件疑似被旧内容替换"检测会为此记一条，那条是成立的，不属于这里要防的误报 */
+    const clobberAlerts = () => S.DB.changelog.filter(e => e.kind === S.ALERT_LOG_KIND && /用一份过期内容覆盖了/.test(e.summary || '')).length;
+    const a2 = clobberAlerts();
     await S.pullFromFile();
     ok('★★旧版 html 写过之后（链断了），新版本不报"被覆盖"——换版本那几天不能满屏误报',
-      S.DB.changelog.filter(e => e.kind === S.ALERT_LOG_KIND).length === a2);
+      clobberAlerts() === a2);
     // 本机得真有点改动，syncToFile 才会写（没东西可推时它刻意不写，见 hasLocalContribution）
     const t2 = S.DB.tasks.find(x => x.id === 'T95');
     t2.title = '新版接着改'; t2.rev = (t2.rev || 0) + 1;

@@ -255,6 +255,11 @@ async function main() {
   S.DB.settings.me = 'P57员工';
   S.DB.permissionMatrix = null;
   const before = S.reportSections()[0].modules.length;
+  /* P124：先等前面那几次编排保存真正落地再重置优先提示。
+     它们内部的 Repo.persist 并没有被等完；本机没连共享文件夹时保存完会弹"改动只存在本机"的优先提示
+     （20 秒节流一次）。整套回归跑得慢、跨过 20 秒时，这条提示恰好在下面断言之前落地，
+     把"为了防止误操作"压住——于是只在全量跑时偶发失败，单独跑永远是绿的。 */
+  await tick(300);
   S.setSnackPriorityUntil(0); q('#snack-msg').textContent = '';
   S.ACTIONS['report-mod-add']({ sec: secId, mod: 'personBars' });
   await tick();
