@@ -238,6 +238,8 @@ const exportTail = `
   get auditIssues(){return _auditIssues}, setAuditIssues(v){ _auditIssues = v; },
   get auditShown(){return _auditShown}, setAuditShown(v){ _auditShown = v; },
   checkClockSkew, CLOCK_SKEW_LIMIT_MS, noteOldWriter, oldWriterPanelHTML,
+  // P128/P129：核对容差、写入竞争之后按自己的日志自动补回
+  AUDIT_SKEW_TOLERANCE_MS, applyAuditFix, repairClobberedFromLog, bulkScope,
   // 写入竞争：写前确认 + 写入链（writeIds）+ 事后发现被覆盖并回滚基线
   buildWriteIdRing, WRITE_ID_RING, WRITE_RING_RESET, sameFileVersion,
   detectClobberedWrite, noteClobberedWrite, CLOBBER_WINDOW_MS,

@@ -77,7 +77,10 @@ async function main() {
   PATHS.forEach(([label, decl]) => {
     const body = sliceFn(SRC, decl);
     ok(`★「${label}」把基线对齐到了文件内容`,
+      // P129：拉取那条路改成了"合并之前先拍一份 remoteBase、最后再赋值"——自动补回会就地改记录，
+      // 等它改完再拍基线，记下来的就成了"文件里已经是我补好的值"（见 pullFromFileInner 里那段注释）
       /syncBase = buildSyncBase\((cur\.remote|remote)\)/.test(body)
+      || (/const remoteBase = buildSyncBase\(cur\.remote\)/.test(body) && /syncBase = remoteBase/.test(body))
       // 写回成功那一条例外：文件里就是我刚写的 merged，对齐到 merged 才是对的
       || /syncBase = buildSyncBase\(merged\)/.test(body));
   });
@@ -195,6 +198,10 @@ async function main() {
       // P105：把"勾完名下里程碑"收口成的工具函数，四个调用点（commitTaskStatus、
       // 批量改状态、双击实际完成时间、体检修复）各自负责落盘，跟 softDelete 同一类
       completeCheckpointsOf: '给调用方在 Repo.bulk/upsert 里用的同步工具函数，落盘是调用方的事',
+      // P129：把「按日志修复」写回数据那一步抽出来的公共函数，人工修复（repairByChangelog，走 Repo.bulk）
+      // 和写入竞争后的自动补回（repairClobberedFromLog，在同步流程里，紧接着就写文件/标记待推送）两边共用
+      applyAuditFix: '给调用方在 Repo.bulk / 同步流程里用的同步工具函数，落盘是调用方的事',
+      repairClobberedFromLog: '在 syncToFileInner/pullFromFileInner 的合并之后调用，由这两条同步路径自己落盘',
     };
     const bad = [];
     const seen = new Set();

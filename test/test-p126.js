@@ -77,17 +77,21 @@ function world(opt) {
   handle._mtime = 1; S.setFileHandle(handle); S.setEverConnected(true);
 }
 // 同事改文件：fn 拿到 payload 直接改；被改的记录自己负责抬 rev / updated_at
-function colleague(fn) {
+/* keepRing=true：同事是【读到我这份之后】才写的——写入链里保留我那次写入的标记，
+   于是本机不会判定"我上次写被覆盖了"。默认 false 保持老行为（链被截断 = 模拟一次写入竞争）。
+   P129 之后这个区别有了实际后果：判定成被覆盖时，本机会按自己的日志自动把被顶掉的格子补回来。 */
+function colleague(fn, keepRing) {
   const p = JSON.parse(FILE);
+  const oldRing = Array.isArray(p.writeIds) ? p.writeIds.slice() : ['w0'];
   fn(p);
-  p.writeId = 'wC' + Math.random(); p.writeIds = ['w0', p.writeId];
+  p.writeId = 'wC' + Math.random(); p.writeIds = (keepRing ? oldRing : ['w0']).concat(p.writeId);
   FILE = JSON.stringify(p); handle._mtime++;
 }
 const bump = r => Object.assign(r, { rev: (r.rev || 1) + 5, updated_at: LATER(), updated_by: '同事' });
 const F = () => JSON.parse(FILE);
 const fRec = (ent, key, id) => (F()[ent] || []).find(x => x[key] === id);
 // 模拟"打开之前就发出去的那一轮同步，在确认框/编辑框开着时落地"
-async function landSync(fn) { colleague(fn); await S.pullFromFile(); await tick(60); }
+async function landSync(fn, keepRing) { colleague(fn, keepRing); await S.pullFromFile(); await tick(60); }
 async function confirmNow() {
   const cb = S.modalCallback;
   if (typeof cb === 'function') { await cb(); await tick(200); }
@@ -150,8 +154,10 @@ async function main() {
     const delLog = S.DB.changelog.filter(e => e.refId === 'MD' && /删除里程碑/.test(e.summary || '')).pop();
     ok('删除日志带上了删除状态的明细', delLog && (delLog.changes || []).some(c => c.k === 'deleted_at' && c.to), delLog);
     ok('进度按剩下的里程碑重算（3 条里交付 1 条 → 2 条里交付 1 条 = 50）', S.byId('task', 'T1').progress === 50, S.byId('task', 'T1').progress);
-    // 某台机器上的程序在不该撤回的时候把它撤回了（没有任何恢复日志），同步过来
-    await landSync(p => { const m = p.milestones.find(x => x.id === 'MD'); delete m.deleted_at; bump(m); });
+    /* 某台机器上的程序在不该撤回的时候把它撤回了（没有任何恢复日志），同步过来。
+       keepRing：它是读到我这份之后写的，不是写入竞争——否则 P129 的"自动补回"会抢先把它重新删掉，
+       这一节要测的是【没有自动补回兜底时】核对工具能不能认出来、能不能修。 */
+    await landSync(p => { const m = p.milestones.find(x => x.id === 'MD'); delete m.deleted_at; bump(m); }, true);
     ok('前提：本机这条又回来了、进度又变回 33', !S.byId('milestone', 'MD').deleted_at && S.byId('task', 'T1').progress === 33, S.byId('task', 'T1').progress);
     const issues = S.auditByChangelog();
     const it = issues.find(x => x.entity === 'milestone' && x.id === 'MD' && x.field === 'deleted_at');

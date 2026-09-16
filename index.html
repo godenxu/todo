@@ -759,7 +759,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260915173437';
+const APP_VERSION = 'v20260916123236';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -3283,7 +3283,17 @@ function noteOldWriter(remote) {
    反过来（我的表快）在我这儿看不出来，但会被别人那台机器以同样的方式发现——
    每台机器各查各的，合起来就覆盖了。
    阈值给 5 分钟：网盘文件时间戳精度、正常漂移都远小于这个数；一次会话只提醒一次，不啰嗦。 */
-const CLOCK_SKEW_LIMIT_MS = 5 * 60 * 1000;
+/* ★ 阈值从 5 分钟收到 2 分钟 ★（P129，多实例长跑撞出来的）
+   长跑里反复出现这一幕：甲的表慢一分钟，他跟乙在两分钟内先后改了同一格，
+   三方合并判"两人同时改了同一个字段"，只能按时间戳定胜负——甲真正后做的那次改动，时间戳反而更早，
+   于是被判成旧值丢掉（日志里留着他的记录，数据却是乙的值，管理员用"按日志核对"才查得出来）。
+   一两分钟的表差在办公室里很常见，而原来的 5 分钟阈值根本不会提醒。这类判错没法靠算法消除
+   （没有服务器就没有权威时间），只能尽早让人把表校准，所以把提醒阈值收紧到 2 分钟。
+   注意：核对工具那边的"先后分不清"容差【不能】跟着收紧（见 AUDIT_SKEW_TOLERANCE_MS）——
+   那边宁可放宽，也不能误报成"数据被人改回去了"害管理员去改回旧值。 */
+const CLOCK_SKEW_LIMIT_MS = 2 * 60 * 1000;
+// 按日志核对/告警里允许的时钟误差：比提醒阈值宽，理由见上
+const AUDIT_SKEW_TOLERANCE_MS = 5 * 60 * 1000;
 let _clockSkewWarned = false;
 function checkClockSkew(remote) {
   if (_clockSkewWarned) return;
@@ -3418,6 +3428,65 @@ function rollbackBaseForClobber(db, remote) {
   db.syncBase = out;
   return true;
 }
+/* ★★★ 被覆盖之后，按我自己的变更记录把被顶掉的那几格补回来 ★★★（P129）
+   写入竞争的兜底一直只有一条：把基线回滚到"我那次写之前"，让我手里的值重新算成待推送（rollbackBaseForClobber）。
+   它在两种情况下救不回来，多实例长跑里反复撞到：
+     · 我这台机器中途刷新过页面——回滚要用的"写之前那份基线"只在内存里，刷新就没了，只能报警告；
+     · 覆盖发生后我先拉过一次文件：那一轮合并已经把对方的旧值吸收进本机了，
+       等下一次同步检测到被覆盖时，我手里的值已经不是我改的那个，回滚再准也推不回正确的值。
+   而这时候证据其实是齐的：我自己刚才那次改动在变更记录里写着"这一格我改成了 X"，
+   而现在它不是 X、并且在那之后没有任何人对这一格留下过记录——这正是「按日志核对数据」判定"对不上"的条件。
+   所以这里就地做一次【只针对我自己、只针对最近这一次写入窗口】的按日志修复，走跟人工修复完全同一份代码，
+   并且逐条留痕（日志里写明"这一格是你什么时候改的、那次保存被谁覆盖了"）。
+   护栏：只认我自己写的日志、只认最近半小时（CLOBBER_WINDOW_MS）、派生字段不碰（repairableIssues 已排除）、
+   一次最多补 50 处——超过这个数说明出的不是写入竞争这种小事，宁可只报警让人来看。 */
+let _clobberRepairAt = 0;   // 检测到"我上次写被盖掉"的时刻；合并之后据此触发自动补回
+const CLOBBER_REPAIR_MAX = 50;
+function repairClobberedFromLog(db) {
+  if (!_clobberRepairAt) return 0;
+  const at0 = _clobberRepairAt;
+  _clobberRepairAt = 0;   // 只补一次：补完要么好了，要么下次再被覆盖时重新触发
+  const me = (db && db.settings && db.settings.me) || '未署名';
+  const since = new Date(at0 - CLOBBER_WINDOW_MS).toISOString();
+  const mine = repairableIssues(auditByChangelog())
+    .filter(it => (it.by || '') === me && (it.at || '') >= since)
+    /* ★ 而且这条记录在我那次改动之后【没有被任何人动过】★（P129，仿真 sim15 抓到的第二种误伤）
+       真被覆盖时，文件里躺的是一份过期副本——它的最后修改时间还停在我改之前。
+       要是它的时间比我那条日志还新、而且最后动它的【不是我自己】，说明这中间有人真的动过这条记录（哪怕他那次改动没留逐字段记录，
+       比如还在用旧版本 html 的同事），那就绝不能拿我的旧值去盖他，交给人到「按日志核对数据」里看。 */
+    .filter(it => !(it.changedAfterLog && (it.recUpdatedBy || '') !== me))
+    /* ★ 只补【被退回原样】的那几格 ★（P129，仿真 sim15 抓到的）
+       光有"我的日志是这一格最后一条"不够：同事那次改动要是没留逐字段记录（旧版本 html、
+       或者将来某个只写汇总日志的新入口），我的日志照样是最后一条，照着补就把【同事写的新值】
+       改成了我的旧值——那是在制造事故，不是在补救。
+       真被覆盖的形态很明确：这一格现在恰好等于我改【之前】那个值（我的改动被整个抹掉了）。
+       如果它既不是我写的值、也不是我改之前的值，说明这中间有人真的动过它，交给人去核对，不自动碰。 */
+    .filter(it => it.field === 'deleted_at'
+      ? !!(byId(it.entity, it.id) || {}).deleted_at === !!it.from
+      : sameFieldValue((byId(it.entity, it.id) || {})[it.field], it.from));
+  if (!mine.length) return 0;
+  if (mine.length > CLOBBER_REPAIR_MAX) {
+    pushAlertLog(`刚才那次被覆盖的保存里，有 ${mine.length} 处跟你的变更记录对不上，数量太多没有自动补回——`
+      + '请到日志页「按日志核对数据」里逐条确认后再修复。');
+    return 0;
+  }
+  const done = [];
+  mine.forEach(it => {
+    const e = applyAuditFix(it, `自动补回（这一格是你 ${fmtLocalDateTime(it.at)} 改的，那次保存被别人用过期内容覆盖了）`);
+    if (e) done.push(it);
+  });
+  if (!done.length) return 0;
+  rebuildIndex();
+  const names = uniq(done.map(it => {
+    const rec = byId(it.entity, it.id);
+    const t = rec ? (it.entity === 'milestone' ? msLogTitle(rec) : rec[schema(it.entity).titleField]) : it.id;
+    return `「${t || it.id}」的${(fieldDef(it.entity, it.field) || {}).label || (it.field === 'deleted_at' ? '删除状态' : it.field)}`;
+  })).slice(0, 5);
+  pushAlertLog(`刚才那次保存被人用过期内容覆盖，已按你自己的变更记录自动补回 ${done.length} 处：${names.join('、')}${done.length > 5 ? ' 等' : ''}。`
+    + '这些改动会随这次同步重新推给大家；如果其中有你本来就不想要的，可以按 Ctrl+Z 之外的正常方式再改回去。');
+  showSnack(`已按你的变更记录补回 ${done.length} 处被覆盖的改动（详见日志）`, { priority: true });
+  return done.length;
+}
 /* 发现被盖之后要做的事。返回是否真的发现了（供测试和日志用）。
    必须在合并【之前】调用：它会改 db.syncBase，而合并正是拿它当参照。 */
 function noteClobberedWrite(remote, db) {
@@ -3430,6 +3499,7 @@ function noteClobberedWrite(remote, db) {
   _lastWriteId = '';
   if (db.settings) { db.settings.lastWriteId = ''; db.settings.lastWriteIdAt = ''; }
   _preWriteBase = null;
+  _clobberRepairAt = Date.now();   // 合并之后再按我自己的日志补一次（见 repairClobberedFromLog）
   const msg = `刚才那次保存被${who}用一份过期内容覆盖了（多人同时保存时的写入竞争）。`
     + (rolled ? '系统已把这些改动重新标记为待同步，下一次保存会自动补推上去，' : '本页刷新过，没法自动补推，')
     + '请到日志页核对一下你最近改的那几条是不是还在。';
@@ -3620,6 +3690,13 @@ async function syncToFileInner(db) {
     const derivedFixed = reconcileDerivedAfterMerge(merged);
     Object.assign(db, merged);
     rebuildIndex();
+    /* 上面 noteClobberedWrite 发现"我那次写被盖了"时，在这里按我自己的日志把被顶掉的格子补回来（P129）。
+       下面那句判断里带上 clobberFixed 是【刻意的保险】：补回是就地改记录，而 localPayload 拿的是合并前那份数组引用，
+       眼下这两者的记录对象多半是同一批，所以"有没有东西要推"目前自己就看得见（实测确实看得见）。
+       但这依赖"合并时没改过的记录会沿用原对象"这个实现细节——哪天合并改成一律生成新对象，
+       补回的值就会悄悄推不出去，而且不会有任何报错。多一个显式标记，换掉这个隐藏耦合。 */
+    const clobberFixed = repairClobberedFromLog(db);
+
     /* ★ 必须放在 Object.assign 之后 ★
        这个函数会往 DB.changelog 里追加告警记录。放在 assign 之前的话，
        紧接着的 Object.assign 会把 DB.changelog 整个换成 merged.changelog，
@@ -3646,7 +3723,7 @@ async function syncToFileInner(db) {
        不能指望下面那个判断：它比的是"合并前的本机"和"文件"，而 localPayload.changelog
        指的是合并前那个数组，里面根本没有刚写的这条告警（Object.assign 已经把 db.changelog
        换成 merged.changelog 了）。跟 derivedFixed 是同一类问题：合并之后才发生的事，那个判断看不见。 */
-    if (!derivedFixed && !conflictAlerts && !hasLocalContribution(localPayload, cur.remote, db.syncBase)) {
+    if (!derivedFixed && !clobberFixed && !conflictAlerts && !hasLocalContribution(localPayload, cur.remote, db.syncBase)) {
       // 没写文件，那文件里现在就是刚读到的这一份——基线对齐到它
       db.syncBase = buildSyncBase(cur.remote);
       db.settings.lastSyncAt = new Date().toISOString();   // 确实跟文件对过账了，新鲜度要更新
@@ -3751,6 +3828,12 @@ async function pullFromFileInner() {
   noteClobberedWrite(cur.remote, DB);
   noteReplacedFile(cur.remote, DB);   // 只读拉取同样要查，理由同 noteClobberedWrite 那句
   const localPayload = syncPayload(DB);
+  /* ★ 基线要在【任何就地修改之前】拍 ★（P129，实测踩过）
+     合并结果里有一大半记录就是从文件里读出来的那个对象（本机没改过这条时直接沿用，不复制）。
+     下面的自动补回（repairClobberedFromLog）会就地改记录，如果基线等它改完再拍，
+     记下来的就是"文件里已经是我补好的值"——而文件里躺着的还是旧值。基线一撒谎，补回的内容永远推不出去，
+     下一轮合并还会把文件里的旧值当成"对方的新改动"，把刚补回来的值又顶掉（探针实测过这一幕）。 */
+  const remoteBase = buildSyncBase(cur.remote);
   const merged = normalizeMergedRecords(mergeSyncPayload(localPayload, cur.remote, DB.syncBase));
   reconcileDerivedAfterMerge(merged);   // 只读拉取同样要重算；修好的值由下一次保存推出去
   Object.assign(DB, merged);
@@ -3759,6 +3842,10 @@ async function pullFromFileInner() {
   // 同样必须放在 Object.assign 之后，理由见 syncToFile 里那段注释
   noteMergeAlerts(localPayload, merged);
   noteMergeRevivals(localPayload, merged, cur.remote);   // 同上（P126）
+  /* 拉取时同样要补（P129）：覆盖往往是先被拉取发现的。这里只读不写文件，
+     补出来的改动标成"还没推上去"，下一次保存/定时同步自然带出去。 */
+  if (repairClobberedFromLog(DB)) DB.settings.pendingSync = true;
+
   noteFieldConflicts();
   noteNoBaseOverrides();
   noteDerivedProgressOverride();
@@ -3768,7 +3855,7 @@ async function pullFromFileInner() {
      如果错误地把基线设成 merged，下一轮就会认为"我什么都没改"，
      于是文件里那份（不含我的改动）会被当成对方的新值反过来把我的改动冲掉——
      那正是这次要根治的那类事故，只不过换了个方向发生。 */
-  DB.syncBase = buildSyncBase(cur.remote);
+  DB.syncBase = remoteBase;   // 见上面那段：这一份是在自动补回之前拍的
   // lastSyncAt 的含义是"最后一次跟共享文件对上账的时间"，只读拉取同样对上了账，
   // 所以这里也要更新——否则顶栏那个新鲜度会一直显示成上一次写入的时间，比实际情况悲观
   DB.settings.lastPullAt = DB.settings.lastSyncAt = new Date().toISOString();
@@ -4000,7 +4087,11 @@ function capChangelog(list, limit) {
   const tier = e => {
     const k = logKind(e);
     if (k === 'login') return 0;
-    if (k === 'edit' && !(Array.isArray(e.changes) && e.changes.length)) return 1;
+    /* 带覆盖范围（scope）的汇总日志跟"有逐字段明细"的同级，不能先被丢掉（P130）：
+       导入/批量指派只写一条汇总日志，「按日志核对数据」正是靠它认出"这几格是被那次批量动作盖过的"。
+       它要是先被裁掉，而被它盖过的那些记录上更早的逐字段日志还在，核对就又开始把整批导入报成"对不上"，
+       管理员一点"按日志修复"就把导入的内容改回去了——P128 修掉的那个坑会从裁剪这条缝里回来。 */
+    if (k === 'edit' && !(Array.isArray(e.changes) && e.changes.length) && !e.scope) return 1;
     return 2;
   };
   const drop = new Set();
@@ -4045,7 +4136,17 @@ function logTaskIdFor(entity, refId) {
   if (entity === 'milestone') return (byId('milestone', refId) || {}).task || '';
   return '';
 }
-function pushChangeLog(entity, refId, summary, changes) {
+/* scope：批量动作（导入、指派、从备份恢复……）只写一条汇总日志，定位不到具体记录。
+   光这样的话「按日志核对数据」会拿这些记录上更早那条逐字段日志去比现在的值，报出一堆假的"对不上"，
+   管理员一点"按日志修复"就把整批导入改回去了（P128）。所以汇总日志上带一份覆盖范围：
+   { entity, ids, fields }——核对看到"这一格在这条日志之后被某次批量动作盖过"就跳过它。
+   ids 封顶，超了就记 null 表示"这类记录全都可能被盖过"（宁可少报，也不能误导人去改回去）。 */
+const BULK_SCOPE_IDS_MAX = 800;
+function bulkScope(entity, ids, fields) {
+  const list = uniq((ids || []).filter(Boolean));
+  return { entity, ids: list.length > BULK_SCOPE_IDS_MAX ? null : list, fields: (fields && fields.length) ? uniq(fields) : null };
+}
+function pushChangeLog(entity, refId, summary, changes, scope) {
   if (!summary) return;
   const e = {
     id: uid('log'), at: new Date().toISOString(), by: DB.settings.me || '未署名',
@@ -4056,6 +4157,7 @@ function pushChangeLog(entity, refId, summary, changes) {
      而"按日志核对数据"要的正是这个（见 auditByChangelog）。老日志没有这个字段，
      核对时会照实说明"这条只有文字描述，无法自动核对"，不影响任何既有功能。 */
   if (changes && changes.length) e.changes = changes;
+  if (scope) e.scope = scope;   // 批量动作的覆盖范围（见上面 bulkScope）
   DB.changelog.push(e);
   trimChangelog();
 }
@@ -10009,7 +10111,7 @@ function noteMergeRevivals(localPayload, merged, remote) {
      放宽一个时钟容差（跟时钟不同步告警用同一个阈值，超过它另有告警提醒去对表）。 */
   const sinceWithSkew = since => {
     const t = Date.parse(since || '');
-    return isNaN(t) ? (since || '') : new Date(t - CLOCK_SKEW_LIMIT_MS).toISOString();
+    return isNaN(t) ? (since || '') : new Date(t - AUDIT_SKEW_TOLERANCE_MS).toISOString();
   };
   const restoreLog = (entity, id, since) => logs.some(e =>
     e && logEntity(e) === entity && logRefId(e) === id && (e.at || '') >= sinceWithSkew(since)
@@ -10085,21 +10187,67 @@ function derivedFieldInfo(entity, field, rec) {
     why: `这条任务名下有 ${cps.length} 个里程碑，进度是按完成比例自动算出来的（已交付 ${done} 个 = ${Math.round(done / cps.length * 100)}%），不是谁手改的，也改不动`,
   };
 }
+/* ★ 几台电脑的时钟差一两分钟，"谁后改的"就会判反 ★（P128，多实例长跑撞出来的）
+   核对是按时间戳挑"这一格最后那条日志"的。可时间戳是各台电脑自己的表盖的：甲的表快一分钟，
+   他更早做的那次修改，日志时间反而比乙后做的那次还晚。于是核对会拿甲那条旧日志去比乙的新数据，
+   报出一条根本不存在的"对不上"——而管理员照着"按日志修复"点下去，就真把乙的新值改回旧值了，
+   这比漏报严重得多（合并本身是逐字段三方合并，不靠时间戳定胜负，所以数据往往是对的，错的是核对）。
+   判据：挑出最后那条日志之后，看看同一格上有没有另一条日志【就在时钟误差窗口之内】、
+   而且它说的正好就是现在这个值——有的话说明这两条日志的先后本来就分不清，现在的值有来路，不算对不上。
+   窗口用的是跟时钟不同步告警同一个阈值（超过它另有告警提醒去对表）。
+   这不会放过真问题：被旧页面顶回去、被合并悄悄改回去的那种，现在这个值要么根本没有日志，
+   要么那条日志是几小时前的，都落不进这个窗口。 */
+/* 一格一个键。分隔符用 NUL：它不可能出现在实体名/主键/字段名里，拼出来不会跟别的组合撞
+   （原来是在下面就地拼的，肉眼看不出那是个 NUL 而不是空格，另一处照着写成空格就永远查不到，实测踩过） */
+function auditKeyOf(entity, id, field) { return entity + '\u0000' + id + '\u0000' + field; }
 function auditByChangelog() {
   const latest = new Map();
+  const allOf = new Map();   // 同一格上的全部日志，给上面那个"时钟误差窗口"用
   (DB.changelog || []).forEach(e => {
     if (logKind(e) !== 'edit' || !Array.isArray(e.changes) || !e.changes.length) return;
     const entity = logEntity(e), id = logRefId(e);
     if (!id) return;
     e.changes.forEach(c => {
       if (!c || !c.k) return;
-      const key = entity + ' ' + id + ' ' + c.k;
+      const key = auditKeyOf(entity, id, c.k);
       const cur = latest.get(key);
+      const one = { entity, id, field: c.k, from: c.from, to: c.to, at: e.at || '', by: e.by || '' };   // from 给"自动补回"判"是不是被退回原样"用（P129）
+      if (!allOf.has(key)) allOf.set(key, []);
+      allOf.get(key).push(one);
       // 时间相同时取后遍历到的那条（changelog 是按写入顺序排的，后面的更晚）
-      if (!cur || (e.at || '') >= (cur.at || '')) latest.set(key, { entity, id, field: c.k, to: c.to, at: e.at || '', by: e.by || '' });
+      if (!cur || (e.at || '') >= (cur.at || '')) latest.set(key, one);
     });
   });
   const issues = [];
+  /* ★ 这一格在那条日志之后，被某次"只写一条汇总日志"的批量动作盖过没有 ★（P128）
+     CSV 导入、宽表导入、未归属批量指派、从备份恢复、回滚异常同步——这几个动作一次改几百条，
+     按设计只写一条汇总日志（逐条写会把日志刷爆）。核对要是不认它们，就会拿这些记录上更早那条
+     逐字段日志去比现在的值，报出一堆"日志说 A、现在 B"——而管理员一点"按日志修复"，
+     刚导进来的整批数据就被改回去了。现在汇总日志带着覆盖范围（见 bulkScope），认得出来就跳过。 */
+  // ids 预先转成集合：一次导入可能覆盖上百条记录，核对结果也可能上百条，逐个数组扫描会退化成平方级（P130）
+  const bulkLogs = (DB.changelog || []).filter(e => e && e.scope && e.at)
+    .map(e => ({ at: e.at, entity: e.scope.entity, ids: e.scope.ids ? new Set(e.scope.ids) : null, fields: e.scope.fields ? new Set(e.scope.fields) : null }));
+  const wholesaleLogs = (DB.changelog || []).filter(e => e && e.at && /用一份备份覆盖了|回滚了.*异常同步|以共享文件为准/.test(e.summary || ''));
+  const coveredByBulk = v => {
+    if (wholesaleLogs.some(e => (e.at || '') >= (v.at || ''))) return true;   // 整份覆盖类动作：之后的值本来就不该按单条日志核对
+    return bulkLogs.some(e => (e.at || '') >= (v.at || '') && e.entity === v.entity
+      && (!e.ids || e.ids.has(v.id))
+      && (!e.fields || e.fields.has(v.field)));
+  };
+  /* 现在这个值是不是也有日志说过，而且那条日志跟"最后那条"的时间差在时钟误差之内（先后分不清）。
+     same 传进来是因为删除状态只比"删没删"、别的字段比值本身。 */
+  const explainedBySkew = (v, same) => {
+    const t = Date.parse(v.at || '');
+    if (isNaN(t)) return false;
+    const floor = new Date(t - AUDIT_SKEW_TOLERANCE_MS).toISOString();
+    /* ★ 只有【别人】写的那条才算"先后分不清" ★（P129 收紧的）
+       时钟差是跨机器的事：同一个人自己先后两次改动，时间戳出自同一块表，先后是可信的。
+       不加这个限制的话，一个人几分钟内把某一格改过去又改回来（A→B→A 这种很常见），
+       之后真被别人的旧页面顶回去，核对反而会因为"较早那条日志正好说的是现在这个值"而闭嘴——
+       那就把这个工具最该抓的那类事故放过去了（test-p87 ④ 撞到的就是这一幕）。 */
+    return (allOf.get(auditKeyOf(v.entity, v.id, v.field)) || [])
+      .some(e2 => e2 !== v && (e2.by || '') !== (v.by || '') && (e2.at || '') >= floor && same(e2.to));
+  };
   latest.forEach(v => {
     const rec = byId(v.entity, v.id);
     /* ★ 删除状态单独核对 ★（P126）日志说删了、现在却还在，或者日志说恢复了、现在却是删除状态——
@@ -10108,6 +10256,19 @@ function auditByChangelog() {
       if (!rec) return;   // 已经被彻底删除了，谈不上"还在"
       const want = !!v.to, now = !!rec.deleted_at;
       if (want === now) return;
+      if (explainedBySkew(v, to => !!to === now)) return;   // 时钟误差窗口内另有一条日志正好说明了现在的状态（见上）
+      if (coveredByBulk(v)) return;   // 这条记录的删除状态被某次批量动作/整份恢复盖过（见 coveredByBulk）
+      /* 日志说这条里程碑删了、现在却还在——先看看是不是跟着所属任务一起被恢复回来的（P128）。
+         恢复任务会连带恢复跟它一起被删的里程碑（见 cascadeRestoreTask），那次恢复只在任务那条记录上留日志，
+         里程碑自己没有。不认这条来路的话，恢复一条任务就会让核对冒出一串"对不上"，
+         而管理员一点"按日志修复"，这些正常恢复的里程碑又被重新删掉。 */
+      if (v.entity === 'milestone' && want === true) {
+        const back = (DB.changelog || []).some(e => logEntity(e) === 'task' && logRefId(e) === rec.task
+          && (e.at || '') >= new Date(Math.max(0, (Date.parse(v.at || '') || 0) - AUDIT_SKEW_TOLERANCE_MS)).toISOString()
+          && (/恢复|撤销/.test(e.summary || '')
+            || (Array.isArray(e.changes) && e.changes.some(c => c && c.k === 'deleted_at' && !c.to))));
+        if (back) return;
+      }
       if (v.entity === 'milestone' && want === false) {
         const pt = byId('task', rec.task);
         if (pt && pt.deleted_at) return;   // 所属任务整条在回收站里：里程碑跟着删是正常的，不算对不上
@@ -10126,6 +10287,8 @@ function auditByChangelog() {
     const f = fieldDef(v.entity, v.field);
     if (!f || f.virtual) return;
     if (sameFieldValue(rec[v.field], v.to)) return;  // 对得上，正常
+    if (explainedBySkew(v, to => sameFieldValue(to, rec[v.field]))) return;   // 同上：先后分不清，而现在这个值有日志来路
+    if (coveredByBulk(v)) return;   // 这一格被某次批量动作/整份恢复盖过（见 coveredByBulk）
     const derived = derivedFieldInfo(v.entity, v.field, rec);
     issues.push(Object.assign({}, v, {
       now: rec[v.field],
@@ -10168,6 +10331,34 @@ function repairableIssues(issues) { return (issues || []).filter(it => !it.deriv
        否则这条假记录自己又会变成下一次核对的一处"对不上"，越点越多；
      · 留一条告警（随共享文件同步给所有人，"修复没生效"属于真异常，不该只有点按钮的人知道）；
      · 原样报给调用方，由它照实告诉管理员，不许再报成"已修复"。 */
+/* 把一条"日志说这一格该是什么"的核对结果写回去。人工点的「按日志修复」和
+   写入竞争之后的自动补回（repairClobberedFromLog）共用这一份——两条路的行为必须一模一样，
+   否则"手动修得好、自动补出来的不一样"这种事没人查得清。why 是写进日志的依据说明。
+   返回刚写进去的那条日志（这一格本来就对得上、记录已经不在，就返回 null）。 */
+function applyAuditFix(it, why) {
+  const rec = byId(it.entity, it.id);
+  // 删除状态按"删没删"修（P126）：任务要连带里程碑一起删/恢复，跟界面上删除、恢复按钮行为一致
+  if (it.field === 'deleted_at') {
+    if (!rec || !!rec.deleted_at === !!it.to) return null;
+    const before = clone(rec);
+    const at = DB.changelog.length;
+    if (it.to) { if (it.entity === 'task') cascadeSoftDeleteTask(it.id); else softDelete(it.entity, it.id); }
+    else { if (it.entity === 'task') cascadeRestoreTask(it.id); else undelete(it.entity, it.id); }
+    const after = byId(it.entity, it.id);
+    pushChangeLog(it.entity, it.id, why + '：' + (it.to ? '重新删除' : '重新恢复')
+      + (it.entity === 'milestone' ? `里程碑「${msLogTitle(after)}」` : `「${after[schema(it.entity).titleField] || it.id}」`),
+      [{ k: 'deleted_at', from: before.deleted_at || '', to: after.deleted_at || '' }]);
+    return DB.changelog[at];
+  }
+  if (!rec || rec.deleted_at) return null;
+  if (sameFieldValue(rec[it.field], it.to)) return null;   // 期间已经被改回去了，不重复动
+  const before = clone(rec);
+  rec[it.field] = it.to;
+  stampMeta(rec);
+  const at = DB.changelog.length;   // 记下位置，万一没落地要回来改写这一条
+  logRecordChange(it.entity, it.id, before, rec, [it.field], why);
+  return DB.changelog[at];
+}
 async function repairByChangelog(issues) {
   const fixable = repairableIssues(issues);
   const skipped = (issues || []).length - fixable.length;
@@ -10176,30 +10367,8 @@ async function repairByChangelog(issues) {
   const tried = [];
   await Repo.bulk(() => {
     fixable.forEach(it => {
-      const rec = byId(it.entity, it.id);
-      // 删除状态按"删没删"修（P126）：任务要连带里程碑一起删/恢复，跟界面上删除、恢复按钮行为一致
-      if (it.field === 'deleted_at') {
-        if (!rec || !!rec.deleted_at === !!it.to) return;
-        const before = clone(rec);
-        const at = DB.changelog.length;
-        if (it.to) { if (it.entity === 'task') cascadeSoftDeleteTask(it.id); else softDelete(it.entity, it.id); }
-        else { if (it.entity === 'task') cascadeRestoreTask(it.id); else undelete(it.entity, it.id); }
-        const after = byId(it.entity, it.id);
-        pushChangeLog(it.entity, it.id, `按日志修复（依据：${it.by || '未署名'} 于 ${fmtLocalDateTime(it.at)} 的那条记录）：`
-          + (it.to ? '重新删除' : '重新恢复') + (it.entity === 'milestone' ? `里程碑「${msLogTitle(after)}」` : `「${after[schema(it.entity).titleField] || it.id}」`),
-          [{ k: 'deleted_at', from: before.deleted_at || '', to: after.deleted_at || '' }]);
-        tried.push(Object.assign({}, it, { logEntry: DB.changelog[at] }));
-        return;
-      }
-      if (!rec || rec.deleted_at) return;
-      if (sameFieldValue(rec[it.field], it.to)) return;   // 期间已经被改回去了，不重复动
-      const before = clone(rec);
-      rec[it.field] = it.to;
-      stampMeta(rec);
-      const at = DB.changelog.length;   // 记下位置，万一没落地要回来改写这一条
-      logRecordChange(it.entity, it.id, before, rec, [it.field],
-        `按日志修复（依据：${it.by || '未署名'} 于 ${fmtLocalDateTime(it.at)} 的那条记录）`);
-      tried.push(Object.assign({}, it, { logEntry: DB.changelog[at] }));
+      const e = applyAuditFix(it, `按日志修复（依据：${it.by || '未署名'} 于 ${fmtLocalDateTime(it.at)} 的那条记录）`);
+      if (e) tried.push(Object.assign({}, it, { logEntry: e }));
     });
   });
   const stuck = tried.filter(it => {
@@ -12487,11 +12656,16 @@ function openInlineEdit(entity, id, f, td) {
   const finish = async cancel => {
     if (done) return; done = true; _activeEdit = null;
     let val = input.value.trim();
-    if (cancel || val === original) { rerenderRow(entity, id); return; }
     if (f.type === 'num') {
       val = val === '' ? '' : Math.max(0, Number(val) || 0);
       if (f.key === 'progress') val = Math.min(100, val);
     }
+    /* ★ "改没改"要按【控件读回来的样子】比，不能跟存储原值比 ★（P128，实测复现）
+       输入框读回来会去掉首尾空白（单行框还会吞掉换行）。原值末尾带个空格时（Excel 粘贴、CSV 导入很常见），
+       双击打开、一个字没改点到别处（失焦即提交），val 跟 original 就不相等，被判成"我改了"，
+       于是把同事在这期间改的这一格顶回旧值，日志里还留下一条我根本没改过的记录。
+       跟 P126/P127 在里程碑行、任务详情字段上修的是同一类问题，这里是单元格这一层。 */
+    if (cancel || sameFieldValue(val, detailControlView(f, original))) { rerenderRow(entity, id); return; }
     /* ★ 提交这一刻按 id 重新取，不用打开输入框时捏着的那个 r ★（P118）
        输入框开着时定时同步是挡住的（syncBlocked 认 _activeEdit），但挡的只是"开始一轮新的"——
        输入框打开之前就已经发出去、正在等网盘读写的那一轮（定时器刚触发、或者上一格刚保存）照样会落地，
@@ -12651,6 +12825,16 @@ async function spCommitSingle(val) {
     showSnack(`为了防止误操作，只能编辑自己负责或参与的${entity === 'task' ? '任务' : '工作'}`);
     return;
   }
+  /* 我点的还是打开时那一项，但记录上已经被人改成别的了 → 保留他的，不写（见 spOpenValueUnchanged）。
+     两个条件缺一不可：只有"点的跟打开时一样"还不够（那可能正是要把同事的改动改回来，但那种意图
+     应该表现为"点的那一项跟当前值不同"）；只有"跟当前值不同"也不够（那正是正常的修改）。 */
+  if (spOpenValueUnchanged(val) && !sameFieldValue(val, r[field])) {
+    closeSelectPopup();
+    const f0 = fieldDef(entity, field);
+    showSnack(`「${(f0 && f0.label) || field}」在你打开这个选择框之后被${r.updated_by || '同事'}改过，已保留他的改动（你选的还是打开时那一项）`, { priority: true });
+    rerenderRow(entity, id);
+    return;
+  }
   if (entity === 'task' && field === 'owner' && ownerChangeNeedsWarning(r, val)) {
     closeSelectPopup();
     confirmOwnerChange(() => finishSpCommitSingle(entity, id, field, val));
@@ -12671,6 +12855,15 @@ async function spCommitSingle(val) {
   }
   closeSelectPopup();
   await finishSpCommitSingle(entity, id, field, val);
+}
+/* ★ 我点的就是打开弹层时看到的那一项，而这一格现在已经不是那个值了 ★（P128）
+   弹层开着时后台同步不挡（它不是弹窗、也不算单元格编辑，见 syncBlocked），同事改了这一格并同步过来，
+   而弹层里高亮的还是我打开那一刻的旧值。这时点一下"同一项"，用户的意思只是"就用我看到的这个"，
+   并不是"要把它改回旧值"——照写就把同事的改动顶掉了，日志里还留下一条我的修改记录。
+   多选那条路（spCommitMulti）早就按这个规矩做了（open 快照），单选这条一直漏着。 */
+function spOpenValueUnchanged(val) {
+  const openVal = (_sp && Array.isArray(_sp.open) && _sp.open.length) ? _sp.open[0] : '';
+  return sameFieldValue(val, openVal);
 }
 async function finishSpCommitSingle(entity, id, field, val) {
   const r = byId(entity, id); if (!r) return;
@@ -12710,12 +12903,23 @@ function incompleteCheckpointCount(t) {
 function completeCheckpointsOf(t) {
   if (!t) return 0;
   const pend = DB.milestones.filter(m => m.task === t.id && !m.deleted_at && m.done !== '1');
+  /* ★ 这一步也必须逐条留痕 ★（P128，多实例长跑撞出来的）
+     原来这里只在任务那条日志后面附一句"并把名下 N 个里程碑一并标记为已交付"，里程碑自己一条日志都没有。
+     后果有两个：事后查"这条交付物是谁、什么时候勾完的"完全查不到；更要命的是「按日志核对数据」——
+     它按里程碑自己的日志判断该是什么值，看到的最后一条还是之前"取消勾选"那次，
+     于是把这批自动勾完的里程碑全报成"日志说未完成、现在却是已完成"，管理员一点"按日志修复"
+     就把它们又改回未完成，跟任务的已完成状态自相矛盾（数据体检接着又报一遍）。
+     走 logMilestoneChanges 这个统一出口：条数超过上限时它自己会退回一句汇总，不会刷屏。 */
+  const changed = [];
   pend.forEach(m => {
+    const before = clone(m);
     m.done = '1';
     m.actual_date = m.actual_date || todayStr();
     stampMeta(m);
-    markLocallyChangedFields(m, ['done', 'actual_date']);   // 里程碑这里不单独写逐字段日志，字段凭据要自己记（P121）
+    markLocallyChangedFields(m, ['done', 'actual_date']);   // 字段凭据（没有基线时的合并依据）仍然要记（P121）
+    changed.push({ before, after: m });
   });
+  logMilestoneChanges(changed, [], []);
   return pend.length;
 }
 // 真正落地"改状态"这个动作：跟原来单击循环切换时的副作用保持一致——变成已完成要顺带填计划/实际完成时间、
@@ -12906,9 +13110,18 @@ function openWorkPicker(entity, id, f, td) {
 async function wpCommit(val) {
   if (!_sp) return;
   const { entity, id, field } = _sp;
+  const openVal = (Array.isArray(_sp.open) && _sp.open.length) ? _sp.open[0] : '';   // 打开这个选择器时这一格是什么（P128）
   closeSelectPopup();
   const r = byId(entity, id); if (!r) return;
   if (!commitEditAllowed(entity, r)) return;   // 落库前复核权限（见 commitEditAllowed）
+  // 点的还是打开这个选择器时那一项，而这一格已经被同事改成别的了 → 保留他的（理由同 spOpenValueUnchanged）（P128）
+  if (sameFieldValue(val, openVal) && !sameFieldValue(val, r[field])) {
+    const f0 = fieldDef(entity, field);
+    showSnack(`「${(f0 && f0.label) || field}」在你打开这个选择框之后被${r.updated_by || '同事'}改过，已保留他的改动（你选的还是打开时那一项）`, { priority: true });
+    rerenderRow(entity, id);
+    return;
+  }
+
   snapshot();
   const before = clone(r);
   r[field] = val;
@@ -12944,7 +13157,7 @@ function openDatePicker(entity, id, fieldKey, td) {
   commitActiveEdit();
   const r = byId(entity, id); if (!r) return;
   const ref = r[fieldKey] ? new Date(r[fieldKey] + 'T00:00:00') : new Date();
-  _dp = { mode: 'grid', entity, id, field: fieldKey, year: ref.getFullYear(), month: ref.getMonth() };
+  _dp = { mode: 'grid', entity, id, field: fieldKey, open: r[fieldKey] || '', year: ref.getFullYear(), month: ref.getMonth() };
   renderDpCalendar();
   openDpPopup(td);
 }
@@ -13013,9 +13226,18 @@ async function dpCommit(date) {
     return;
   }
   const { entity, id, field } = _dp;
+  const openDate = _dp.open || '';   // 打开日历时这一格是什么（P128）
   dpClose();
   const r = byId(entity, id); if (!r) return;
   if (!commitEditAllowed(entity, r)) return;   // 落库前复核权限（见 commitEditAllowed）
+  // 点的就是打开日历时的那一天，而这一格已经被同事改成别的了 → 保留他的（理由同 spOpenValueUnchanged）（P128）
+  if (sameFieldValue(date, openDate) && !sameFieldValue(date, r[field])) {
+    const f0 = fieldDef(entity, field);
+    showSnack(`「${(f0 && f0.label) || field}」在你打开日历之后被${r.updated_by || '同事'}改过，已保留他的改动（你选的还是打开时那一天）`, { priority: true });
+    renderPage();
+    return;
+  }
+
   /* ★ 填上"实际完成时间"等于宣告这条任务干完了，所以这里会顺手把状态改成已完成 ★
      既然如此，就得跟别的"标记已完成"入口走同一套规矩：名下里程碑没勾完的，
      问一句再一并勾完。以前这条路径只改状态、里程碑一个不动，于是填个日期就悄悄造出一条
@@ -13076,7 +13298,9 @@ function openLinesEditor(entity, id, fieldKey) {
     /* 没改就什么都别写。平时"没改也写一遍"是无害的——三方合并看到这一格跟基线一样，会把它吸收掉；
        但要是同事恰好在弹窗开着期间改了【这一格】并且已经同步过来，基线就变成了他的新内容，
        而文本框里还是我打开时的旧内容：照写就成了"我把它改回旧值"，同事那次修改被悄悄顶掉（实测）。 */
-    if (sameFieldValue(next, openVal)) { closeModal(); showSnack('内容没有变化'); return; }
+    // 比的是"这一格原样读回来会是什么"（parseLines 会去掉每行首尾空白、还会剥掉行号），不是存储原值——
+    // 否则内容里带行号或末尾空格时，一次什么都没改的保存照样会把同事的改动顶回去（P128，实测复现）
+    if (sameFieldValue(next, detailControlView(f, openVal))) { closeModal(); showSnack('内容没有变化'); return; }
     snapshot();
     /* ★ 这是唯一一个改完不留痕的字段编辑入口 ★
        所有单元格编辑（下拉、日期、多选、换所属工作）都会 logRecordChange 记一条带
@@ -13981,6 +14205,7 @@ function openOrphanAssign() {
       closeModal();
       snapshot();
       let assigned = 0;
+      const assignedIds = [];   // 覆盖范围，写进汇总日志（见 bulkScope）
       await Repo.bulk(() => {
         ids.forEach(id => {
           const t = byId('task', id);
@@ -13991,6 +14216,7 @@ function openOrphanAssign() {
              同样，已经被删掉的也不该顺手改。 */
           if (t.deleted_at || (t.work && byId('work', t.work))) return;
           assigned++;
+          assignedIds.push(t.id);
           t.work = work;
           t.code = nextTaskCode(work);
           if (!t.owner) { const w = byId('work', work); if (w) t.owner = w.owner; }
@@ -13999,7 +14225,8 @@ function openOrphanAssign() {
         });
         // 一次改掉几十条任务的所属工作和编号，不留痕的话事后完全查不出这批编号是怎么变的
         const w = byId('work', work);
-        if (assigned) pushChangeLog('task', '', `批量把 ${assigned} 条未归属任务指派到工作「${w ? (w.code + ' ' + w.name) : work}」（编号已按新工作重新生成）`);
+        if (assigned) pushChangeLog('task', '', `批量把 ${assigned} 条未归属任务指派到工作「${w ? (w.code + ' ' + w.name) : work}」（编号已按新工作重新生成）`,
+          null, bulkScope('task', assignedIds, ['work', 'code']));
       });
       renderShell(); renderPage();
       const skippedOa = ids.length - assigned;
@@ -15934,9 +16161,22 @@ async function runBackup(manual) {
    却让备份文件体积接近翻倍（实测 50 条任务：32KB → 18KB）。备份是每天写一份、常年累积的，
    一半的体积都在存草稿纸没有道理。
    其余字段一律原样带上——少带一个字段就可能让某天的恢复缺一块，这个险不值得冒。 */
+/* 备份文件里只该有"全处共同的数据"，本机私有的状态一概不带（P130）。
+   原来只摘掉了同步基线，剩下的本机私有字段全跟着走了：
+     · me —— 谁的机器做的备份（备份文件是要拷来拷去的，没必要带上人名）；
+     · dirtyKeys / dirtyFields —— "我改过哪些记录/哪几格"的本机凭据，最多能攒 5000 条，
+       纯属把每份备份撑大，对恢复毫无用处；
+     · lastWriteId / lastWriteIdAt / pendingSync / lastSyncAt / lastKnownWrite* / localAppVersion
+       —— 这台机器跟共享文件之间的私有记账，换台机器看毫无意义，还容易被误读成"备份里记着这些"。
+   恢复那边本来就只取 year（见 importBackup 里 ④），lastBackupAt 只用于在确认框里显示备份时间，
+   所以这里就留这两项。少带一堆字段还顺带让每份备份小一点——定期备份是每天都在写的。 */
+const BACKUP_SETTINGS_KEYS = ['year', 'lastBackupAt'];
 function backupSnapshot() {
   const snap = Object.assign({}, DB);
   delete snap.syncBase;
+  const st = {};
+  BACKUP_SETTINGS_KEYS.forEach(k => { if (DB.settings && DB.settings[k] !== undefined) st[k] = DB.settings[k]; });
+  snap.settings = st;
   return snap;
 }
 // 开机和每轮定时同步时都问一句：到点了就顺手备份一次
@@ -16197,6 +16437,7 @@ async function applyCSVImport(entity, mode, text) {
     return m;
   };
   let keptCells = 0, keptDeleted = 0, staleRows = 0, doneFilled = 0, cpFilled = 0, dupCodeRows = 0;
+  const touchedIds = [];   // 这次导入碰过的记录主键，写进汇总日志的覆盖范围里
   snapshot();
   await Repo.bulk(() => {
     for (let i = 1; i < rows.length; i++) {
@@ -16297,6 +16538,7 @@ async function applyCSVImport(entity, mode, text) {
          单独记一笔——没有基线时，合并要靠它才能只拿回我导入的那几格、别的听文件的
          （见 markLocallyChangedFields） */
       markLocallyChangedFields(rec, rowCols);
+      touchedIds.push(rec[sc.pk]);
       if (j === -1) { list.push(rec); nAdd++; } else { list[j] = rec; nOver++; }
       /* ★ 导入把任务标成"已完成"，跟其它入口走同一套规矩 ★（P119）
          一张「编号,状态」小表就能把有里程碑的任务标成已完成，而里程碑一个不动、完成日期也不补——
@@ -16323,10 +16565,13 @@ async function applyCSVImport(entity, mode, text) {
     /* 把"改了哪几列"也写进日志。事后排查"我那条任务的牵头人怎么变了"时，
        光知道"导过一次、覆盖了 37 条"没用，得知道这次导入碰的是哪些字段 */
     const colLabels = writeCols.map(k => (fieldDef(entity, k) || {}).label || k).join('、');
+    // 覆盖范围（见 bulkScope）：核对要靠它认出"这几格是被这次导入盖过的"，不然会报成"日志说 A、现在 B"
+    const scope = bulkScope(entity, touchedIds, writeCols);
     pushChangeLog(entity, '', `${schema(entity).label} CSV 导入（${mode === 'append' ? '增量' : '覆盖'}模式）：`
       + `新增 ${nAdd} 条、覆盖 ${nOver} 条`
       + (colLabels ? `；本次表头里有的列（只有这些列会被覆盖）：${colLabels}` : '')
-      + (_csvImportNote = csvImportNoteText(staleRows, keptCells, keptDeleted, doneFilled, cpFilled, dupCodeRows), _csvImportNote ? '；' + _csvImportNote : ''));
+      + (_csvImportNote = csvImportNoteText(staleRows, keptCells, keptDeleted, doneFilled, cpFilled, dupCodeRows), _csvImportNote ? '；' + _csvImportNote : ''),
+      null, scope);
   });
   return n;
 }
@@ -16386,7 +16631,8 @@ async function applyWideImport(mode, text) {
   if (rows.length < 2) { showSnack('CSV 内容为空'); return null; }
   const head = rows[0].map(s => s.trim());
   const get = (cols, k) => { const i = head.indexOf(k); return i >= 0 ? csvUnguard((cols[i] || '').trim()) : ''; };
-  let taskN = 0, msN = 0, skipped = 0, badDate = 0, dupCodeSkipped = 0;   // dupCodeSkipped：编号撞号、分不清是哪一条而跳过的行（P121）
+  let taskN = 0, msN = 0, skipped = 0, badDate = 0, dupCodeSkipped = 0;
+  const wideTaskIds = [], wideMsIds = [];   // 这次导入碰过的记录，写进汇总日志的覆盖范围（见 bulkScope）   // dupCodeSkipped：编号撞号、分不清是哪一条而跳过的行（P121）
   const msDropped = [];   // 覆盖模式下"表里没出现、被移进回收站"的现有里程碑，要在结果和日志里点名
   snapshot();
   await Repo.bulk(() => {
@@ -16431,6 +16677,7 @@ async function applyWideImport(mode, text) {
         stampMeta(task);
         // 同 CSV 导入：宽表也只写一条汇总日志，把"只碰了这几项"单独记一笔
         markLocallyChangedFields(task, ['work', 'title', 'owner', 'assignees', 'progress']);
+        wideTaskIds.push(task.id);
       } else {
         task = blank('task', { work: work.id, title: title || '未命名任务', owner, assignees, status: 'todo', priority: '2', progress: 0 });
         task.code = (code && mode === 'merge') ? code : nextTaskCode(work.id);
@@ -16499,6 +16746,7 @@ async function applyWideImport(mode, text) {
           if (rawReport) hit.report_level = lvl;
           stampMeta(hit);
           markLocallyChangedFields(hit, ['plan_date', 'deliverable', 'report_level']);   // 同宽表导入对任务的做法（P121）
+          wideMsIds.push(hit.id);
         } else {
           const m = blank('milestone', {
             task: task.id, plan_date: planDate, deliverable: deliv,
@@ -16534,7 +16782,8 @@ async function applyWideImport(mode, text) {
       + (badDate ? `，${badDate} 个日期没认出来` : '')
       + (dupCodeSkipped ? `，${dupCodeSkipped} 行因任务项编号撞号、分不清是哪一条任务而跳过` : '')
       + (msDropped.length ? `；另有 ${msDropped.length} 个原有里程碑没在表里出现，已移入回收站（${
-          msDropped.slice(0, 8).map(x => '「' + x + '」').join('')}${msDropped.length > 8 ? ' 等' : ''}），可在数据页回收站恢复` : ''));
+          msDropped.slice(0, 8).map(x => '「' + x + '」').join('')}${msDropped.length > 8 ? ' 等' : ''}），可在数据页回收站恢复` : ''),
+      null, bulkScope('task', wideTaskIds, ['work', 'title', 'owner', 'assignees', 'progress']));
   });
   return { taskN, msN, skipped, badDate, dupCodeSkipped, msDropped: msDropped.length, msDroppedNames: msDropped };
 }

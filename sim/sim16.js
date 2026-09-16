@@ -39,6 +39,7 @@
      有人还开着旧版本 html（第三台电脑用它）：git show HEAD:index.html > old.html，然后 HTML2=old.html
      整体拿旧版本跑（对照事故版本）：HTML=old.html
      排除 Ctrl+Z：NO_UNDO=1；打印全过程：VERBOSE=1；多列几条发现：SHOW=20 */
+const fs = require('fs');
 const { mkApp, REPO } = require('./multi-app.js');
 const HTML = process.env.HTML || REPO + '/index.html';
 const HTML2 = process.env.HTML2 || '';          // 给某台电脑用另一个版本（混版本期间）
@@ -95,6 +96,26 @@ function mkHandles(machine, tabRef) {
 
 /* ---------------- 就地检查：每次写文件 ---------------- */
 const revivedLog = [];
+/* 字段级写入史（P130）：每写一次共享文件，把这几格的变化记下来（谁写的、第几轮、从什么变成什么）。
+   静止后报"日志与数据对不上"时，光有结论没法查是谁改回去的——有了这份流水就能一眼看到。 */
+const WATCH_FIELDS = { task: ['title', 'status', 'progress', 'owner', 'priority', 'plan_date', 'actual_date', 'assignees', 'source', 'custom', 'work', 'code', 'deleted_at'], milestone: ['deliverable', 'done', 'plan_date', 'report_level', 'actual_date', 'deleted_at'],
+  work: ['name', 'owner', 'content', 'status', 'year', 'deleted_at'], duty: ['name', 'category', 'deleted_at'] };
+const fieldHistory = [];
+function recordFieldHistory(P, N, tab) {
+  [['task', 'tasks'], ['milestone', 'milestones'], ['work', 'works'], ['duty', 'duties']].forEach(([ent, listKey]) => {
+    const pk = ent === 'duty' ? 'code' : 'id';
+    const prev = new Map((P[listKey] || []).map(r => [r[pk], r]));
+    (N[listKey] || []).forEach(r => {
+      const o = prev.get(r[pk]);
+      if (!o) return;
+      WATCH_FIELDS[ent].forEach(f => {
+        if (JSON.stringify(o[f]) === JSON.stringify(r[f])) return;
+        fieldHistory.push({ step, tab: tab.name, writer: N.lastWriteBy, ent, id: r[pk], f, from: o[f], to: r[f] });
+      });
+    });
+  });
+  if (fieldHistory.length > 3000) fieldHistory.splice(0, fieldHistory.length - 3000);
+}
 const allRevivals = [];   // 每一次文件里的复活（不论有没有日志），带上是否写入竞争；revivedLog 只记有日志的（合法恢复），给"删除丢了"那条判据用
 function onWrite(prevText, newText, tab) {
   let P, N;
@@ -105,6 +126,7 @@ function onWrite(prevText, newText, tab) {
   const newLogs = (N.changelog || []).filter(e => e && !prevLog.has(e.id));
   // 这次写是不是基于过期内容：新文件的写入链里没有上一版的 writeId → 写之前没读到上一版（覆盖）
   const clobber = !!P.writeId && !((N.writeIds || []).includes(P.writeId));
+  recordFieldHistory(P, N, tab);
   if (clobber) note(`⚠ ${tab.name} 的写入覆盖了 ${P.lastWriteBy} 的上一版`);
   (N.milestones || []).forEach(m => {
     const o = pm.get(m.id);
@@ -190,6 +212,9 @@ const modalOpen = tab => tab.raw && tab.q('#modal-overlay').classList.contains('
 const inactive = tab => tab.q('#login-gate').classList.contains('show');
 const msSort = (a, b) => (a.plan_date || '9999-99-99').localeCompare(b.plan_date || '9999-99-99');
 const deleteIntents = [];
+const auditBaseline = new Set();   // 起跑时就存在的"日志与数据对不上"（真实数据里有历史遗留），长跑只报新增的
+const ROLE_INIT = {};
+const roleIntents = [];   // 谁在第几轮把谁的角色改成了什么（给"角色不许被悄悄改"那条判据用）
 
 function rowStub(r) {
   return { getAttribute: k => (k === 'data-ms-id' ? r.id : null),
@@ -256,6 +281,144 @@ async function actSaveDetail(tab) {
 
 async function actCancelDetail(tab) { tab.modal = null; if (modalOpen(tab)) tab.S.closeModal(); note(`${tab.name} 取消详情`); try { await tab.S.syncCatchUp(); } catch (e) {} }
 
+// 表格单元格那一层的编辑：双击打开→改→点到别处（失焦提交）。td 用最小桩，把现造的 input 抓出来
+function mkTd() {
+  let input = null;
+  return { innerHTML: '', appendChild(el) { input = el; }, get input() { return input; },
+    getBoundingClientRect: () => ({ left: 0, top: 0, right: 100, bottom: 20, width: 100, height: 20 }), closest: () => null };
+}
+async function actCellEdit(tab) {
+  const S = tab.S;
+  const tasks = S.DB.tasks.filter(t => !t.deleted_at);
+  if (!tasks.length) return;
+  const t = pick(tasks);
+  const key = pick(['title', 'source', 'custom']);
+  const td = mkTd();
+  S.openEditor('task', t.id, key, td);
+  if (!td.input) return;
+  tab.cur = '单元格改 ' + t.id + ' ' + key;
+  note(`${tab.name} 双击改 ${t.id} 的 ${key}`);
+  if (rnd() < 0.3) { td.input._on.blur.forEach(fn => fn()); await tick(200); return; }   // 什么都没改就点到别处
+  td.input.value = (key === 'title' ? '任务' : '值') + step + tab.name;
+  td.input._on.blur.forEach(fn => fn());
+  await tick(220);
+}
+async function actSelectPick(tab) {
+  const S = tab.S;
+  const tasks = S.DB.tasks.filter(t => !t.deleted_at);
+  if (!tasks.length) return;
+  const t = pick(tasks);
+  const key = pick(['priority', 'owner', 'status']);
+  const f = S.fieldDef('task', key);
+  S.openSelectPopup('task', t.id, f, mkTd());
+  const val = key === 'owner' ? pick(USERS) : pick(f.options.map(o => o.v));
+  tab.cur = '下拉改 ' + t.id + ' ' + key;
+  note(`${tab.name} 下拉把 ${t.id} 的 ${key} 选成 ${val}`);
+  await S.spCommitSingle(val);
+  await tick(60);
+  if (tab.raw && tab.q('#modal-overlay').classList.contains('show') && typeof S.modalCallback === 'function') { await S.modalCallback(); await tick(60); }
+  await tick(120);
+}
+async function actDatePick(tab) {
+  const S = tab.S;
+  const tasks = S.DB.tasks.filter(t => !t.deleted_at);
+  if (!tasks.length) return;
+  const t = pick(tasks);
+  S.openDatePicker('task', t.id, 'plan_date', mkTd());
+  const d = rnd() < 0.3 ? (t.plan_date || '') : '2026-1' + ri(0, 2) + '-' + String(ri(10, 28));
+  tab.cur = '日历改 ' + t.id;
+  note(`${tab.name} 日历把 ${t.id} 的计划完成时间选成 ${d}`);
+  await S.dpCommit(d);
+  await tick(60);
+  if (tab.raw && tab.q('#modal-overlay').classList.contains('show') && typeof S.modalCallback === 'function') { await S.modalCallback(); await tick(60); }
+  await tick(120);
+}
+async function actLinesEdit(tab) {
+  const S = tab.S;
+  const works = S.DB.works.filter(w => !w.deleted_at);
+  if (!works.length) return;
+  const w = pick(works);
+  S.openLinesEditor('work', w.id, 'content');
+  if (!tab.q('#modal-overlay').classList.contains('show')) return;
+  const cur = (S.byId('work', w.id).content || []).join('\n');
+  tab.q('#lines-ta').value = rnd() < 0.3 ? cur : (cur ? cur + '\n' : '') + '内容' + step + tab.name;
+  tab.cur = '改工作内容 ' + w.id;
+  note(`${tab.name} 改工作 ${w.id} 的主要工作内容`);
+  await S.modalCallback(); await tick(200);
+  if (tab.q('#modal-overlay').classList.contains('show')) S.closeModal();
+}
+async function actWorkEdit(tab) {
+  const S = tab.S;
+  const works = S.DB.works.filter(w => !w.deleted_at);
+  if (!works.length) return;
+  const w = pick(works);
+  const td = mkTd();
+  S.openEditor('work', w.id, 'name', td);
+  if (!td.input) return;
+  td.input.value = '工作' + step + tab.name;
+  tab.cur = '改工作名 ' + w.id;
+  note(`${tab.name} 改工作 ${w.id} 的名称`);
+  td.input._on.blur.forEach(fn => fn());
+  await tick(220);
+}
+async function actDutyEdit(tab) {
+  const S = tab.S;
+  const ds = S.DB.duties.filter(d => !d.deleted_at);
+  if (!ds.length) return;
+  const d = pick(ds);
+  const td = mkTd();
+  S.openEditor('duty', d.code, 'name', td);
+  if (!td.input) return;
+  td.input.value = '职责' + step + tab.name;
+  tab.cur = '改职责名 ' + d.code;
+  note(`${tab.name} 改职责 ${d.code} 的名称`);
+  td.input._on.blur.forEach(fn => fn());
+  await tick(220);
+}
+async function actRoleChange(tab) {
+  const S = tab.S;
+  const who = pick(USERS.filter(u => u !== '徐捷'));   // 最后一个管理员不许被降级，别去碰它
+  const val = pick(['staff', 'comanager', 'director']);
+  tab.cur = '改角色 ' + who;
+  note(`${tab.name} 把 ${who} 的角色改成 ${val}`);
+  await S.ACTIONS['account-role-change']({ name: who }, { value: val });
+  await tick(60);
+  if (tab.q('#modal-overlay').classList.contains('show') && typeof S.modalCallback === 'function') { await S.modalCallback(); await tick(80); }
+  await tick(120);
+  /* 只有"本机真的改成了"才算一次用户意图：权限不够、最后一个管理员、账号刚被别人动过，
+     程序都会拒绝这次修改，那种情况下记进意图表会把判据变成假红（仿真器自己踩的坑）。 */
+  const u = (S.DB.users || []).find(x => x.name === who && !x.deleted_at);
+  if (u && u.role === val) roleIntents.push({ name: who, role: val, step, by: tab.machine.user });
+}
+async function actPermToggle(tab) {
+  const S = tab.S;
+  const role = pick(['staff', 'comanager', 'director']);
+  const key = pick(S.PERMISSIONS.map(x => x.key));
+  const on = rnd() < 0.5;
+  tab.cur = '改权限矩阵';
+  note(`${tab.name} 把${role} 的 ${key} 设成 ${on}`);
+  await S.ACTIONS['perm-toggle']({ role, key }, { checked: on });
+  await tick(150);
+}
+async function actReportConfig(tab) {
+  const S = tab.S;
+  tab.cur = '改报告编排';
+  note(`${tab.name} 改报告编排`);
+  await S.saveReportConfig(cfg => {
+    const pr = (cfg.presets && cfg.presets[0]) || null;
+    if (!pr) return;
+    pr.sections = (pr.sections || []).concat([{ id: 'sec' + step + tab.name, title: '区域' + step, modules: [] }]);
+  });
+  await tick(150);
+}
+async function actHealthFix(tab) {
+  const S = tab.S;
+  const kind = pick(['progressMismatch', 'dupMs', 'msOfDeletedTask']);
+  tab.cur = '数据体检修复 ' + kind;
+  note(`${tab.name} 数据体检修复 ${kind}`);
+  try { await S.fixHealth(kind); } catch (e) { note(`${tab.name} 体检修复异常 ${e.message}`); }
+  await tick(150);
+}
 async function actTimer(tab) {
   const S = tab.S;
   if (!S.fileHandle || S.syncBlocked()) return;
@@ -325,14 +488,24 @@ async function runAction(tab) {
     if (rnd() < 0.8) await actSaveDetail(tab); else await actCancelDetail(tab);
   } else {
     const r = rnd();
-    if (r < 0.34) await actOpenDetail(tab);
-    else if (r < 0.54) await actTimer(tab);
-    else if (r < 0.66) await actWake(tab);
-    else if (r < 0.72) await actUndo(tab);
-    else if (r < 0.76) await actDelTask(tab);
-    else if (r < 0.80) await actRestoreTask(tab);
-    else if (r < 0.84) await actReload(tab);
-    else if (r < 0.86) await actSecondTab(tab);
+    if (r < 0.24) await actOpenDetail(tab);
+    else if (r < 0.30) await actCellEdit(tab);
+    else if (r < 0.36) await actSelectPick(tab);
+    else if (r < 0.41) await actDatePick(tab);
+    else if (r < 0.45) await actLinesEdit(tab);
+    else if (r < 0.48) await actWorkEdit(tab);
+    else if (r < 0.50) await actDutyEdit(tab);
+    else if (r < 0.52) await actRoleChange(tab);
+    else if (r < 0.54) await actPermToggle(tab);
+    else if (r < 0.56) await actReportConfig(tab);
+    else if (r < 0.58) await actHealthFix(tab);
+    else if (r < 0.66) await actTimer(tab);
+    else if (r < 0.72) await actWake(tab);
+    else if (r < 0.76) await actUndo(tab);
+    else if (r < 0.80) await actDelTask(tab);
+    else if (r < 0.83) await actRestoreTask(tab);
+    else if (r < 0.86) await actReload(tab);
+    else if (r < 0.88) await actSecondTab(tab);
     else if (r < 0.90) { const m = tab.machine; m.offline = !m.offline; note(`${m.user} ${m.offline ? '断网' : '恢复网络'}`); }
     // 其余：用户在看页面，什么都没点
   }
@@ -370,6 +543,50 @@ async function quiesce(label) {
     const bad = t.S.DB.milestones.filter(m => { const f = fm.get(m.id); return f && !!f.deleted_at !== !!m.deleted_at; });
     if (bad.length) findings.push({ kind: '不收敛', step, tab: t.name, ids: bad.map(m => m.id), label });
   }
+  /* ★ 派生一致（P129）：有里程碑的任务，进度必须等于"已交付 / 全部"。
+     这是全处最常看的那个数字，合并之后由 reconcileDerivedAfterMerge 重算；对不上就说明重算漏了某条路径。 */
+  {
+    const cnt = new Map();
+    F.milestones.forEach(m => {
+      if (m.deleted_at || !m.task) return;
+      if (!cnt.has(m.task)) cnt.set(m.task, { t: 0, d: 0 });
+      const c = cnt.get(m.task); c.t++; if (m.done === '1') c.d++;
+    });
+    const bad = F.tasks.filter(t => {
+      if (t.deleted_at) return false;
+      const c = cnt.get(t.id);
+      return c && c.t && Math.round(c.d / c.t * 100) !== (Number(t.progress) || 0);
+    }).map(t => [t.id, t.progress, cnt.get(t.id)]);
+    if (bad.length) findings.push({ kind: '★进度跟里程碑对不上', step, label, bad: bad.slice(0, 5) });
+  }
+  /* ★ 不许出现一模一样的里程碑（P129）：同一条任务下日期+交付物+层级+状态全一样。
+     这是处里真出过的事故形态（保存被点了好几次、导入重复认领），数据体检里 dupMs 就是收拾它的。 */
+  {
+    const seen = new Set(), dup = [];
+    F.milestones.forEach(m => {
+      if (m.deleted_at) return;
+      const k = [m.task, m.plan_date, m.deliverable, m.report_level, m.done].join('|');
+      if (seen.has(k)) dup.push(m.id); else seen.add(k);
+    });
+    if (dup.length) findings.push({ kind: '★出现了重复里程碑', step, label, ids: dup.slice(0, 5) });
+  }
+  /* ★ PIN 不许丢（P119 那类事故）：本来有 PIN 的账号，不能变成"待设置"——那等于谁都能认领这个账号。 */
+  {
+    const bad = (F.users || []).filter(u => u && u.name && !u.deleted_at && !u.hash);
+    if (bad.length) findings.push({ kind: '★账号的 PIN 丢了', step, label, who: bad.map(u => u.name) });
+  }
+  /* ★ 角色只能按"有人点过"的那次改动来（P129）：文件里的角色必须等于最后一次有人真的去改的那个值，
+     而且必须留得下管理日志。被合并悄悄改回旧角色、或者凭空升级，都是安全问题。 */
+  {
+    const bad = [];
+    (F.users || []).forEach(u => {
+      if (!u || !u.name || u.deleted_at) return;
+      const mine = roleIntents.filter(x => x.name === u.name);
+      const want = mine.length ? mine[mine.length - 1].role : ROLE_INIT[u.name];
+      if (want && u.role !== want) bad.push([u.name, '现在=' + u.role, '最后一次改成=' + want]);
+    });
+    if (bad.length) findings.push({ kind: '★账号角色跟操作对不上', step, label, bad, intents: roleIntents.slice(-4) });
+  }
   // ★复活没被纠正：文件里最近一次"已删→没删"是无痕的（覆盖或别的），静止收敛之后仍然活着
   F.milestones.forEach(m => {
     if (m.deleted_at) return;
@@ -378,6 +595,25 @@ async function quiesce(label) {
     last.reported = true;
     findings.push({ kind: '★复活没被纠正', step, ms: m.id, deliverable: m.deliverable, revival: last });
   });
+  /* ★ 按日志核对数据（P128 加的判据）：静止之后，"日志说改成了 X、现在却不是 X、而且之后没人再动过"
+     一条都不该有。处里那次事故正是靠这个工具才发现数据被改回去了，所以它本身必须可信：
+     长跑里它要么一条不报，要么报出来的每一条都对应一个真问题。派生字段（有里程碑的任务的进度）不算。 */
+  const auditTab = all().find(t => !t.dead && !inactive(t) && !t.S.staleAppBlocked);
+  if (auditTab) {
+    let issues = [];
+    try { issues = auditTab.S.repairableIssues(auditTab.S.auditByChangelog()); } catch (e) { findings.push({ kind: '核对本身出错', step, err: String(e).slice(0, 200) }); }
+    // PROD 模式下数据里本来就带着历史不一致（真实数据就是这样），起跑时先记一份基线，长跑只报新增的
+    issues = issues.filter(i => !auditBaseline.has(i.entity + '|' + i.id + '|' + i.field));
+    if (issues.length) findings.push({ kind: '★日志与数据对不上', step, label, tab: auditTab.name,
+      // 这几处对不上，系统当时有没有报过冲突/告警（没报=悄悄丢的，报了=已经让人看见了）
+      alerts: (F.changelog || []).filter(e => e && e.kind === auditTab.S.ALERT_LOG_KIND
+        && issues.some(i => (e.summary || '').includes(i.id) || (e.summary || '').includes(((auditTab.S.byId(i.entity, i.id) || {}).title) || ' '))).slice(-4).map(e => (e.summary || '').slice(0, 110)),
+      history: issues.slice(0, 3).flatMap(i => fieldHistory.filter(h => h.id === i.id && h.f === i.field)
+        .slice(-6).map(h => `#${h.step} ${h.tab}(写入者${h.writer}) ${h.id} ${h.f}: ${JSON.stringify(h.from)} → ${JSON.stringify(h.to)}`)),
+      items: issues.slice(0, 6).map(i => [i.entity, i.id, i.field, '日志说=' + JSON.stringify(i.to), '现在=' + JSON.stringify(i.now), i.by, i.at].join(' ')),
+      logs: (auditTab.S.DB.changelog || []).filter(e => issues.some(i => e.refId === i.id || (i.entity === 'milestone' && e.refId === ((auditTab.S.byId('milestone', i.id) || {}).task || ' ')))).slice(-10).map(e => [e.at, e.by, e.summary, JSON.stringify(e.changes || '')].join(' | ').slice(0, 200)),
+      trace: trace.slice(-30) });
+  }
   // 删除丢了：删除成功保存过，文件里还活着，而且之后没有有日志的复活
   deleteIntents.splice(0).forEach(d => {
     const owner = machines.flatMap(m => m.tabs).find(t => t.name === d.tab);
@@ -396,7 +632,9 @@ async function main() {
   await tick(60);
   const S = boot.sandbox;
   S.DB.settings.me = '徐捷';
-  const U = name => ({ name, role: 'admin', salt: '', hash: '', iterations: 0, rev: 1,
+  Object.assign(ROLE_INIT, { 徐捷: 'admin', 小王: 'staff', 老李: 'comanager', 小张: 'staff' });
+  const ROLE0 = ROLE_INIT;
+  const U = name => ({ name, role: ROLE0[name] || 'staff', salt: 's' + name, hash: 'h' + name, iterations: 1, rev: 1,
     created_at: '2026-01-01T00:00:00.000Z', updated_at: '2026-01-01T00:00:00.000Z', updated_by: '徐捷' });
   const duties = [S.stampMeta(S.blank('duty', { code: '01', category: '一、前瞻研判', name: '职责一' }))];
   const works = [S.stampMeta(S.blank('work', { id: 'w1', code: '0101', duty: '01', name: '处室运转', owner: '徐捷', year: 2026, status: 'doing' }))];
@@ -411,11 +649,31 @@ async function main() {
     }
   }
   tasks.forEach(t => { const ms = milestones.filter(m => m.task === t.id); t.progress = Math.round(ms.filter(m => m.done === '1').length / ms.length * 100); });
+  /* PROD=文件名：拿真实生产数据当共享文件的初始内容（只读，绝不回写生产文件）。
+     合成数据是"干净的"，真实数据里有撞号的编号、历史遗留的孤儿、几百条日志，合并和核对的压力完全不同。 */
+  if (process.env.PROD) {
+    const raw0 = JSON.parse(fs.readFileSync(process.env.PROD, 'utf8'));
+    const pick = k => Array.isArray(raw0[k]) ? raw0[k] : [];
+    FS.text = JSON.stringify(Object.assign({}, raw0, {
+      schemaVersion: raw0.schemaVersion || S.DATA_SCHEMA_VERSION,
+      datasetId: raw0.datasetId || 'ds_prod', writeId: 'w0', writeIds: ['w0'],
+      lastWriteApp: S.APP_VERSION, lastWriteBy: '徐捷',
+      // 账号换成仿真里的这几位（生产账号的 PIN 不进仿真），业务数据原样用
+      users: USERS.map(U), changelog: pick('changelog').slice(-400),
+    }));
+    boot.T.dispose();
+    console.log('用真实数据开跑：职责', pick('duties').length, '工作', pick('works').length, '任务', pick('tasks').length, '里程碑', pick('milestones').length, '日志', pick('changelog').length);
+  } else
   FS.text = JSON.stringify({ schemaVersion: S.DATA_SCHEMA_VERSION, datasetId: process.env.NO_DSID ? undefined : 'ds_prod', writeId: 'w0', writeIds: ['w0'], lastWriteApp: S.APP_VERSION, lastWriteBy: '徐捷',
     duties, works, milestones, tasks, changelog: [], users: USERS.map(U), purged: [], permissionMatrix: null, shareConfig: null, reportConfig: null, dashboardConfig: null });
   boot.T.dispose();
 
   for (const m of machines) await openTab(m, true);
+  {   // 记下起跑基线（见 auditBaseline）
+    const t0 = machines[0].tabs[0];
+    try { t0.S.repairableIssues(t0.S.auditByChangelog()).forEach(i => auditBaseline.add(i.entity + '|' + i.id + '|' + i.field)); } catch (e) {}
+    if (auditBaseline.size) console.log('起跑时数据里已有', auditBaseline.size, '处"日志与数据对不上"（历史遗留，不计入本次长跑的发现）');
+  }
   // 长期不开的电脑：连上之后离线改几下（没推上去），然后关机，到后半程才拿着旧缓存重新打开
   const dm = machines.find(m => m.user === '小张');
   if (dm) {
@@ -448,6 +706,15 @@ async function main() {
   const byKind = {};
   findings.forEach(f => { byKind[f.kind] = (byKind[f.kind] || 0) + 1; });
   console.log('发现：', JSON.stringify(byKind));
+  // 文件里各类告警各有多少条：判断"丢了的改动系统有没有说出来"（P130）
+  const alertKinds = {};
+  (F.changelog || []).forEach(e => {
+    if (!e || e.kind !== 'alert') return;
+    const m = /以本机为准|同一个字段被两个人|用一份过期内容覆盖|旧内容整个替换|撤回成了没删|自动补回|里程碑.*跟着进回收站|进度.*重算/.exec(e.summary || '');
+    const k = m ? m[0] : (e.summary || '').slice(0, 12);
+    alertKinds[k] = (alertKinds[k] || 0) + 1;
+  });
+  console.log('文件里的告警：', JSON.stringify(alertKinds));
   findings.slice(0, Number(process.env.SHOW) || 3).forEach(f => console.log(JSON.stringify(f, null, 1)));
   machines.flatMap(m => m.tabs).forEach(t => { t.dead = true; t.T.dispose(); });
   process.exit(findings.some(f => f.kind.startsWith('★') || f.kind === '不收敛') ? 1 : 0);
