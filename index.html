@@ -759,7 +759,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260916143320';
+const APP_VERSION = 'v20260916171520';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -2862,6 +2862,47 @@ function guardRoleIntegrity(localUsers, mergedUsers, mergedChangelog) {
   return { users, alerts };
 }
 
+/* ★★★ 权限矩阵被放宽时，同样要有"谁批的"这份佐证 ★★★（P132）
+   角色提升早就有这道闸（guardRoleIntegrity + roleUpgradeAuthorized）：没有管理员的操作记录佐证就不采纳、记告警。
+   可"谁能做什么"另一半写在权限矩阵里，它一直是整份按版本号合并、谁写进去算谁的——
+   共享文件躺在网盘上，谁都能用记事本打开（这件事代码里已经承认过多次），
+   把 staff 那一行的 bulk_ops / edit_others_task / manage_staff_accounts 全改成 true 塞回去，
+   全处每台机器下一轮同步就照单全收，界面上没有任何提示——等于绕开了角色那道闸。
+   现在按同一套规矩办：
+     · 只管【放宽】（新开了本机没开的权限）。收紧不拦——那顶多是把人挡在外面，管理员随手能改回来；
+     · 佐证认两类：处室领导及以上的人留下的"权限矩阵：…"操作记录，以及"从文件导入账号"那条
+       （账号导入会一并带进矩阵，它本身已经逐个账号留了痕）；
+     · 挡下来时保留本机这份矩阵并记告警，跟角色那边一模一样——人看得见、查得到、能处理。
+   本机压根还没有矩阵（第一次连上、新机器）时不拦：没有基准可比，跟角色那边"第一次见到这个账号"同理。 */
+function matrixGrantsAdded(local, remote) {
+  const out = [];
+  ROLES.forEach(r => {
+    const key = r.v;
+    if (key === 'admin') return;   // 管理员本来就全开，矩阵里不存它
+    const a = (local && local[key]) || {}, b = (remote && remote[key]) || {};
+    PERMISSIONS.forEach(p => {
+      const was = !!a[p.key], now = !!b[p.key];
+      if (!was && now) out.push({ role: key, key: p.key });
+    });
+  });
+  return out;
+}
+function matrixChangeAuthorized(changelog, users, since) {
+  const floor = (() => { const t = Date.parse(since || ''); return isNaN(t) ? '' : new Date(t - AUDIT_SKEW_TOLERANCE_MS).toISOString(); })();
+  return (changelog || []).some(e => e && e.kind === ADMIN_LOG_KIND && (e.at || '') >= floor
+    && /权限矩阵|导入账号/.test(e.summary || '')
+    && (ROLE_RANK[roleOfIn(users, e.by)] ?? -1) >= ROLE_RANK.director);
+}
+let _matrixAlerts = [];   // 这一轮挡下来的"没人批过的放宽"，供告警日志用
+function guardPermissionMatrix(local, merged, changelog, users) {
+  _matrixAlerts = [];
+  if (!local || !merged || local === merged) return merged;
+  const added = matrixGrantsAdded(local, merged);
+  if (!added.length) return merged;
+  if (matrixChangeAuthorized(changelog, users, local.updated_at)) return merged;
+  _matrixAlerts = added;
+  return local;   // 不采纳，保留本机这份（跟角色那边一样：证据靠告警日志，不靠文件里那条脏数据）
+}
 // base（可选）：DB.syncBase，"上次跟文件对完账时文件里那份"。传了就走逐字段的三方合并，
 // 不传（或某条记录没有基线）自动退回原来的整条比较规则，见 mergeEntityListWithBase
 function mergeSyncPayload(local, remote, base) {
@@ -2910,7 +2951,9 @@ function mergeSyncPayload(local, remote, base) {
     tasks: mergedTasks,
     changelog,
     users: guard.users,
-    permissionMatrix: mergePermissionMatrix(local.permissionMatrix, remote.permissionMatrix, '权限矩阵'),
+    // 放宽权限要有"谁批的"佐证，见 guardPermissionMatrix（P132）
+    permissionMatrix: guardPermissionMatrix(local.permissionMatrix,
+      mergePermissionMatrix(local.permissionMatrix, remote.permissionMatrix, '权限矩阵'), changelog, guard.users),
     shareConfig: mergePermissionMatrix(local.shareConfig, remote.shareConfig, '共享文件夹配置'),
     reportConfig: mergePermissionMatrix(local.reportConfig, remote.reportConfig, '报告页编排'),
     dashboardConfig: mergePermissionMatrix(local.dashboardConfig, remote.dashboardConfig, '工作台编排'),
@@ -3032,6 +3075,19 @@ function noteMergeAlerts(localPayload, merged) {
   });
   if (_integrityAlerts.length) {
     showSnack(`⚠ 挡下 ${_integrityAlerts.length} 处未经授权的角色改动，详见「日志」页`, { priority: true });
+  }
+  /* 权限矩阵被放宽、又找不到谁批过（P132）。跟上面角色那条同一个套路：记一条带 target 的告警，
+     这样导航栏红点、日志页的待处理清单（unresolvedRoleAlerts 按 target 找有没有后续正规记录）都认得它。 */
+  if (_matrixAlerts.length) {
+    const names = _matrixAlerts.slice(0, 4).map(a => `「${roleLabel(a.role)}」的「${(PERMISSIONS.find(p => p.key === a.key) || {}).label || a.key}」`);
+    const dup = (DB.changelog || []).some(e => e && e.kind === ALERT_LOG_KIND && e.target === '权限矩阵'
+      && (e.at || '') >= new Date(Date.now() - 6 * 3600 * 1000).toISOString());
+    if (!dup) {
+      pushAlertLog(`检测到未经授权放宽权限：共享文件里的权限矩阵新开了 ${_matrixAlerts.length} 项权限（${names.join('、')}${_matrixAlerts.length > 4 ? ' 等' : ''}），`
+        + '但没有找到任何有权限的人做过这次调整的记录。本机已拒绝采纳，仍按原来的权限对待。'
+        + '如果这次调整是正常的，请让管理员在「权限」页重新点一次（点过就会留下记录，所有人自然就认了）。', { target: '权限矩阵' });
+    }
+    showSnack(`⚠ 挡下一次未经授权的权限放宽（${_matrixAlerts.length} 项），详见「日志」页`, { priority: true });
   }
 }
 /* 三方合并里真正的字段冲突：两个人从同一个基线出发，把【同一个字段】改成了不一样的值。
@@ -4309,7 +4365,14 @@ function logMilestoneChanges(changed, added, removed) {
     if (removed.length) parts.push(`删除 ${removed.length} 条`);
     const anyTask = (changed[0] && changed[0].after.task) || (added[0] && added[0].task)
       || (removed[0] && removed[0].task) || '';
-    pushChangeLog('task', anyTask, `一次调整了 ${total} 条里程碑（${parts.join('、')}），条数太多，未逐条记录明细`);
+    /* ★ 这句汇总必须带上覆盖范围 ★（P133）
+       上面那段注释说的事故（核对把自动勾完的里程碑全报成对不上、一键修复又把它们改回未交付），
+       在「条数不多」这条路上是靠逐条明细挡住的；走到这里就没有明细了，核对只能拿这些里程碑
+       身上更早那条日志去比现在的值，同一幕会原样重演——任务已完成、名下里程碑却被改回未交付，
+       数据体检接着又报一遍。带上范围（scope），核对才认得出这批是被一次批量动作盖过的（见 auditByChangelog）。 */
+    const bulkIds = changed.map(c => c.after.id).concat(added.map(m => m.id), removed.map(m => m.id));
+    pushChangeLog('task', anyTask, `一次调整了 ${total} 条里程碑（${parts.join('、')}），条数太多，未逐条记录明细`,
+      null, bulkScope('milestone', bulkIds, null));
     return;
   }
   /* ★ 删除状态必须进逐字段明细 ★（P126，真实事故）
@@ -5073,6 +5136,8 @@ async function undoLast() {
     if (cur && touchedByOthersSince(cur, ctx)) {
       ctx.skipped.push(cur.updated_by || '同事');
     } else {
+      // 撤销可能把矩阵改回更宽松的那一版：留一条操作记录，别人的机器才不会当成"没人批过的放宽"（P132）
+      if (d.permissionMatrix && cur && JSON.stringify(d.permissionMatrix) !== JSON.stringify(cur)) pushAdminLog('撤销（Ctrl+Z）把权限矩阵改回了上一步的样子');
       DB.permissionMatrix = (d.permissionMatrix && cur && JSON.stringify(d.permissionMatrix) !== JSON.stringify(cur))
         ? Object.assign({}, d.permissionMatrix, {
             rev: Math.max(d.permissionMatrix.rev || 0, cur.rev || 0) + 1,
@@ -12951,6 +13016,14 @@ async function commitTaskStatus(t, newStatus, alsoCompleteCheckpoints) {
      实测就是这样丢的（探针：确认框开着时同事改了"来源"，点完确认那一格变回空）。
      换句话说，它不是丢自己的改动，而是拿一份过期的整条记录去盖别人的。 */
   t = byId('task', t.id) || t;
+  /* ★ 落库前再复核一次"这条轮不轮得到我改" ★（P132，权限清扫撞出来的）
+     入口（spCommitSingle）查过一次，但这条路是【隔着一个确认框】走完的——
+     "标已完成时要不要把名下里程碑一并勾完"那个框开着的几秒到几分钟里，后台同步照常在跑，
+     完全可能带进来"同事把我从参与人里去掉了""管理员刚关掉了我编辑他人任务的权限"。
+     P119 那一轮把单元格编辑、日期、多选、多行文本、换所属工作这几条路径统一收口到 commitEditAllowed，
+     唯独漏了改状态这一条，而它一次会改掉状态、进度、完成日期，还会把名下里程碑全部勾成已交付。
+     复核不通过就当场停下并重绘，跟别的路径行为一致。 */
+  if (!commitEditAllowed('task', t)) { renderPage(); return; }
   snapshot();
   const before = clone(t);
   const cpDone = alsoCompleteCheckpoints ? completeCheckpointsOf(t) : 0;
@@ -14688,24 +14761,90 @@ function fixHealthPreview(kind) {
 }
 const HEALTH_PREVIEW_LIMIT = 20;
 
+/* ---- 数据体检修复的留痕出口 ---- （P133）
+
+   ★ 为什么非补不可 ★
+   体检的十几种修复里，有六种一个字都不记：清空指向已不存在工作的任务、跟随删除任务和里程碑、
+   顺延和补填计划完成日期、清理重复里程碑。管理员点一下，几十上百条数据就改了，
+   事后翻变更记录什么也查不到——谁都说不清这批数据是怎么变成这样的。
+
+   更要紧的是它跟「按日志核对数据」正面打架。核对是拿每一格【最后一条日志】比现在的值：
+   这些悄悄改掉的格子，只要以前有过日志（那条任务的日期上周刚改过、那个里程碑上个月被恢复过），
+   核对就会报成「日志说 A、现在 B」；管理员一点「按日志修复」，体检刚修好的原样退回去，
+   下一次体检再报同一条——两个工具来回拉锯，数据在中间被反复改。
+
+   ★ 怎么记 ★
+   跟里程碑那套（logMilestoneChanges）和批量导入那套（P128）同一个规矩：
+   条数不多就逐条记明细，任务详情的变更历史里查得到「这一格是体检改的、从什么变成了什么」，
+   核对拿它比现在的值天然对得上；条数太多就退回一句汇总，但必须带上覆盖范围（bulkScope），
+   核对认得出来，才不会把整批报成对不上。 */
+const HEALTH_LOG_MAX = 12;
+function logHealthFix(entity, rows, fields, summary) {
+  if (!rows || !rows.length) return;
+  if (rows.length <= HEALTH_LOG_MAX) { rows.forEach(row => pushChangeLog(entity, row.id, row.text, row.changes)); return; }
+  pushChangeLog(entity, '', summary(rows.length), null, bulkScope(entity, rows.map(x => x.id), fields));
+}
 async function fixHealth(kind) {
   const r = healthCheck();
   snapshot();
   await Repo.bulk(() => {
-    if (kind === 'orphanTask') r.orphanTasks.forEach(t => { t.work = ''; stampMeta(t); markLocallyChangedFields(t, ['work']); });
+    if (kind === 'orphanTask') {
+      const rows = [];
+      r.orphanTasks.forEach(t => {
+        const from = t.work || '';
+        t.work = ''; stampMeta(t); markLocallyChangedFields(t, ['work']);
+        rows.push({ id: t.id, text: '数据体检：这条任务的所属工作已经不存在了，改成「未归属」', changes: [{ k: 'work', from, to: '' }] });
+      });
+      logHealthFix('task', rows, ['work'], n => `数据体检：把 ${n} 条指向已不存在工作的任务改成了「未归属」`);
+    }
     // taskOfDeletedWork：工作停用现在会直接连带删任务（见 'work-del'），这里清理的是改动前
     // 遗留下来的历史数据，处理方式要跟新政策一致——连同里程碑一起软删除，不再是清空 work 字段
-    if (kind === 'taskOfDeletedWork') r.taskOfDeletedWork.forEach(t => cascadeSoftDeleteTask(t.id));
+    if (kind === 'taskOfDeletedWork') {
+      const taskRows = [], msRows = [];
+      r.taskOfDeletedWork.forEach(t => {
+        // 级联删除会连带删掉名下里程碑，它们各自的 deleted_at 也要留痕，否则核对同样会报这些里程碑对不上
+        const msIds = DB.milestones.filter(m => m.task === t.id && !m.deleted_at).map(m => m.id);
+        cascadeSoftDeleteTask(t.id);
+        const now = byId('task', t.id);
+        taskRows.push({ id: t.id, text: '数据体检：所属工作已经停用，这条任务跟着一起删除（在「已删除」里还找得回来）',
+          changes: [{ k: 'deleted_at', from: '', to: (now && now.deleted_at) || '' }] });
+        msIds.forEach(id => { const cur = byId('milestone', id);
+          msRows.push({ id, text: '数据体检：随所属任务一起删除', changes: [{ k: 'deleted_at', from: '', to: (cur && cur.deleted_at) || '' }] }); });
+      });
+      logHealthFix('task', taskRows, ['deleted_at'], n => `数据体检：删除了 ${n} 条所属工作已停用的任务（连同名下里程碑）`);
+      logHealthFix('milestone', msRows, ['deleted_at'], n => `数据体检：随任务一起删除了 ${n} 个里程碑`);
+    }
     // 软删除，不是彻底删除——它的所属任务还能恢复，恢复时要连带把这些里程碑带回来（见 healthCheck 里那段注释）
-    if (kind === 'msOfDeletedTask') r.msOfDeletedTask.forEach(m => { m.deleted_at = new Date().toISOString(); stampMeta(m); markLocallyChangedFields(m, ['deleted_at']); });
+    if (kind === 'msOfDeletedTask') {
+      const rows = [];
+      r.msOfDeletedTask.forEach(m => {
+        m.deleted_at = new Date().toISOString(); stampMeta(m); markLocallyChangedFields(m, ['deleted_at']);
+        rows.push({ id: m.id, text: `数据体检：所属任务已经删除，里程碑「${msLogTitle(m)}」跟着一起删除`,
+          changes: [{ k: 'deleted_at', from: '', to: m.deleted_at }] });
+      });
+      logHealthFix('milestone', rows, ['deleted_at'], n => `数据体检：删除了 ${n} 个所属任务已删除的里程碑`);
+    }
     // 重复的任务连它自己的里程碑一起删掉，否则会留下一堆 msOfDeletedTask 那类的孤儿里程碑
     if (kind === 'dupTask') {
-      r.dupTaskIds.forEach(id => cascadeSoftDeleteTask(id));
-      pushChangeLog('task', '', `数据体检：清理了 ${r.dupTaskIds.length} 条重复任务（保留最早创建的那条）`);
+      const msIds = [];
+      r.dupTaskIds.forEach(id => {
+        DB.milestones.filter(m => m.task === id && !m.deleted_at).forEach(m => msIds.push(m.id));
+        cascadeSoftDeleteTask(id);
+      });
+      // 汇总这条要带覆盖范围：软删除改掉的 deleted_at 没有逐条明细，不带范围的话核对会把它们
+      // 报成「日志说没删、现在却删了」，一键修复又把重复任务捞回来（见 logHealthFix 上面那段）
+      // 一条都没清到就别记：体检页那个按钮可能被连点，也可能同事已经先修过了，
+      // 每点一次就往变更记录里塞一句「清理了 0 条」，日志到了上限会把真正的历史挤出去
+      if (r.dupTaskIds.length) pushChangeLog('task', '', `数据体检：清理了 ${r.dupTaskIds.length} 条重复任务（保留最早创建的那条）`,
+        null, bulkScope('task', r.dupTaskIds, ['deleted_at']));
+      if (msIds.length) pushChangeLog('milestone', '', `数据体检：随重复任务一起删除了 ${msIds.length} 个里程碑`,
+        null, bulkScope('milestone', msIds, ['deleted_at']));
     }
     if (kind === 'dupWork') {
       r.dupWorkIds.forEach(id => softDelete('work', id));
-      pushChangeLog('work', '', `数据体检：清理了 ${r.dupWorkIds.length} 项重复工作（保留最早创建的那项）`);
+      // 同上：软删除那一格要有来路，核对才不会报它对不上
+      if (r.dupWorkIds.length) pushChangeLog('work', '', `数据体检：清理了 ${r.dupWorkIds.length} 项重复工作（保留最早创建的那项）`,
+        null, bulkScope('work', r.dupWorkIds, ['deleted_at']));
     }
     /* 撞号的任务一条都不能删——它们是两件真实存在的不同工作事项，只是编号撞了。
        给后建的那条重新编号即可。nextTaskCode 是按"这项工作下当前用到的最大号 +1"算的，
@@ -14722,37 +14861,64 @@ async function fixHealth(kind) {
         if (!next || next === oldCode) return;
         t.code = next;
         stampMeta(t);
+        // 字段凭据（P121）：没有同步基线的那几种情形（旧缓存、刚恢复过备份、刚重置过缓存）下，
+        // 合并靠它认出"编号这一格是本机改的"；不留的话，重新编号会被文件里的旧编号顶回去，撞号又回来了
+        markLocallyChangedFields(t, ['code']);
         renumbered++;
         pushChangeLog('task', t.id, `数据体检：任务编号跟别的任务撞了，重新编号 ${oldCode}→${next}`,
           [{ k: 'code', from: oldCode, to: next }]);
       });
       if (renumbered) pushChangeLog('task', '', `数据体检：给 ${renumbered} 条撞号的任务重新生成了编号`);
     }
-    if (kind === 'msLateThanTask') r.msLateMap.forEach((newDate, taskId) => {
-      const t = byId('task', taskId);
-      if (t) { t.plan_date = newDate; stampMeta(t); markLocallyChangedFields(t, ['plan_date']); }
-    });
-    if (kind === 'noDateHasMs') r.noDateHasMsMap.forEach((date, taskId) => {
-      const t = byId('task', taskId);
-      if (t) { t.plan_date = date; stampMeta(t); markLocallyChangedFields(t, ['plan_date']); }
-    });
+    if (kind === 'msLateThanTask') {
+      const rows = [];
+      r.msLateMap.forEach((newDate, taskId) => {
+        const t = byId('task', taskId); if (!t) return;
+        const from = t.plan_date || '';
+        t.plan_date = newDate; stampMeta(t); markLocallyChangedFields(t, ['plan_date']);
+        rows.push({ id: t.id, text: `数据体检：名下里程碑的交付日期比任务的计划完成日期还晚，把任务日期顺延到 ${newDate}`,
+          changes: [{ k: 'plan_date', from, to: newDate }] });
+      });
+      logHealthFix('task', rows, ['plan_date'], n => `数据体检：把 ${n} 条任务的计划完成日期顺延到了名下最晚的里程碑交付日期`);
+    }
+    if (kind === 'noDateHasMs') {
+      const rows = [];
+      r.noDateHasMsMap.forEach((date, taskId) => {
+        const t = byId('task', taskId); if (!t) return;
+        const from = t.plan_date || '';
+        t.plan_date = date; stampMeta(t); markLocallyChangedFields(t, ['plan_date']);
+        rows.push({ id: t.id, text: `数据体检：任务没填计划完成日期，按名下最晚的里程碑交付日期补成 ${date}`,
+          changes: [{ k: 'plan_date', from, to: date }] });
+      });
+      logHealthFix('task', rows, ['plan_date'], n => `数据体检：给 ${n} 条没填计划完成日期的任务按名下里程碑补上了日期`);
+    }
     if (kind === 'dupMs') {
       // 用软删除（不是彻底删除）：万一判重判错了，「已删除」视图里还找得回来。
       // 删完顺手把受影响任务的进度重算一遍——进度是按里程碑完成比例算的，
       // 重复的里程碑会把分母撑大，之前显示的进度本来就是偏低的
       const touched = new Set();
+      const msRows = [], taskRows = [];
       r.dupMsIds.forEach(id => {
         const m = byId('milestone', id);
         if (!m) return;
         m.deleted_at = new Date().toISOString();
         stampMeta(m);
         markLocallyChangedFields(m, ['deleted_at']);
+        msRows.push({ id: m.id, text: `数据体检：清理重复的里程碑「${msLogTitle(m)}」（保留最早创建的那个）`,
+          changes: [{ k: 'deleted_at', from: '', to: m.deleted_at }] });
         if (m.task) touched.add(m.task);
       });
       touched.forEach(taskId => {
         const t = byId('task', taskId);
-        if (t) { recalcProgress(t); stampMeta(t); markLocallyChangedFields(t, ['progress']); }
+        if (!t) return;
+        const from = t.progress;
+        recalcProgress(t); stampMeta(t); markLocallyChangedFields(t, ['progress']);
+        // 分母变了但比例没变的不记：留痕是为了解释数据为什么变了，没变就没什么可解释的
+        if (!sameFieldValue(from, t.progress)) taskRows.push({ id: t.id, text: '数据体检：清掉重复里程碑之后重算了进度',
+          changes: [{ k: 'progress', from, to: t.progress }] });
       });
+      logHealthFix('milestone', msRows, ['deleted_at'], n => `数据体检：清理了 ${n} 个重复的里程碑（保留最早创建的那个）`);
+      logHealthFix('task', taskRows, ['progress'], n => `数据体检：清掉重复里程碑之后，重算了 ${n} 条任务的进度`);
     }
     if (kind === 'progressMismatch') {
       // 复用跟"改进度自动联动状态"完全同一个函数，规则永远只有一处，不会跟界面上实时联动的行为对不上
@@ -15578,7 +15744,13 @@ function importAccounts(text) {
            只动 updated_by、不碰 rev/updated_at：合并时比的是后两者，改了会打乱"同名账号谁的版本更新"的判断；
            而且只处理本机原本没有的那些名字，同名更新的那些仍然完整保留文件里的版本信息。 */
         DB.users.forEach(u => { if (!before.has(u.name)) u.updated_by = me; });
-        if (r.permissionMatrix) DB.permissionMatrix = mergePermissionMatrix(DB.permissionMatrix, r.permissionMatrix);
+        if (r.permissionMatrix) {
+          const beforeMx = DB.permissionMatrix;
+          DB.permissionMatrix = mergePermissionMatrix(DB.permissionMatrix, r.permissionMatrix);
+          /* 这一份矩阵也要留痕（P132）：别人的机器现在会校验"放宽权限有没有人批过"（见 guardPermissionMatrix），
+             不留记录的话，这次导入带进来的矩阵会在全处每台机器上被当成未经授权的放宽挡下来。 */
+          if (!sameWholeObject(beforeMx || {}, DB.permissionMatrix || {})) pushAdminLog('从文件导入账号时一并导入了权限矩阵');
+        }
         /* 导入是一次性给一批账号定角色，等价于批量提权，所以每个受影响的账号都要单独留一条凭证——
            只记一条"导入了 N 个账号"的汇总是不够的：别人的机器校验的是"某人被提成某角色有没有人批准过"，
            它按 target/roleTo 逐条找，找不到就会把这次导入判成越权改动挡下来 */

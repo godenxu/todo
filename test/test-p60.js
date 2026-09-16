@@ -112,8 +112,9 @@ async function main() {
     !/msOfDeletedTask:\s*\{[^}]*entity:\s*'milestone'/.test(html));
   ok('★PURGE_HEALTH_KINDS 里仍然有 orphanMs（那一类的任务记录真的不存在，删了不损失什么）',
     /orphanMs:\s*\{[^}]*entity:\s*'milestone'/.test(html));
+  // P133 给这个分支补上了留痕，写法从一行展开成了一段；这里验的仍然是同一件事：走软删除，不是彻底删除
   ok('★fixHealth() 里恢复了 msOfDeletedTask 的软删除分支',
-    /kind === 'msOfDeletedTask'\) r\.msOfDeletedTask\.forEach\(m => \{ m\.deleted_at/.test(html));
+    /kind === 'msOfDeletedTask'\)[\s\S]{0,300}?m\.deleted_at = new Date\(\)\.toISOString\(\)/.test(html));
 
   section('④：实测——体检报的是软删除式 fix，不是 purgeFix');
   const aliveMsOf = id => S.DB.milestones.filter(m => m.task === id && !m.deleted_at).length;

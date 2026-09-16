@@ -194,6 +194,13 @@ function editMatrix(dev) {
   next.staff.view_logs = !next.staff.view_logs;
   next.rev = (cur.rev || 0) + 1; next.updated_at = nowOf(dev); next.updated_by = dev.name;
   dev.db.permissionMatrix = next;
+  /* ★ 跟真实程序保持一致：在权限页点一次开关，除了改矩阵还会写一条管理日志 ★（P132）
+     别人的机器现在会校验"放宽权限有没有有权限的人批过"（见 guardPermissionMatrix）——
+     不写这条日志，这次调整在全处每台机器上都会被当成未经授权的放宽挡下来，
+     那是仿真没模拟到位，不是产品的问题。 */
+  dev.db.changelog.push({ id: 'log_mx' + Math.random().toString(36).slice(2, 10),
+    at: nowOf(dev), by: dev.name, kind: S.ADMIN_LOG_KIND,
+    summary: `权限矩阵：${next.staff.view_logs ? '开启' : '关闭'}了「员工」的「查看日志页」` });
   dev.expect = Object.assign(dev.expect || {}, { permissionMatrix: next.staff.view_logs });
 }
 
