@@ -759,7 +759,7 @@ function clone(o) { return JSON.parse(JSON.stringify(o)); }
 function uniq(a) { return [...new Set(a)]; }
 
 /* 版本号：v + 本次生成/编辑该 html 时的 8 位日期 + 6 位时间，纯手动标记，无构建流程可自动生成 */
-const APP_VERSION = 'v20260916123236';
+const APP_VERSION = 'v20260916143320';
 
 /* ★ 共享数据文件的格式版本号 ★
    只有"同步进共享文件的数据长什么样"发生了不兼容变化（新增/改名/改含义了会同步的字段）时，
@@ -6515,7 +6515,11 @@ function dueBuckets(tasks) {
       n: open.filter(t => !isOverdue(t) && t.plan_date && t.plan_date >= from && t.plan_date <= to).length,
     });
   }
-  const far = offsetDate(42);
+  /* ★ 分界线是第 42 天，不是第 43 天 ★（P131，报表口径性质验证撞出来的）
+     上面六个桶覆盖的是 offsetDate(0)～offsetDate(41)，也就是"今天起第 1～42 天"。
+     原来这里写 far = offsetDate(42)、再要求 plan_date > far，等于把第 43 天那一天漏在中间：
+     计划完成日正好是那天的任务，六个周桶装不下、"更远"也不收，在图上凭空消失，各桶之和也对不上未完成任务数。 */
+  const far = offsetDate(41);
   b.push({ label: '更远', cls: 'bar-norm', n: open.filter(t => !isOverdue(t) && t.plan_date && t.plan_date > far).length });
   b.push({ label: '无日期', cls: 'bar-norm', n: open.filter(t => !isOverdue(t) && !t.plan_date).length });
   return b;
@@ -6525,7 +6529,12 @@ function dueSummary(tasks) {
   const open = tasks.filter(isOpen);
   const late = open.filter(isOverdue).length;
   const soon = open.filter(t => !isOverdue(t) && t.plan_date && t.plan_date >= todayStr() && t.plan_date <= offsetDate(6)).length;
-  const none = open.filter(t => !t.plan_date).length;
+  /* ★ "无日期"也要排掉已经算逾期的 ★（P131，报表口径性质验证撞出来的）
+     isOverdue 不只看任务自己的计划完成时间——没填计划完成时间、但名下里程碑拖了期的任务同样算逾期。
+     原来这一行不排除它们，于是这种任务在"已逾期"和"无日期"里各算一次；
+     而"更远"是拿总数减出来的，被多减一次之后会变成负数，饼图上那一块直接消失、比例也全错。
+     旁边的到期分布柱图（dueBuckets）早就按这条规矩做了，这里一直漏着。 */
+  const none = open.filter(t => !isOverdue(t) && !t.plan_date).length;
   const later = open.length - late - soon - none;
   return [
     { key: 'late', label: '已逾期', n: late, color: 'var(--c-late)' },
@@ -7518,7 +7527,13 @@ function buildReportData(period, offset, person) {
   const overdueMs = msAll.filter(m => m.done !== '1' && m.plan_date && m.plan_date < today).sort(byPlanDate);
   // "即将到期"= 今天起到本期结束之间要交的、还没完成的。不用"未来 N 天"是为了跟所选周期对齐——
   // 按月汇报时想知道的就是"这个月剩下还有什么要交"，固定 7 天会把月底的东西漏在报告外面
-  const soonTasks = periodOpen.filter(t => t.plan_date && t.plan_date >= today && t.plan_date <= rangeEnd).sort(byPlanDate);
+  /* ★ 已经算逾期的不再进"即将到期" ★（P131，报表口径性质验证撞出来的）
+     isOverdue 不只看任务自己的计划完成时间，名下里程碑拖期了也算逾期（见 isOverdue）。
+     于是一条"自己的截止日还在本期、但里程碑已经拖了"的任务，会同时出现在「逾期任务」和「即将到期」两张清单里，
+     照着念的人会把同一条任务数两遍、也说不清它到底算哪一类。
+     图表页的到期分布早就按这条规矩做了（dueBuckets 里每个非逾期桶都排掉 isOverdue，那边注释写明"否则总数对不上"），
+     报告页这两张清单一直漏着。逾期优先——它比"快到期"更急，人在逾期清单里已经看见它了。 */
+  const soonTasks = periodOpen.filter(t => !isOverdue(t) && t.plan_date && t.plan_date >= today && t.plan_date <= rangeEnd).sort(byPlanDate);
   const soonMs = msAll.filter(m => m.done !== '1' && m.plan_date && m.plan_date >= today && m.plan_date <= rangeEnd).sort(byPlanDate);
   // 人员工作情况：口径跟工作台人员负荷一致（牵头 ∪ 参与，同一条任务两边都算）
   const loadMap = new Map();
